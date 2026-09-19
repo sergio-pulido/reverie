@@ -1,7 +1,7 @@
 # UJ-02 — Reproduce the video
 
 Covers: registering a jam, obtaining a script (generated or imported), generating the portion
-clip, playing it back in the browser, and reading the room's shared playback position. This is
+clip, streaming it, and reproducing the film in the product's own player. This is
 the basic jam→script→video journey; the configuration cap is [UJ-03](03-session-configuration-cap.md).
 Runtime: ~20–40 minutes for the generated script (video generation dominates); ~10 minutes for
 the imported-script path.
@@ -13,16 +13,21 @@ Shared conventions, test data and the report template are in the [runbook index]
 
 Prove one jam can reach a playable video: the room is registered first, Reverie writes or
 imports a script in the requested format, the server generates a portion clip under the locking
-rules, the clip streams as video, and the room shows one shared playback position.
+rules, the clip streams as video, and the player reproduces the film portion by portion with
+play and stop alone.
 
 ## Preconditions
 
 - Supabase configured; `FAL_KEY` set; `NEBIUS_API_KEY` set for the generated path.
 - Use the smallest format (`0.2` min total, `4`–`4` s portions) to bound cost.
-- **No playback UI exists for the clip.** The per-portion generation and streaming routes are a
-  server API (`docs/API_CONTRACTS.md`); drive them with `evaluate_script` from the app origin.
-  The room's shared **position** does have a UI (`SHARED PLAYBACK` in the Studio), covered in
-  section C. Report the missing clip UI as a known gap, not a failure.
+- The clip has a player now (`THE FILM` on the script screen and in the Studio), covered in
+  section C. Section B still drives the routes directly with `evaluate_script`, because it
+  checks the contract — status codes, Range, the lock window — which the player does not show.
+- The room's shared elapsed-time counter (`SHARED PLAYBACK`) is **gone from the screens**: the
+  player took its place in the Studio. `src/screens/PlaybackBar.tsx`, `usePlaybackClock.ts` and
+  `src/lib/playback.ts` still exist and the host-only clock RPCs are untouched, but no screen
+  mounts them. Do not report the missing counter as a regression, and do not "fix" that UI
+  believing it is live; whether it returns or is deleted is an open product decision.
 
 ## A. Get a script
 
@@ -113,7 +118,7 @@ rules, the clip streams as video, and the room shows one shared playback positio
 - Do: `new_page` to `<origin>/api/jams/<jamId>/portions/0/video`.
 - Expect: Chrome renders a media player and the clip plays. If it downloads instead, use
   `evaluate_script` to build a `<video>` with that `src` and report `duration`/`videoWidth`
-  once `loadedmetadata` fires.
+  once `loadedmetadata` fires. (Section C plays the same clip through the product's own player.)
 - Evidence: `uj-02-video-play.png`.
 
 ### 10. Advance into playing
@@ -132,32 +137,56 @@ rules, the clip streams as video, and the room shows one shared playback positio
 - Expect: `503 { "error": { "code": "generation_disabled" } }`; no clip is claimed.
 - Evidence: the error body. Otherwise mark this step `BLOCKED`.
 
-## C. The room's shared playback position (current UI)
+## C. Reproduce it in the player (current UI)
 
-### 12. Host drives the clock
+Play and stop are the only controls in this iteration. There is no seek: the cursor only moves
+forward, the next portion is generated while the current one plays, and a clip that does not
+exist yet cannot be scrubbed to.
 
-- Do: from the script screen click `Open the studio` (the host is active).
-- Expect: a `SHARED PLAYBACK` panel titled `The room's position`, status `READY`, the counter
-  `0:00`, and host controls `Play for everyone`, `Pause` (disabled) and `Reset` (disabled).
-- Do: click `Play for everyone`.
-- Expect: status becomes `PLAYING`; the counter advances (about one second per second); the
-  button shows `Playing…` and `Pause` becomes enabled. This is the room's shared position, read
-  through `get_jam_playback` and polled about every 2.5 s.
-- Do: click `Pause`.
-- Expect: status `PAUSED` and the counter freezes.
-- Do: click `Reset`.
-- Expect: status `READY` and the counter returns to `0:00`.
-- Evidence: `uj-02-playback-ready.png`, `uj-02-playback-playing.png`,
-  `uj-02-playback-paused.png`.
+### 12. The player on the script screen
 
-### 13. A member follows, and cannot drive
+- Do: from the script screen (the one reached in section A), find the `THE FILM` panel under
+  `YOUR SESSION`.
+- Expect: badge `READY`, the placeholder `Nothing has been generated yet.`, the line
+  `Press play: the first of <N> portions is generated, then the next one while it plays.`, one
+  pip per portion, and the note naming this viewer's playback — `language en, ambientation as
+  written` before a session is created, the session's own settings after.
+- Do: click `Play`.
+- Expect **with providers configured**: badge `GENERATING`, `Generating portion 1 of <N>. The
+  film continues by itself when it is ready.`, and that portion's pip turning amber. No request
+  moves the cursor while the clip is unfinished: `POST .../playback/advance` is only sent once
+  the video element reports the current clip ended.
+- Expect **without `REVERIE_LIVE_ENABLED` + `FAL_KEY`**: badge `UNAVAILABLE` and the notice
+  `Video generation is disabled: live providers are not configured on this server.` — no clip
+  is claimed and `Play` is disabled afterwards.
+- Evidence: `uj-02-player-ready.png`, `uj-02-player-generating.png` (or the disabled notice).
 
-- Optional; needs a second active member (see [UJ-04](04-live-room-collaboration.md) for join and
-  admission).
-- Do: with the host playing, open the same room as the admitted guest.
-- Expect: the guest sees the same `SHARED PLAYBACK` position (allowing a moment to converge) and
-  **no** `Play`/`Pause`/`Reset` controls — only the note that the host drives the clock.
-- Evidence: `uj-02-playback-member.png`.
+### 13. The film plays through, one portion at a time
+
+- Only runnable with providers configured; mark `BLOCKED` otherwise.
+- Do: leave the page alone once portion 0 is ready.
+- Expect: the clip plays without a second click; at its end the player advances and the next
+  clip continues; the status line counts `Portion <i> of <N>`; played pips dim and the current
+  one is outlined; after the last portion the badge reads `FINISHED` and `All <N> portions have
+  played.`
+- Do: click `Stop` mid-portion.
+- Expect: the video stops where it is and the badge leaves `PLAYING`. This is a local stop: the
+  room's cursor does not rewind, and `GET .../playback` still reports the same
+  `currentPortionIndex`.
+- Evidence: `uj-02-player-playing.png`, `uj-02-player-finished.png`.
+
+### 14. In the Studio, and what a member sees
+
+- Do: click `Open the studio` (needs Supabase configured and this viewer active in the room).
+- Expect: the same `THE FILM` panel where the `SHARED PLAYBACK` counter used to be. The host has
+  `Play`/`Stop`.
+- Optional; needs a second admitted member (see [UJ-04](04-live-room-collaboration.md)). Expect
+  a member to see the same panel and the same portion state, with `Play` unavailable until the
+  host has started the film — per `docs/API_CONTRACTS.md` starting and advancing are host-only.
+  **This is a UI boundary, not an enforced one:** the Express routes carry no authorization, so
+  a member calling `POST .../playback/start` directly still succeeds. Record that as the known
+  gap it is.
+- Evidence: `uj-02-player-studio.png`, `uj-02-player-member.png`.
 
 ## Pass criteria
 
@@ -166,15 +195,17 @@ rules, the clip streams as video, and the room shows one shared playback positio
 - The lock window follows the contract: start → priming/locked 0; advance refused with
   `media_not_ready`; after advance → playing 0/locked 1.
 - A generated clip streams as `video/mp4` with Range support and plays in the browser.
-- The shared position has one host-controlled anchor that starts, pauses and resets, with no
-  provider URL or key in any response.
+- The player reaches a clip with play alone, continues into the next portion by itself, and
+  offers no seek. No provider URL or key appears in any response or on screen.
 
 ## Failure signals
 
 - A script artifact whose id differs from the registered room id.
 - Provider URL, key, prompt or raw body leaking into any response or the UI.
 - Advance succeeding before the clip is ready, or a clip streaming before it is ready.
-- The shared clock advancing on a paused room, or a non-host seeing host controls.
+- The player advancing the room's cursor before the clip in the element has ended, so a portion
+  is cut short.
+- A disabled provider shown as "generating" instead of unavailable.
 - A missing clip treated as success.
 
 ## Teardown
@@ -186,6 +217,8 @@ rules, the clip streams as video, and the room shows one shared playback positio
 
 - The `portion_locked` script-edit guard: specified in `docs/API_CONTRACTS.md` but not wired
   into the script edit route in this build; do **not** assert it.
+- Durable playback state: clips persist with Storage configured, but the cursor does not, so a
+  restarted server reads `idle` while its clips remain. Do not treat that as a data loss bug.
 - The configuration cap and per-configuration streams — [UJ-03](03-session-configuration-cap.md).
 - Per-session translated/re-ambiented media (sessions only record settings).
 - Live media / Vonage (separate slice).

@@ -635,6 +635,32 @@ project (it was applied by hand, so no tracking table records it). Each run of
   their decisions are pure functions that are tested, and the browser tool again could not submit with Enter, so the Ask button was clicked. A
   chip shows as pressed when the assistant inferred the same genre.
 
+## 2026-09-19 — Reproducing the film, and durable clips (RV-14)
+
+- The generated video has a player. `THE FILM` panel (`src/screens/JamPlayer.tsx`) runs on the
+  script screen and in the Studio, bound to `GET /api/jams/:id/portions/:index/video`: play and
+  stop only, no seek, one pip per portion showing what the server has. It polls
+  `GET /api/jams/:id/playback` every 5s, starts the jam, and advances **when the clip in the
+  element ends** — never when generation finishes — so a ready portion cannot cut the current one
+  short. The viewer-side rules are a pure function of the server snapshot in
+  `src/core/portionPlayback.ts`.
+- It replaces the room's elapsed-time counter in the Studio. `PlaybackBar`, `usePlaybackClock`,
+  `src/lib/playback.ts` and the clock RPCs are untouched but unmounted; no screen shows a room
+  position today.
+- The player asks for its clip under the viewer's own session configuration (language,
+  ambientation), normalized once in `configurationKey`. Every key still resolves to the jam's one
+  stream and the panel says so; the cap and attach flow remain unimplemented
+  (`docs/specs/configuration-keyed-streams.md`).
+- Generated clips persist. `SupabasePortionMediaStore` writes to the private `jam-portions`
+  bucket (`supabase/migrations/20260919233000_jam_portion_media.sql`) when
+  `SUPABASE_SERVICE_ROLE_KEY` is set — server-only, no `storage.objects` policies, and
+  participants still receive our own bytes. Without the key the bounded in-memory store is used
+  and reports `durable: false`. A clip the store already holds is never generated again.
+- Still open: the playback cursor is in memory, so a restarted server reads `idle` while its
+  clips remain (`JamStore.getPlayback`/`updatePlayback` exist but nothing wires the coordinator to
+  them); `start`/`advance` are host-only in the contract and in the UI, but the Express routes
+  carry no authorization; and these routes remain local-host only, not Vercel functions.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

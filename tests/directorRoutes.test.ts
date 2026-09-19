@@ -37,6 +37,9 @@ const recordings = new InMemoryDirectorRecordingStore();
 let peer: FakeDirectorPeer;
 let offers: string[] = [];
 let nextResult: "ok" | "unavailable" = "ok";
+/** Viewer offers seen by the fake forwarder, and how many were torn down. */
+let viewerOffers: string[] = [];
+let closedViewers = 0;
 let server: Server;
 let baseUrl: string;
 
@@ -74,6 +77,15 @@ before(async () => {
       config: CONFIG,
       limits: LIMITS,
       recordings,
+      attachViewer: async (_stream, offerSdp) => {
+        viewerOffers.push(offerSdp);
+        return {
+          answerSdp: "v=0\r\nviewer-answer\r\n",
+          close: () => {
+            closedViewers += 1;
+          },
+        };
+      },
       createPeer: () => {
         peer = new FakeDirectorPeer();
         return peer;
@@ -545,4 +557,57 @@ test("the registry reports the strictest open stream for a jam", async () => {
 
   registry.delete("s2");
   assert.equal(registry.minEditablePortionIndex("jam-a"), 3);
+});
+
+test("a viewer is forwarded the stream this server already holds", async () => {
+  const { jam, sessionId } = await openJamSession();
+  const response = await fetch(
+    `${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/watch`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sdp: "v=0\r\nviewer-offer\r\n" }),
+    },
+  );
+  assert.equal(response.status, 201);
+  const body = await response.json();
+  assert.equal(body.answer.type, "answer");
+  assert.match(body.answer.sdp, /viewer-answer/);
+  // The viewer's offer reached the forwarder, not fal.
+  assert.equal(viewerOffers.length, 1);
+  assert.match(viewerOffers[0], /viewer-offer/);
+
+  await endSession(jam.id, sessionId);
+  // Stopping the session tears the viewer down; it watches nothing now.
+  assert.equal(closedViewers, 1);
+});
+
+test("watching a session that is not open is refused", async () => {
+  const jam = buildJam();
+  await store.createJam(jam);
+  const response = await fetch(
+    `${baseUrl}/api/jams/${jam.id}/director/session/nope/watch`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sdp: "v=0\r\n" }),
+    },
+  );
+  assert.equal(response.status, 404);
+});
+
+test("a malformed viewer offer never reaches the forwarder", async () => {
+  const { jam, sessionId } = await openJamSession();
+  const before = viewerOffers.length;
+  const response = await fetch(
+    `${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/watch`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sdp: "" }),
+    },
+  );
+  assert.equal(response.status, 400);
+  assert.equal(viewerOffers.length, before);
+  await endSession(jam.id, sessionId);
 });

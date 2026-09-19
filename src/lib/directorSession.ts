@@ -112,3 +112,68 @@ export function renewDirectorSession(jamId: string, sessionId: string): void {
 export function directorRecordingSrc(jamId: string, sessionId: string): string {
   return `/api/jams/${jamId}/director/recordings/${sessionId}`;
 }
+
+/**
+ * Opens a live view of a running session.
+ *
+ * The browser peers with OUR SERVER, never with fal: the server holds the
+ * provider connection and forwards a copy, so every frame is still seen,
+ * audited and recordable on the way through. Returns the stream to render,
+ * and a teardown.
+ */
+export async function watchDirectorStream(
+  jamId: string,
+  sessionId: string,
+  onStream: (stream: MediaStream) => void,
+): Promise<() => void> {
+  const connection = new RTCPeerConnection();
+  // Receive-only: nothing from this machine is uploaded.
+  connection.addTransceiver("video", { direction: "recvonly" });
+  connection.addTransceiver("audio", { direction: "recvonly" });
+  connection.addEventListener("track", (event) => {
+    const [stream] = event.streams;
+    if (stream) onStream(stream);
+    else onStream(new MediaStream([event.track]));
+  });
+
+  const offer = await connection.createOffer();
+  await connection.setLocalDescription(offer);
+  await waitForIceGathering(connection);
+
+  try {
+    const { answer } = await call<{ answer: { sdp: string } }>(
+      `/api/jams/${jamId}/director/session/${sessionId}/watch`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sdp: connection.localDescription?.sdp ?? offer.sdp }),
+      },
+    );
+    await connection.setRemoteDescription({ type: "answer", sdp: answer.sdp });
+  } catch (error) {
+    connection.close();
+    throw error;
+  }
+  return () => connection.close();
+}
+
+/**
+ * The server takes a single complete offer rather than trickled candidates, so
+ * the offer waits for gathering. The timeout is a safeguard: one candidate that
+ * never arrives must not hang a viewer forever.
+ */
+function waitForIceGathering(connection: RTCPeerConnection): Promise<void> {
+  if (connection.iceGatheringState === "complete") return Promise.resolve();
+  return new Promise((resolve) => {
+    const finish = () => {
+      clearTimeout(timer);
+      connection.removeEventListener("icegatheringstatechange", onChange);
+      resolve();
+    };
+    const onChange = () => {
+      if (connection.iceGatheringState === "complete") finish();
+    };
+    const timer = setTimeout(finish, 5_000);
+    connection.addEventListener("icegatheringstatechange", onChange);
+  });
+}

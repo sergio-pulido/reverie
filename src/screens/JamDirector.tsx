@@ -15,6 +15,7 @@ import {
   renewDirectorSession,
   sendDirection,
   startDirectorSession,
+  watchDirectorStream,
 } from "../lib/directorSession";
 
 type JamDirectorProps = {
@@ -45,6 +46,8 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
   const [failure, setFailure] = useState<string | null>(null);
   const [direction, setDirection] = useState("");
   const [recording, setRecording] = useState<string | null>(null);
+  const video = useRef<HTMLVideoElement | null>(null);
+  const detach = useRef<(() => void) | null>(null);
   const [beats, setBeats] = useState<DirectorBeatWindow | null>(null);
   const [attached, setAttached] = useState(false);
   const live = sessionId !== null;
@@ -76,6 +79,31 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
       cancelled = true;
       clearInterval(poll);
       clearInterval(renew);
+    };
+  }, [jamId, sessionId]);
+
+  // Watch it as it is generated rather than waiting for the recording. The
+  // browser peers with our server, which is already holding the provider
+  // connection, so nothing here talks to fal.
+  useEffect(() => {
+    if (!sessionId) return;
+    let cancelled = false;
+    void watchDirectorStream(jamId, sessionId, (stream) => {
+      if (video.current) video.current.srcObject = stream;
+    })
+      .then((close) => {
+        if (cancelled) close();
+        else detach.current = close;
+      })
+      .catch(() => {
+        // Live viewing is an addition, not the session: a viewer that cannot
+        // attach still has state, the audit trail and the recording.
+      });
+    return () => {
+      cancelled = true;
+      detach.current?.();
+      detach.current = null;
+      if (video.current) video.current.srcObject = null;
     };
   }, [jamId, sessionId]);
 
@@ -152,9 +180,20 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
     </div>
 
     <div className="player-frame">
-      {recording
-        ? <video src={recording} controls playsInline data-testid="jam-director-recording" />
-        : <p className="player-placeholder">{placeholder(state, live, canDrive)}</p>}
+      <video
+        ref={video}
+        autoPlay
+        playsInline
+        muted
+        hidden={!live}
+        data-testid="jam-director-live"
+      />
+      {!live && recording && (
+        <video src={recording} controls playsInline data-testid="jam-director-recording" />
+      )}
+      {!live && !recording && (
+        <p className="player-placeholder">{placeholder(state, live, canDrive)}</p>
+      )}
     </div>
 
     <p className="form-note" aria-live="polite">{statusLine(state, live, canDrive)}</p>
@@ -269,7 +308,7 @@ function badge(state: DirectorState, busy: boolean, live: boolean): string {
 
 function placeholder(state: DirectorState, live: boolean, canDrive: boolean): string {
   if (state.status === "failed") return "The stream stopped.";
-  if (live) return "The stream is running on the server. Its recording appears when you stop.";
+  if (live) return "The stream is running on the server and forwarded here as it is generated.";
   if (!canDrive) return "The host starts the live stream.";
   return "Nothing is streaming yet.";
 }

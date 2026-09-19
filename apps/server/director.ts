@@ -11,6 +11,7 @@ import {
   type DirectorRecordingStore,
 } from "./directorRecordings";
 import { DirectorStream, type DirectorPeer } from "./directorStream";
+import { attachViewer, type ViewerPeer } from "./directorViewers";
 import {
   configurationKey,
   DEFAULT_CONFIGURATION,
@@ -37,6 +38,11 @@ import {
  * and the browser watches the recording rather than the live peer. Both are
  * recorded in docs/DECISIONS.md.
  */
+
+/** A viewer's SDP offer to watch the stream this server already holds. */
+const watchSchema = z.object({
+  sdp: z.string().min(1).max(64_000),
+});
 
 const directionSchema = z.object({
   // 280 chars is what `jam_proposals` already enforces on a proposal body, so
@@ -105,6 +111,8 @@ export interface DirectorRouterOptions {
   startSession?: typeof startDirectorSession;
   /** Injected in tests so routes do not open real peer connections. */
   createPeer?: () => DirectorPeer;
+  /** Injected in tests so routes do not open real viewer peers. */
+  attachViewer?: typeof attachViewer;
   now?: () => number;
 }
 
@@ -117,6 +125,8 @@ export function createDirectorRouter(
   const ledger = new DirectorSessionLedger(limits, options.now);
   const recordings = options.recordings ?? resolveDirectorRecordingStore();
   const streams = options.registry ?? new DirectorStreamRegistry();
+  /** Viewer peers, closed when the server tears down a session. */
+  const viewers: ViewerPeer[] = [];
   let resolved = false;
   let config: DirectorConfig | null = options.config ?? null;
 
@@ -286,6 +296,43 @@ export function createDirectorRouter(
     });
   });
 
+  /**
+   * Watch the live stream.
+   *
+   * The viewer peers with THIS SERVER, not with fal: frames still arrive here
+   * first and stay auditable and recordable. One fal session fans out to every
+   * viewer that attaches, which is what makes a shared configuration cost one
+   * stream rather than one per person.
+   */
+  router.post("/api/jams/:id/director/session/:sessionId/watch", async (request, response) => {
+    const stream = streams.get(request.params.sessionId);
+    if (!stream) {
+      sendError(response, 404, "not_found", "That director session is not open.", false);
+      return;
+    }
+    const offer = watchSchema.safeParse(request.body);
+    if (!offer.success) {
+      sendError(response, 400, "invalid_command", "That viewer offer is not valid.", false);
+      return;
+    }
+    ledger.renew(request.params.sessionId);
+    let viewer: ViewerPeer;
+    try {
+      viewer = await (options.attachViewer ?? attachViewer)(stream, offer.data.sdp);
+    } catch {
+      sendError(
+        response,
+        502,
+        "director_unavailable",
+        "The stream could not be forwarded to this viewer.",
+        true,
+      );
+      return;
+    }
+    viewers.push(viewer);
+    response.status(201).json({ answer: { type: "answer", sdp: viewer.answerSdp } });
+  });
+
   router.post("/api/jams/:id/director/session/:sessionId/renew", (request, response) => {
     if (!ledger.renew(request.params.sessionId)) {
       sendError(response, 404, "not_found", "That director session is not open.", false);
@@ -300,6 +347,9 @@ export function createDirectorRouter(
     ledger.close(request.params.sessionId);
     // Idempotent: a client tearing down twice is not an error, and what
     // matters is that the reservation is released and the recording stored.
+    // Viewers watch a stream that no longer exists once it stops; leaving
+    // their peers open would hold sockets for nothing.
+    for (const viewer of viewers.splice(0)) viewer.close();
     await stream?.stop();
     response.status(204).end();
   });

@@ -1,5 +1,41 @@
 # Decisions
 
+## 2026-09-19 — Viewers watch the live stream by RTP relay, not by waiting for a recording (RV-16)
+
+A director session is watched **as it is generated**. The browser peers with THIS SERVER, which
+already holds the fal connection, and the server forwards a copy of the inbound track. Nothing
+peers with fal, so every frame still arrives here first and stays auditable and recordable — the
+"proxy everything through the server" rule is kept, and the viewer stops having to wait for a
+recording that only appeared at stop.
+
+**Relaying is not muxing, and that distinction is the whole design.** The 99% CPU that blocked
+the event loop came from muxing WebM, not from receiving RTP. Forwarding depacketizes nothing,
+muxes nothing and re-encodes nothing: the packet that arrives is the packet that leaves.
+
+Measured on a real session at 480p, one viewer attached, 2749 RTP packets relayed over 30s:
+
+| | muxing to disk | relaying to a viewer |
+| --- | --- | --- |
+| Server CPU | 99% | 3.5–5.8% |
+| `GET /api/health` | timed out | 200 in 4–13ms |
+| `POST .../end` | timed out | 204 |
+
+So the stop path survives the media path, which is the invariant that failed before. Video and
+audio both forward; the first packet arrived 4.8s after attach, which is fal's generation
+warm-up rather than relay latency.
+
+**This corrects the earlier recommendation of HLS for live viewing.** That advice assumed the
+choice was between cheap HTTP segments and expensive per-viewer connections. The real cost driver
+turned out to be muxing — which HLS *requires* and a relay *avoids* — so for getting video in
+front of a viewer, relaying is both cheaper and lower latency. HLS remains the right answer for
+scale and CDN reach, and RV-19 is building it off-thread; the two are complementary, and a relay
+is what makes the feature work today.
+
+One fal session fans out to every viewer attached to it, so a shared configuration still costs
+one stream rather than one per person. A viewer whose peer dies cannot take down the session or
+the other viewers: a failed `writeRtp` is swallowed per-viewer. Stopping a session closes every
+viewer peer, because they would otherwise hold sockets open watching nothing.
+
 ## 2026-09-19 — Capturing the director's media on the server thread blocks the server (RV-16)
 
 Measured, not predicted. With a real session running at 480p, the Node process sat at **99% CPU**

@@ -120,9 +120,32 @@ export class DirectorStream {
   private recordingDir: string | null = null;
   private recordingPath: string | null = null;
   private stopped = false;
+  /** Inbound tracks, kept so viewers can be forwarded a copy. */
+  private readonly inbound: MediaStreamTrack[] = [];
+  private readonly trackListeners: ((track: MediaStreamTrack) => void)[] = [];
 
   constructor(private readonly options: DirectorStreamOptions) {
     this.audit = new DirectorAuditLog(options.now);
+  }
+
+  /** The tracks fal is sending, for forwarding to viewers. */
+  get tracks(): readonly MediaStreamTrack[] {
+    return this.inbound;
+  }
+
+  /**
+   * Calls back for every track, including ones that already arrived.
+   *
+   * A viewer can attach before fal has sent anything, so a listener that only
+   * saw future tracks would leave the first viewer watching nothing.
+   */
+  onTrackAvailable(listener: (track: MediaStreamTrack) => void): () => void {
+    for (const track of this.inbound) listener(track);
+    this.trackListeners.push(listener);
+    return () => {
+      const index = this.trackListeners.indexOf(listener);
+      if (index >= 0) this.trackListeners.splice(index, 1);
+    };
   }
 
   /** The jam this stream belongs to, for callers holding many streams. */
@@ -300,9 +323,14 @@ export class DirectorStream {
    * WebM into the media store would leave an unplayable object behind.
    */
   private async onTrack(track: MediaStreamTrack): Promise<void> {
+    // Kept and announced regardless of recording: forwarding a track to a
+    // viewer is packet relay and costs almost nothing, while MUXING it is what
+    // blocks the event loop. The two are separate decisions.
+    this.inbound.push(track);
+    for (const listener of this.trackListeners) listener(track);
+
     // Capturing media on this thread blocks the event loop hard enough to take
-    // the whole server with it; see DirectorConfig.record. The track is left
-    // to be discarded rather than muxed.
+    // the whole server with it; see DirectorConfig.record.
     if (!this.options.config.record) return;
     if (this.recorder) {
       await this.recorder.addTrack(track);

@@ -12,7 +12,8 @@ import {
   type PlaybackState,
 } from "../../src/core/playback";
 import { sendError, type JamStore } from "./jams";
-import { InMemoryPortionMediaStore } from "./media";
+import type { PortionMediaStore, StoredClip } from "./media";
+import { resolvePortionMediaStore } from "./supabaseMedia";
 import {
   downloadVideo,
   getJobStatus,
@@ -78,7 +79,7 @@ export class PlaybackCoordinator {
   private readonly pending: Array<() => void> = [];
 
   constructor(
-    readonly media: InMemoryPortionMediaStore,
+    readonly media: PortionMediaStore,
     private readonly generator: VideoGenerator,
   ) {}
 
@@ -107,10 +108,23 @@ export class PlaybackCoordinator {
   }
 
   /** Pin the locked portion and enqueue its generation job. */
-  enqueue(jam: Jam, flat: FlatPortion, pinnedRevision: number): GenerationJob {
+  async enqueue(jam: Jam, flat: FlatPortion, pinnedRevision: number): Promise<GenerationJob> {
     const key = `${jam.id}:${flat.portionIndex}`;
     const existing = this.jobs.get(key);
     if (existing && existing.status !== "failed") return existing;
+    // A clip that is already stored is never bought again. Durable storage
+    // outlives this process while the job map does not, so without this a
+    // restart would pay the provider for a portion the server already holds.
+    if (await this.media.has(jam.id, flat.portionIndex)) {
+      const stored: GenerationJob = {
+        jamId: jam.id,
+        portionIndex: flat.portionIndex,
+        pinnedRevision,
+        status: "ready",
+      };
+      this.jobs.set(key, stored);
+      return stored;
+    }
     const job: GenerationJob = {
       jamId: jam.id,
       portionIndex: flat.portionIndex,
@@ -131,7 +145,7 @@ export class PlaybackCoordinator {
         durationSeconds: flat.portion.durationSeconds,
       });
       job.status = "downloading";
-      this.media.put(jam.id, flat.portionIndex, bytes, "video/mp4");
+      await this.media.put(jam.id, flat.portionIndex, bytes, "video/mp4");
       job.status = "ready";
     } catch (error) {
       job.status = "failed";
@@ -166,7 +180,7 @@ const advanceCommandSchema = z.object({
 
 export interface PlaybackRouterOptions {
   coordinator?: PlaybackCoordinator;
-  media?: InMemoryPortionMediaStore;
+  media?: PortionMediaStore;
 }
 
 export function createPlaybackRouter(
@@ -174,7 +188,7 @@ export function createPlaybackRouter(
   options: PlaybackRouterOptions = {},
 ): Router {
   const router = express.Router();
-  const media = options.media ?? new InMemoryPortionMediaStore();
+  const media = options.media ?? resolvePortionMediaStore();
   let coordinator = options.coordinator ?? null;
 
   router.use(express.json({ limit: "8kb" }));
@@ -213,7 +227,7 @@ export function createPlaybackRouter(
     return active.enqueue(jam, flat, revision?.revision ?? 1);
   }
 
-  function playbackSnapshot(jam: Jam, active: PlaybackCoordinator | null) {
+  async function playbackSnapshot(jam: Jam, active: PlaybackCoordinator | null) {
     const flat = flattenPortions(jam.script);
     const state = active?.getState(jam.id) ?? initialPlayback();
     const locked = lockedPortionIndex(state, flat.length);
@@ -221,13 +235,15 @@ export function createPlaybackRouter(
       playback: state,
       lockedPortionIndex: locked,
       minEditablePortionIndex: minEditablePortionIndex(state, flat.length),
-      portions: flat.map((portion) => ({
-        portionIndex: portion.portionIndex,
-        durationSeconds: portion.portion.durationSeconds,
-        media: media.has(jam.id, portion.portionIndex)
-          ? "ready"
-          : (active?.job(jam.id, portion.portionIndex)?.status ?? "none"),
-      })),
+      portions: await Promise.all(
+        flat.map(async (portion) => ({
+          portionIndex: portion.portionIndex,
+          durationSeconds: portion.portion.durationSeconds,
+          media: (await media.has(jam.id, portion.portionIndex))
+            ? "ready"
+            : (active?.job(jam.id, portion.portionIndex)?.status ?? "none"),
+        })),
+      ),
     };
   }
 
@@ -251,7 +267,7 @@ export function createPlaybackRouter(
     // are included; later ones cannot touch the locked portion.
     active.setState(jam.id, startPlayback(state));
     await lockAndEnqueue(active, jam, 0);
-    response.status(202).json(playbackSnapshot(jam, active));
+    response.status(202).json(await playbackSnapshot(jam, active));
   });
 
   router.post("/api/jams/:id/playback/advance", async (request, response) => {
@@ -280,7 +296,7 @@ export function createPlaybackRouter(
       return;
     }
     const target = lockedPortionIndex(state, flat.length);
-    if (target !== null && !media.has(jam.id, target)) {
+    if (target !== null && !(await media.has(jam.id, target))) {
       sendError(response, 409, "media_not_ready", "The next portion's video is not ready yet.", true);
       return;
     }
@@ -290,7 +306,7 @@ export function createPlaybackRouter(
     if (newlyLocked !== null) {
       await lockAndEnqueue(coordinator, jam, newlyLocked);
     }
-    response.json(playbackSnapshot(jam, coordinator));
+    response.json(await playbackSnapshot(jam, coordinator));
   });
 
   router.get("/api/jams/:id/playback", async (request, response) => {
@@ -299,7 +315,7 @@ export function createPlaybackRouter(
       sendError(response, 404, "not_found", "This jam does not exist on this server.", false);
       return;
     }
-    response.json(playbackSnapshot(jam, coordinator));
+    response.json(await playbackSnapshot(jam, coordinator));
   });
 
   router.get("/api/jams/:id/portions/:index/video", async (request, response) => {
@@ -308,7 +324,15 @@ export function createPlaybackRouter(
       sendError(response, 400, "invalid_command", "The portion index is not valid.", false);
       return;
     }
-    const clip = media.get(request.params.id, portionIndex);
+    let clip: StoredClip | null;
+    try {
+      clip = await media.get(request.params.id, portionIndex);
+    } catch {
+      // Storage failed, not the participant. The message names neither the
+      // bucket nor the provider.
+      sendError(response, 503, "media_unavailable", "Stored clips cannot be read right now.", true);
+      return;
+    }
     if (!clip) {
       sendError(response, 404, "not_found", "This portion has no generated video.", false);
       return;

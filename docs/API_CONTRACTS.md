@@ -171,7 +171,11 @@ Pinning needs no store API: an advance commits the new cursor via `updatePlaybac
 
 **fal.ai boundary.** Calls go through a typed adapter in `apps/server/providers/fal.ts` behind `REVERIE_LIVE_ENABLED` and `FAL_KEY`, with a server-owned model allowlist (`FAL_MODEL` may only select from it), bounded generation concurrency, and per-jam clip-count and spend caps. The adapter is not claimed live until a dated probe receipt is recorded. Clients never receive fal URLs or request bodies.
 
-**Delivery.** The server downloads each finished clip into its own storage and serves it at `GET /api/jams/:id/portions/:index/video` with Range support. Storage limits: at most `MAX_PORTIONS` (48) clips per jam, a per-clip size cap, and eviction of all clips on jam close or store eviction.
+**Delivery.** The server downloads each finished clip into its own storage and serves it at `GET /api/jams/:id/portions/:index/video` with Range support. Storage limits: at most `MAX_PORTIONS` (48) clips per jam, a per-clip size cap, and eviction of all clips on jam close or store eviction. A clip the store already holds is never generated again, so a restart cannot re-buy a portion the server owns.
+
+Storage is a `PortionMediaStore` with two implementations. With `SUPABASE_SERVICE_ROLE_KEY` set, clips are written to the private `jam-portions` bucket (`SupabasePortionMediaStore`) and survive a restart; the bucket has no `storage.objects` policies, so only the server reaches it, and participants still receive our own bytes — never a storage or provider URL. Without that key the bounded in-memory store is used and reports `durable: false` rather than implying persistence. Whether clips exist is answered from one listing per jam, not one request per portion, because every playback poll asks about every portion. A read that storage refuses is `media_unavailable` (`503`, `retryable: true`); it names neither the bucket nor the provider.
+
+**Playback state is not durable.** The cursor still lives in the `PlaybackCoordinator`'s memory: `JamStore.getPlayback`/`updatePlayback` exist but nothing wires the coordinator to them yet. After a restart a jam reads `idle` while its clips are still stored, and playback replays from portion 0 without regenerating.
 
 `GET /api/jams/:id/playback` as a polling surface is an interim mechanism only, until the `portion.locked` / `media.*` events ride Supabase Realtime; do not build on polling as the contract — the events above are the contract.
 

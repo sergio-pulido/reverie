@@ -33,6 +33,21 @@ VITE_SUPABASE_ANON_KEY=sb_publishable_...
 
 The anonymous/publishable key is safe for the browser because the database is protected by Row Level Security. Never put `SUPABASE_SERVICE_ROLE_KEY`, provider secrets, Vonage secrets, or a private key in a `VITE_` environment variable.
 
+### Storing generated clips
+
+`20260919233000_jam_portion_media.sql` creates the private `jam-portions` bucket. It carries no
+policies on `storage.objects`, so no browser identity can read or write it; only the local server,
+holding `SUPABASE_SERVICE_ROLE_KEY`, uploads and reads clips, and participants still receive the
+bytes through `GET /api/jams/:id/portions/:index/video`. Set that key (server-side only, never a
+`VITE_` variable) in `.env.local` to keep generated clips across restarts:
+
+```bash
+SUPABASE_SERVICE_ROLE_KEY=sb_secret_...
+```
+
+Without it the server keeps clips in a bounded in-memory store and reports `durable: false`; it
+never claims a clip survived a restart that did not.
+
 ### Local Supabase instead of a hosted project
 
 To run the migrations and collaborative behaviour without creating a hosted project, use the

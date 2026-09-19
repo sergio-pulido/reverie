@@ -1,5 +1,7 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { Footer, Header } from "./chrome";
+import { JamPlayer } from "./screens/JamPlayer";
+import { readJamConfiguration, rememberJamSession } from "./lib/jamConfiguration";
 import type { Jam } from "./core/jam";
 import type { JamSession } from "./core/session";
 import { totalDurationSeconds } from "./core/script";
@@ -24,6 +26,13 @@ type ScriptScreenProps = {
 };
 
 export function ScriptScreen({ jam, roomTitle, onStudio, onBack }: ScriptScreenProps) {
+  // The creator's own session, so the player runs under the configuration this
+  // viewer chose rather than the room default.
+  const [session, setSession] = useState<JamSession | null>(null);
+  const configuration = useMemo(
+    () => session?.settings ?? readJamConfiguration(jam.id),
+    [session, jam.id],
+  );
   const total = totalDurationSeconds(jam.script);
   const portions = jam.script.scenes.reduce((sum, scene) => sum + scene.portions.length, 0);
   let elapsed = 0;
@@ -41,7 +50,8 @@ export function ScriptScreen({ jam, roomTitle, onStudio, onBack }: ScriptScreenP
           <a className="button button-quiet" href={`/api/jams/${jam.id}/script.md`} target="_blank" rel="noreferrer">Open as markdown <span>→</span></a>
         </div>
       </header>
-      <SessionPanel jam={jam} />
+      <SessionPanel jam={jam} session={session} onSession={setSession} />
+      <JamPlayer jamId={jam.id} canDrive configuration={configuration} />
       {jam.script.scenes.map((scene, sceneIndex) => (
         <article key={sceneIndex} className="jam-scene">
           <h2>Scene {sceneIndex + 1} — {scene.heading}</h2>
@@ -67,8 +77,11 @@ export function ScriptScreen({ jam, roomTitle, onStudio, onBack }: ScriptScreenP
  * One user's seat at the jam: everyone shares the same script, and each
  * session's language and ambientation shape how it plays back for its owner.
  */
-function SessionPanel({ jam }: { jam: Jam }) {
-  const [session, setSession] = useState<JamSession | null>(null);
+function SessionPanel({ jam, session, onSession }: {
+  jam: Jam;
+  session: JamSession | null;
+  onSession: (session: JamSession) => void;
+}) {
   const [ownerToken, setOwnerToken] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [language, setLanguage] = useState("en");
@@ -104,7 +117,11 @@ function SessionPanel({ jam }: { jam: Jam }) {
         setError(body?.error?.safeMessage ?? "The session could not be saved.");
         return;
       }
-      setSession(body.session as JamSession);
+      const saved = body.session as JamSession;
+      onSession(saved);
+      // Remembered for the studio, which has no session form of its own. The
+      // owner token stays in memory here and is never stored.
+      rememberJamSession(saved);
       if (body.ownerToken) setOwnerToken(body.ownerToken as string);
       setSaved(true);
     } catch {

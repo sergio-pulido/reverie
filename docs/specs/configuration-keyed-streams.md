@@ -46,7 +46,8 @@ the number of **distinct configurations actually present in the room**, not the 
 
 - The exact cap value, and whether a full cap is per-room, per-host, or global.
 - Eviction or replacement policy when a configuration goes unused.
-- Precise normalization/canonicalisation of the configuration key.
+- Precise normalization/canonicalisation of the configuration key. The client-side key above is
+  what this build does, not a ruling: the server owns the real one.
 - Whether attaching rewrites the participant's session settings, or only selects a stream for
   playback.
 - How this composes with script versioning and the editable-copy flow.
@@ -60,7 +61,13 @@ never fork the script or split the room.
 
 ## Implementation status
 
-**Nothing in this spec is implemented.** There is no configuration key, stream registry, cache,
+**Nothing in this spec is implemented.** One seam exists: the player normalizes a session's
+overrides into a configuration key (`configurationKey`, `src/core/portionPlayback.ts` — language
+tag lowercased, ambientation trimmed and its whitespace collapsed) and asks for its clip under
+that key, so a configuration-keyed address can land without moving the player. The key is not
+sent to the server, because the server serves one stream per jam; the player states on screen
+that everyone shares it. That is a normalization choice and a place to change, not the feature.
+Everything below is still true. There is no configuration key, stream registry, cache,
 per-configuration generation, cap, active-configuration listing, or attach endpoint/UI. See the
 register in `docs/specs/intended-vs-implemented.md`. The existing `MAX_SESSIONS_PER_JAM = 32`
 (`apps/server/sessions.ts:12`) caps how many sessions a jam holds and does **not** cap

@@ -1,5 +1,42 @@
 # Decisions
 
+## 2026-09-20 — The account menu shows the real anonymous session, not a fabricated identity
+
+The top bar now ends in an avatar with a menu behind it. The obvious way to build that surface is
+to invent what it needs: a placeholder name ("Guest", "You"), a stock photo, a seeded email. Every
+one of those would be a lie that the app then has to keep, and the lie is load-bearing in the worst
+place — the account menu is exactly where a viewer looks to answer "who does this app think I am?"
+
+The app already has a real answer. Every visitor is signed in anonymously through Supabase Auth the
+first time a screen reads anything (`src/lib/session.ts`), and that user id is what row-level
+security checks on every jam, membership, message and proposal. So the menu surfaces **that** user
+and nothing else:
+
+- The **colour** of the circle is *derived* from the Supabase user id (`src/shell/avatar.ts`), not
+  stored. That is what makes it stable across visits and devices without a profile table, and it
+  is why a sign-out visibly changes it: it is a new identity, and it should not look like the old
+  one.
+- The **initials** come from the display name the viewer gave a room (`jam_members.display_name`),
+  because that is the only name the app keeps for them. With no name the circle shows a neutral
+  mark and the menu says "Signed in" — true, and short of inventing one. No email and no photo is
+  shown, because the app holds neither.
+- The avatar **never signs anyone in** to find out who they are. It watches the session and waits
+  for the sign-in the screens themselves cause, so a surface that only *shows* the viewer cannot
+  create one.
+- **Log out is a real sign-out**, not a local reset: Supabase ends the session, the identity module
+  forgets the id it confirmed this page load, and the next visit mints a new anonymous user with a
+  different id, a different colour and no rooms. Anything weaker would leave the menu offering an
+  action that does not do what it says.
+
+**Account is present, focusable and does nothing.** It is in the menu because the menu's shape is
+part of this slice and a later one owns the screen behind it; it opens nothing rather than
+pretending to. Its absence would have been the other kind of lie — a menu that looks finished.
+
+The cost is accepted and stated: an anonymous identity is per browser profile, so the same person
+on two devices is two viewers with two colours, and signing out discards the rooms that identity
+hosted or joined. Both follow from anonymous auth, which this repository chose earlier; neither is
+made better by drawing a fictional account over it.
+
 ## 2026-09-20 — Every integration goes through a PR; nobody pushes to `main` directly (RV-20)
 
 `AGENTS.md` and `docs/CONTRIBUTING.md` described a two-tier delivery model: a "primary agent"

@@ -6,7 +6,17 @@
  * `/` is the public landing page; the app's own home is `/home`.
  */
 
-export type Screen = "landing" | "home" | "discover" | "jams" | "create" | "join" | "script" | "studio";
+export type Screen =
+  | "landing"
+  | "home"
+  | "discover"
+  | "catalog"
+  | "jams"
+  | "community"
+  | "create"
+  | "join"
+  | "script"
+  | "studio";
 
 const FILM_PAGE = /^\/discover\/([^/]+)\/?$/;
 const JAM_SLUG = /^\/jams\/([a-z0-9-]+)$/;
@@ -20,6 +30,10 @@ export const NEW_JAM_PATH = "/jams/new";
 export const JOIN_PATH = "/join";
 /** The conversation, with a film's own page beneath it at `/discover/:id`. */
 export const DISCOVER_PATH = "/discover";
+/** The browsable catalogue. A later slice fills it; today it is a placeholder screen. */
+export const CATALOG_PATH = "/catalog";
+/** What the rooms around you are making. A later slice fills it; today it is a placeholder screen. */
+export const COMMUNITY_PATH = "/community";
 
 /**
  * A film page is a layer over the screen it was opened from, so its path belongs to the Discover
@@ -29,6 +43,8 @@ export const DISCOVER_PATH = "/discover";
 export function screenFromPath(pathname: string): Screen {
   if (pathname === LANDING_PATH) return "landing";
   if (pathname === DISCOVER_PATH || pathname === `${DISCOVER_PATH}/` || FILM_PAGE.test(pathname)) return "discover";
+  if (pathname === CATALOG_PATH || pathname === `${CATALOG_PATH}/`) return "catalog";
+  if (pathname === COMMUNITY_PATH || pathname === `${COMMUNITY_PATH}/`) return "community";
   if (pathname === "/jams") return "jams";
   if (pathname === "/jams/new") return "create";
   if (pathname === "/join") return "join";
@@ -60,17 +76,24 @@ export function filmPath(providerId: string) {
 }
 
 /** The places the top bar leads to. Every screen belongs to exactly one. */
-export type Destination = "home" | "discover" | "jam";
+export type Destination = "home" | "discover" | "catalog" | "jam" | "community";
 
 export function destinationOf(screen: Screen): Destination {
   // The landing carries no top bar; it answers "home" so the type stays total.
   if (screen === "home" || screen === "landing") return "home";
   if (screen === "discover") return "discover";
+  if (screen === "catalog") return "catalog";
+  if (screen === "community") return "community";
   return "jam";
 }
 
 export const DESTINATION_PATH: Readonly<Record<Destination, string>> = {
   home: HOME_PATH,
   discover: DISCOVER_PATH,
+  catalog: CATALOG_PATH,
   jam: JAMS_PATH,
+  community: COMMUNITY_PATH,
 };
+
+/** The bar's destinations, in the order a remote walks them. */
+export const BAR_DESTINATIONS: readonly Destination[] = ["home", "discover", "catalog", "jam", "community"];

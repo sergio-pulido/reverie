@@ -12,6 +12,9 @@ afterEach(cleanup);
 
 const FROM = "reverie:from";
 
+/** The bar's destinations, in the order a remote walks them. */
+const DESTINATIONS = ["Home", "Discover", "Catalog", "Movie Jam", "Community"];
+
 /** What a viewer can see of the top bar on the current screen. */
 function readBar() {
   const bars = Array.from(document.querySelectorAll<HTMLElement>('nav[aria-label="Primary"]'));
@@ -44,6 +47,8 @@ const screens: { name: string; at: string | { path: string; state?: unknown }[];
   { name: "a film page opened from search", at: [{ path: "/discover" }, { path: "/discover/603", state: { [FROM]: "/discover" } }], current: "Discover" },
   { name: "a film page opened from the home", at: [{ path: "/home" }, { path: "/discover/603", state: { [FROM]: "/home" } }], current: "Home" },
   { name: "a film page reached by URL", at: "/discover/603", current: "Discover" },
+  { name: "the catalog", at: "/catalog", current: "Catalog" },
+  { name: "the community", at: "/community", current: "Community" },
   { name: "the jam registry", at: "/jams", current: "Movie Jam" },
   { name: "the Movie Jam screen", at: "/jams/new", current: "Movie Jam" },
   { name: "joining a jam", at: "/join", current: "Movie Jam" },
@@ -55,7 +60,7 @@ describe("the top bar", () => {
     it(`is on ${name}, with every destination, no text field and no back button`, async () => {
       await render(<App />, at);
       const bar = readBar();
-      assert.deepEqual(bar.labels, ["Home", "Discover", "Movie Jam"]);
+      assert.deepEqual(bar.labels, DESTINATIONS);
       assert.deepEqual(bar.current, [current]);
       assert.equal(bar.fields, 0, "the bar holds no text field");
       assert.deepEqual(backButtons(), []);
@@ -123,6 +128,7 @@ describe("Discover in the top bar", () => {
   it("lands on the field when OK is pressed on it from another screen", async () => {
     await render(<App />, "/jams");
     await press("ArrowLeft");
+    await press("ArrowLeft");
     assert.equal(focused().textContent, "Discover");
     assert.equal(await press("Enter"), true);
     assert.equal(window.location.pathname, "/discover");
@@ -149,8 +155,7 @@ describe("remote focus on arrival", () => {
 
   it("goes where OK is pressed on the bar", async () => {
     await render(<App />, "/jams");
-    await press("ArrowLeft");
-    await press("ArrowLeft");
+    for (let step = 0; step < 3; step += 1) await press("ArrowLeft");
     assert.equal(focused().textContent, "Home");
     assert.equal(await press("Enter"), true);
     assert.equal(window.location.pathname, "/home");
@@ -160,11 +165,11 @@ describe("remote focus on arrival", () => {
     await render(<App />, "/jams");
     assert.equal(focused().textContent, "Movie Jam");
     await press("ArrowRight");
-    assert.equal(focused().textContent, "Movie Jam", "Movie Jam is the last item");
-    await press("ArrowLeft");
-    assert.equal(focused().textContent, "Discover");
-    await press("ArrowLeft");
-    assert.equal(focused().textContent, "Home");
+    assert.equal(focused().textContent, "Community");
+    for (const label of ["Movie Jam", "Catalog", "Discover", "Home"]) {
+      await press("ArrowLeft");
+      assert.equal(focused().textContent, label);
+    }
     await press("ArrowLeft");
     assert.equal(focused().textContent, "Home", "Home is the first");
   });

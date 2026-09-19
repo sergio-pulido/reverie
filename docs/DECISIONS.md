@@ -33,8 +33,20 @@ is what makes the feature work today.
 
 One fal session fans out to every viewer attached to it, so a shared configuration still costs
 one stream rather than one per person. A viewer whose peer dies cannot take down the session or
-the other viewers: a failed `writeRtp` is swallowed per-viewer. Stopping a session closes every
-viewer peer, because they would otherwise hold sockets open watching nothing.
+the other viewers: a failed `writeRtp` is swallowed per-viewer.
+
+**The measurement above is one viewer, and per-viewer cost is exactly what a relay is supposed to
+be questioned on.** One viewer at 3.5–5.8% does not establish what ten cost, and "several
+consumers watching one stream" is the requirement. A probe with three or four attached viewers
+costs the same billed minute and is the one still owed; until it is run, the relay is proven
+cheap for one viewer and *assumed* to scale.
+
+**Viewers are counted, because a session bills whether or not anyone is watching.** A viewer that
+navigates away never calls the teardown route, so the peer's connection state is the only honest
+signal that it is gone. When a session's last viewer leaves, the session stops rather than
+billing on to the 90-second idle reclaim. A session nobody has joined *yet* is left alone: having
+had no audience is not the same as having lost one. Viewer peers are tracked per session, so
+ending one session does not tear down another's audience.
 
 ## 2026-09-19 — Capturing the director's media on the server thread blocks the server (RV-16)
 

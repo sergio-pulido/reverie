@@ -44,9 +44,26 @@ export class DirectorViewerError extends Error {
 export async function attachViewer(
   stream: DirectorStream,
   offerSdp: string,
+  /** Called once when this viewer's peer goes away, however it goes. */
+  onClosed?: () => void,
 ): Promise<ViewerPeer> {
   const connection = new RTCPeerConnection();
   const forwarders: (() => void)[] = [];
+  let announced = false;
+  const announceClosed = () => {
+    if (announced) return;
+    announced = true;
+    onClosed?.();
+  };
+
+  // A browser that navigates away or crashes never calls the teardown route,
+  // and a paid session with nobody watching is the expensive case. The peer
+  // state is the only honest signal that a viewer is gone.
+  connection.connectionStateChange.subscribe((state) => {
+    if (state === "disconnected" || state === "failed" || state === "closed") {
+      announceClosed();
+    }
+  });
 
   const unsubscribe = stream.onTrackAvailable((inbound) => {
     const outbound = new MediaStreamTrack({ kind: inbound.kind });
@@ -72,6 +89,7 @@ export async function attachViewer(
   if (!answerSdp) {
     unsubscribe();
     connection.close();
+    announced = true; // never attached, so it is not a viewer that left
     throw new DirectorViewerError("The viewer connection produced no answer.");
   }
 
@@ -81,6 +99,7 @@ export async function attachViewer(
       unsubscribe();
       for (const stop of forwarders) stop();
       connection.close();
+      announceClosed();
     },
   };
 }

@@ -40,6 +40,8 @@ let nextResult: "ok" | "unavailable" = "ok";
 /** Viewer offers seen by the fake forwarder, and how many were torn down. */
 let viewerOffers: string[] = [];
 let closedViewers = 0;
+/** Lets a test drop a viewer the way a closed browser tab would. */
+let viewerClosers: (() => void)[] = [];
 let server: Server;
 let baseUrl: string;
 
@@ -77,12 +79,20 @@ before(async () => {
       config: CONFIG,
       limits: LIMITS,
       recordings,
-      attachViewer: async (_stream, offerSdp) => {
+      attachViewer: async (_stream, offerSdp, onClosed) => {
         viewerOffers.push(offerSdp);
+        let announced = false;
+        const announce = () => {
+          if (announced) return;
+          announced = true;
+          onClosed?.();
+        };
+        viewerClosers.push(announce);
         return {
           answerSdp: "v=0\r\nviewer-answer\r\n",
           close: () => {
             closedViewers += 1;
+            announce();
           },
         };
       },
@@ -610,4 +620,67 @@ test("a malformed viewer offer never reaches the forwarder", async () => {
   assert.equal(response.status, 400);
   assert.equal(viewerOffers.length, before);
   await endSession(jam.id, sessionId);
+});
+
+test("the last viewer leaving stops the session, because nobody is watching", async () => {
+  viewerClosers = [];
+  const { jam, sessionId } = await openJamSession();
+  const watch = () =>
+    fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/watch`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sdp: "v=0\r\nviewer-offer\r\n" }),
+    });
+
+  assert.equal((await (await watch()).json()).viewers, 1);
+  assert.equal((await (await watch()).json()).viewers, 2);
+
+  // One of two leaving is not the last one; the session keeps running.
+  viewerClosers[0]();
+  assert.equal(
+    (await fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}`)).status,
+    200,
+  );
+
+  // The last one leaving stops it, rather than billing on to the idle timeout.
+  viewerClosers[1]();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(
+    (await fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}`)).status,
+    404,
+  );
+});
+
+test("a session nobody has joined yet is not stopped by the viewer rule", async () => {
+  // Having had no audience is different from having lost one.
+  const { jam, sessionId } = await openJamSession();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(
+    (await fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}`)).status,
+    200,
+  );
+  await endSession(jam.id, sessionId);
+});
+
+test("ending one session leaves another session's viewers alone", async () => {
+  const first = await openJamSession();
+  const second = await openJamSession();
+  const watch = (jamId: string, sessionId: string) =>
+    fetch(`${baseUrl}/api/jams/${jamId}/director/session/${sessionId}/watch`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sdp: "v=0\r\nviewer-offer\r\n" }),
+    });
+  await watch(first.jam.id, first.sessionId);
+  await watch(second.jam.id, second.sessionId);
+  const closedBefore = closedViewers;
+
+  await endSession(first.jam.id, first.sessionId);
+  // Exactly one viewer torn down: the other session still has its audience.
+  assert.equal(closedViewers - closedBefore, 1);
+  assert.equal(
+    (await fetch(`${baseUrl}/api/jams/${second.jam.id}/director/session/${second.sessionId}`)).status,
+    200,
+  );
+  await endSession(second.jam.id, second.sessionId);
 });

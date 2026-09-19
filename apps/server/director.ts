@@ -126,7 +126,26 @@ export function createDirectorRouter(
   const recordings = options.recordings ?? resolveDirectorRecordingStore();
   const streams = options.registry ?? new DirectorStreamRegistry();
   /** Viewer peers, closed when the server tears down a session. */
-  const viewers: ViewerPeer[] = [];
+  /**
+   * Viewer peers per session. Keyed, because ending one session must not tear
+   * down another session's audience.
+   */
+  const viewers = new Map<string, Set<ViewerPeer>>();
+
+  /**
+   * Ends a session and everything hanging off it.
+   *
+   * Shared by the teardown route and by the last viewer leaving, so a session
+   * stops the same way whichever reason it stops for.
+   */
+  async function endSession(sessionId: string): Promise<void> {
+    const stream = streams.get(sessionId);
+    streams.delete(sessionId);
+    ledger.close(sessionId);
+    for (const viewer of viewers.get(sessionId) ?? []) viewer.close();
+    viewers.delete(sessionId);
+    await stream?.stop();
+  }
   let resolved = false;
   let config: DirectorConfig | null = options.config ?? null;
 
@@ -315,10 +334,23 @@ export function createDirectorRouter(
       sendError(response, 400, "invalid_command", "That viewer offer is not valid.", false);
       return;
     }
-    ledger.renew(request.params.sessionId);
+    const sessionId = request.params.sessionId;
+    ledger.renew(sessionId);
     let viewer: ViewerPeer;
     try {
-      viewer = await (options.attachViewer ?? attachViewer)(stream, offer.data.sdp);
+      viewer = await (options.attachViewer ?? attachViewer)(
+        stream,
+        offer.data.sdp,
+        () => {
+          const watching = viewers.get(sessionId);
+          if (!watching) return;
+          watching.delete(viewer);
+          // Nobody is watching a stream that still bills by the second. A
+          // session that HAD an audience and lost it is different from one
+          // nobody has joined yet, and only the first should stop itself.
+          if (watching.size === 0) void endSession(sessionId);
+        },
+      );
     } catch {
       sendError(
         response,
@@ -329,8 +361,13 @@ export function createDirectorRouter(
       );
       return;
     }
-    viewers.push(viewer);
-    response.status(201).json({ answer: { type: "answer", sdp: viewer.answerSdp } });
+    const watching = viewers.get(sessionId) ?? new Set<ViewerPeer>();
+    watching.add(viewer);
+    viewers.set(sessionId, watching);
+    response.status(201).json({
+      answer: { type: "answer", sdp: viewer.answerSdp },
+      viewers: watching.size,
+    });
   });
 
   router.post("/api/jams/:id/director/session/:sessionId/renew", (request, response) => {
@@ -342,15 +379,9 @@ export function createDirectorRouter(
   });
 
   router.post("/api/jams/:id/director/session/:sessionId/end", async (request, response) => {
-    const stream = streams.get(request.params.sessionId);
-    streams.delete(request.params.sessionId);
-    ledger.close(request.params.sessionId);
     // Idempotent: a client tearing down twice is not an error, and what
     // matters is that the reservation is released and the recording stored.
-    // Viewers watch a stream that no longer exists once it stops; leaving
-    // their peers open would hold sockets for nothing.
-    for (const viewer of viewers.splice(0)) viewer.close();
-    await stream?.stop();
+    await endSession(request.params.sessionId);
     response.status(204).end();
   });
 

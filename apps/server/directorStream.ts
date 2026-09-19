@@ -1,8 +1,8 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { RTCPeerConnection, type MediaStreamTrack } from "werift";
-import { MediaRecorder } from "werift/nonstandard";
+import {
+  RTCPeerConnection,
+  RTCRtpCodecParameters,
+  type MediaStreamTrack,
+} from "werift";
 import {
   directorServerMessageSchema,
   initialDirectorState,
@@ -18,6 +18,11 @@ import {
   isBeatLocked,
   type DirectorBeatWindow,
 } from "../../src/core/directorBeats";
+import {
+  DirectorFileRecorder,
+  type DirectorRecordingSink,
+} from "./directorFileRecorder";
+import type { DirectorTrackConsumer } from "./directorSegmenter";
 import {
   buildConfigureMessage,
   DirectorError,
@@ -42,11 +47,11 @@ import {
 const CONTROL_CHANNEL = "fal";
 const ICE_GATHERING_TIMEOUT_MS = 5_000;
 
-/** Where a finished recording goes. Kept as an interface so the media store
- * and a test fake are interchangeable. */
-export interface DirectorRecordingSink {
-  save(jamId: string, sessionId: string, bytes: Buffer, contentType: string): Promise<void>;
-}
+/**
+ * Re-exported so the recording store keeps one import site while the recorder
+ * itself lives behind the track-consumer seam.
+ */
+export type { DirectorRecordingSink } from "./directorFileRecorder";
 
 export interface DirectorStreamOptions {
   jamId: string;
@@ -54,6 +59,15 @@ export interface DirectorStreamOptions {
   config: DirectorConfig;
   script: JamScript;
   sink?: DirectorRecordingSink;
+  /**
+   * Everything that wants the inbound media track.
+   *
+   * The track arrives once and several things want it — durable recording and
+   * live delivery — so they attach here instead of subscribing to `onTrack`,
+   * where the first subscriber would take it from the rest. Defaults to the
+   * WebM recorder alone, which is what the director shipped with.
+   */
+  consumers?: DirectorTrackConsumer[];
   /** Injected in tests; defaults to the real fal handshake. */
   startSession?: typeof startDirectorSession;
   /** Injected in tests; defaults to a real werift peer. */
@@ -107,8 +121,53 @@ export interface DirectorControlChannel {
   stateChanged: { subscribe(listener: (state: string) => void): unknown };
 }
 
+/**
+ * The codecs this server will accept from fal, in preference order.
+ *
+ * This is not a default worth inheriting: werift offers **VP8 only** unless
+ * told otherwise, so an unconfigured peer silently forecloses H.264 — and
+ * H.264 (`avc1`) with Opus is the whole of what fMP4 can carry, which is what
+ * live HLS delivery and the durable archive are both built on. Offering VP8
+ * second is deliberate rather than decorative: if fal cannot do H.264 the
+ * session still connects and still records, and delivery refuses in the open
+ * instead of the handshake failing outright.
+ */
+export const DIRECTOR_VIDEO_CODECS = [
+  new RTCRtpCodecParameters({
+    mimeType: "video/H264",
+    clockRate: 90_000,
+    rtcpFeedback: [
+      { type: "nack" },
+      { type: "nack", parameter: "pli" },
+      { type: "goog-remb" },
+    ],
+    // packetization-mode=1 is what the depacketizer's marker-bit rule assumes;
+    // the baseline profile is the one every browser can decode.
+    parameters: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f",
+  }),
+  new RTCRtpCodecParameters({
+    mimeType: "video/VP8",
+    clockRate: 90_000,
+    rtcpFeedback: [
+      { type: "nack" },
+      { type: "nack", parameter: "pli" },
+      { type: "goog-remb" },
+    ],
+  }),
+];
+
+export const DIRECTOR_AUDIO_CODECS = [
+  new RTCRtpCodecParameters({
+    mimeType: "audio/opus",
+    clockRate: 48_000,
+    channels: 2,
+  }),
+];
+
 function createWeriftPeer(): DirectorPeer {
-  return new RTCPeerConnection() as unknown as DirectorPeer;
+  return new RTCPeerConnection({
+    codecs: { video: DIRECTOR_VIDEO_CODECS, audio: DIRECTOR_AUDIO_CODECS },
+  }) as unknown as DirectorPeer;
 }
 
 export class DirectorStream {
@@ -116,9 +175,7 @@ export class DirectorStream {
   private state: DirectorState = initialDirectorState();
   private connection: DirectorPeer | null = null;
   private control: DirectorControlChannel | null = null;
-  private recorder: MediaRecorder | null = null;
-  private recordingDir: string | null = null;
-  private recordingPath: string | null = null;
+  private readonly consumers: DirectorTrackConsumer[];
   private stopped = false;
   /** Inbound tracks, kept so viewers can be forwarded a copy. */
   private readonly inbound: MediaStreamTrack[] = [];
@@ -126,6 +183,15 @@ export class DirectorStream {
 
   constructor(private readonly options: DirectorStreamOptions) {
     this.audit = new DirectorAuditLog(options.now);
+    // Capture stays opt-in and off by default, as `DirectorConfig.record`
+    // established: muxing WebM on this thread is what pinned the event loop.
+    // The flag now decides whether the recorder exists at all rather than
+    // being re-checked per track.
+    this.consumers =
+      options.consumers ??
+      (options.config.record
+        ? [new DirectorFileRecorder(options.jamId, options.sessionId, options.sink)]
+        : []);
   }
 
   /** The tracks fal is sending, for forwarding to viewers. */
@@ -316,68 +382,55 @@ export class DirectorStream {
   }
 
   /**
-   * Records the incoming track to disk.
+   * Hands the incoming track to every consumer.
    *
-   * To a file rather than straight to object storage because the container
-   * formats need to finalize their headers on close; streaming a half-written
-   * WebM into the media store would leave an unplayable object behind.
+   * The stream owns `onTrack` and nothing else subscribes to it, so recording
+   * and live delivery both receive the same track instead of racing for it.
+   * werift's event is genuinely multi-subscriber, so each consumer builds its
+   * own pipeline from the same RTP without taking packets from the others.
+   *
+   * A consumer that fails takes only itself down: a recorder that cannot open a
+   * temp file must not stop the room watching, and vice versa.
    */
   private async onTrack(track: MediaStreamTrack): Promise<void> {
-    // Kept and announced regardless of recording: forwarding a track to a
-    // viewer is packet relay and costs almost nothing, while MUXING it is what
-    // blocks the event loop. The two are separate decisions.
+    // Kept and announced regardless of capture: forwarding a track to a viewer
+    // is packet relay and costs almost nothing, while MUXING it is what blocks
+    // the event loop. The two are separate decisions.
     this.inbound.push(track);
     for (const listener of this.trackListeners) listener(track);
 
-    // Capturing media on this thread blocks the event loop hard enough to take
-    // the whole server with it; see DirectorConfig.record.
-    if (!this.options.config.record) return;
-    if (this.recorder) {
-      await this.recorder.addTrack(track);
-      return;
-    }
-    this.recordingDir = await mkdtemp(join(tmpdir(), "reverie-director-"));
-    this.recordingPath = join(this.recordingDir, `${this.options.sessionId}.webm`);
-    this.recorder = new MediaRecorder({
-      path: this.recordingPath,
-      tracks: [track],
-    });
+    // Consumers are the muxing side of that split. Each runs its own pipeline
+    // and each is responsible for keeping it off this thread; capture being
+    // opt-in is expressed by which consumers exist, not by a check here.
+    await Promise.all(
+      this.consumers.map(async (consumer) => {
+        try {
+          await consumer.addTrack(track);
+        } catch {
+          // Recorded rather than thrown: the session is live and the other
+          // consumers are still working.
+          this.audit.record({
+            kind: "provider_error",
+            detail: "track_consumer_failed",
+          });
+        }
+      }),
+    );
   }
 
   private async teardown(): Promise<void> {
-    try {
-      await this.recorder?.stop();
-    } catch {
-      // A recorder that never received a frame throws on stop; the session is
-      // ending either way and the failure must not mask the real reason.
-    }
+    await Promise.all(
+      this.consumers.map(async (consumer) => {
+        try {
+          await consumer.stop();
+        } catch {
+          // One consumer failing to finalize must not strand the others or
+          // hold the session's budget reservation open.
+        }
+      }),
+    );
     this.connection?.close();
-    await this.persistRecording();
     this.state = { ...this.state, status: this.state.status === "failed" ? "failed" : "ended" };
-  }
-
-  private async persistRecording(): Promise<void> {
-    const path = this.recordingPath;
-    const dir = this.recordingDir;
-    this.recordingPath = null;
-    this.recordingDir = null;
-    if (!path || !dir) return;
-    try {
-      const bytes = await readFile(path);
-      if (bytes.byteLength > 0) {
-        await this.options.sink?.save(
-          this.options.jamId,
-          this.options.sessionId,
-          bytes,
-          "video/webm",
-        );
-      }
-    } catch {
-      // Losing the recording must not prevent the session from closing and
-      // releasing its budget reservation.
-    } finally {
-      await rm(dir, { recursive: true, force: true }).catch(() => undefined);
-    }
   }
 
   private waitForIceGathering(connection: DirectorPeer): Promise<void> {

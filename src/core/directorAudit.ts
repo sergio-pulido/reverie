@@ -50,6 +50,31 @@ export interface DirectorAuditEntry {
 /** Bounded so one long session cannot grow without limit in memory. */
 export const MAX_AUDIT_ENTRIES_PER_SESSION = 500;
 
+/** Whether fal applied, refused, or has not yet answered a direction. */
+export type DirectionOutcome = "applied" | "rejected" | "pending";
+
+/**
+ * Resolves a direction's outcome by its prompt version, reading backwards so
+ * the latest verdict wins. `pending` is a real state, not an error: a
+ * direction takes effect at the next undispatched chunk.
+ *
+ * A free function because the trail is read in two places that do not share a
+ * type — the log the server appends to, and the plain array a browser is
+ * given — and two copies of this rule would eventually answer differently.
+ */
+export function outcomeOf(
+  entries: readonly DirectorAuditEntry[],
+  promptVersion: number,
+): DirectionOutcome {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (entry.promptVersion !== promptVersion) continue;
+    if (entry.kind === "direction_applied") return "applied";
+    if (entry.kind === "direction_rejected") return "rejected";
+  }
+  return "pending";
+}
+
 export class DirectorAuditLog {
   private readonly entries: DirectorAuditEntry[] = [];
   private dropped = 0;
@@ -82,18 +107,8 @@ export class DirectorAuditLog {
     return this.entries.filter((entry) => entry.kind === "direction_sent");
   }
 
-  /**
-   * Resolves a direction's outcome by its prompt version. `pending` means fal
-   * has neither applied nor refused it yet, which is a real state and not an
-   * error: a direction takes effect at the next undispatched chunk.
-   */
-  outcomeOf(promptVersion: number): "applied" | "rejected" | "pending" {
-    for (let index = this.entries.length - 1; index >= 0; index -= 1) {
-      const entry = this.entries[index];
-      if (entry.promptVersion !== promptVersion) continue;
-      if (entry.kind === "direction_applied") return "applied";
-      if (entry.kind === "direction_rejected") return "rejected";
-    }
-    return "pending";
+  /** This log's answer to `outcomeOf`, over the entries it still holds. */
+  outcomeOf(promptVersion: number): DirectionOutcome {
+    return outcomeOf(this.entries, promptVersion);
   }
 }

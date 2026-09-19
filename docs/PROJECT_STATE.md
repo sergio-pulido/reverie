@@ -1021,9 +1021,19 @@ shift while it grows.
   Discover-scoped, so the jam room needs room-scoped commands and an attachment path, not a
   provider. And the live-media exclusions are now explicitly about participant media travelling
   inward, distinct from a generated stream travelling outward to viewers.
-- The scene contract and `docs/specs/story-outline.md` are two halves of one path — this one is
-  the gate, the outline is what the change is — with one question left open for the user rather
-  than settled between agents: whether a beat edit is gated by a vote at all.
+- The scene contract's scope is now drawn where the product draws it: **any modification to the
+  history triggers a refactor downstream, and modifications are made from one centralized place**,
+  which the product's other elements interact with. There are several ways to edit it — up and
+  down votes on parts of the future, chat, polls, direct rewrites — and defining those ways is
+  other efforts' work. So the contract owns the envelope (`expectedStateVersion`, idempotent
+  `requestId`, serialization, the atomic commit) and the gate (authorization, and refusal at the
+  lock boundary); `docs/specs/story-outline.md` owns what a modification is and how it cascades;
+  and voting appears only as one mechanism among several, shown for what the envelope must carry
+  rather than as the way the product decides. Centralization is what lets the envelope, the
+  version counter and the lock boundary be written once instead of per mechanism.
+- Also recorded there: `withJamLock` is an in-process mutex, so the serialization protecting
+  portion edits and reverts today is correct in the local Express host and silently insufficient
+  the moment those routers deploy as Vercel functions, where many instances run at once.
 - **Documentation only.** No application code, test, migration or provider call was added or
   changed in this slice, and nothing here is a claim that any of it works.
 

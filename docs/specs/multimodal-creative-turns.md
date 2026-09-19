@@ -69,6 +69,14 @@ moves the descriptor to `normalized`, and participants receive our own bytes thr
 route, never a storage or provider URL. Per-jam count and total-size caps are required, and they
 are storage caps, not spend caps.
 
+**Give references their own bucket.** The adjacent director-archive work learned this the
+expensive way: sharing one bucket across two media kinds meant uploads were rejected because the
+bucket's allowed mime types belonged to the other kind, and the failure was swallowed, so an
+archive would have been lost without a sound. References have their own mime and size
+constraints, different again from generated clips and from archived segments, so they get a
+bucket rather than a prefix inside someone else's. And a store that swallows an upload error is
+worse than one that fails loudly: it loses the contribution silently.
+
 **Voice.** The speech-to-text half of this **already exists and should be reused, not rebuilt.**
 `apps/server/providers/slng.ts` is a typed SLNG adapter with a server-owned model allowlist
 (`slng/deepgram/nova:3-en`), and it is reachable two ways: `POST /api/voice/transcribe` (one
@@ -171,7 +179,11 @@ they remain correct, and this document does not bring any of them into scope.
 different feature with a different transport, and work is in flight on branches that have not
 merged: live HLS delivery of the generated stream, and durable per-segment archiving of it. Read
 nothing here as a claim that Reverie cannot broadcast a generated stream to multiple viewers.
-None of that provider path has been probed, so it is "implemented, unprobed" at best until a
-dated receipt exists in `docs/DECISIONS.md`; the sessions building it own its documentation,
-including refreshing the implementation status of
+
+Both are designed and partly built on top of a capture path that is **switched off**: muxing the
+media track on the server thread pinned the event loop and stopped the server answering — the
+route that ends the paid provider session included — so recording is opt-in behind an environment
+flag and off by default until it runs off-thread. Nothing in that direction has been probed
+either. So it is "designed, partly built, disabled" — not working. The sessions building it own
+its documentation, including refreshing the implementation status of
 `docs/specs/configuration-keyed-streams.md`, which their work makes stale.

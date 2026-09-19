@@ -20,6 +20,32 @@ The result is a room that can talk and propose but cannot decide. The `collectin
 accepted → generating → ready` lifecycle in `docs/STATE_MACHINE.md` has no implementation at any
 step, and the Studio says so on screen (`src/screens/Studio.tsx`).
 
+## What this contract owns — and what it does not
+
+The product's shape, as the user states it: **any modification to the history triggers a refactor
+downstream, and modifications are made from one centralized place.** The different elements of the
+product interact with that history manager. There are several ways to edit it — up and down votes
+on parts of the future, chat, polls, direct rewrites — and **the definition of those ways is the
+subject of other efforts, not this document.**
+
+So the boundary is:
+
+| | Owned here | Owned elsewhere |
+| --- | --- | --- |
+| The envelope every modification travels in — `expectedStateVersion`, idempotent `requestId`, serialization, the atomic commit | ✅ | |
+| The gate — that a modification is authorized, and refused when it would touch a played or locked portion | ✅ | |
+| What a modification *is*, and how it cascades into the script | | `docs/specs/story-outline.md` |
+| The ways to trigger one — voting rules, polls, chat, direct edit | | other efforts |
+
+Voting appears below as **one mechanism, described to show what the envelope must carry** — not as
+the definition of how the product decides. Its rules are somebody else's to fix, and this document
+deliberately does not fix them.
+
+The centralization is the load-bearing part. Because every mechanism reaches the history through
+one manager, the envelope, the version counter and the lock boundary are written once here rather
+than re-implemented per mechanism. A mechanism that writes to the history any other way is a bug,
+however it is triggered.
+
 ## Vocabulary
 
 - **Proposal** — one participant's queued creative suggestion. Already durable.
@@ -109,7 +135,30 @@ Whichever is chosen, it is a decision to record in `docs/DECISIONS.md`, not an i
 detail. (This constraint was found by the RV-17 session while cross-checking this spec against
 the code; the anchors above were re-verified here.)
 
-## Voting
+**Exit 1 has more ground under it than the table suggests.** The tables it needs already exist as
+unread migrations — `jam_scripts`, `jam_script_revisions` (with `script jsonb`) and `jam_playback`
+— and the mechanism is already written down in the repository: the structured-revisions migration
+instructs, at `supabase/migrations/20260919190000_structured_script_revisions.sql:40-41`, to "take
+a transaction-level lock on the jam's `jam_scripts` row before reading the lock boundary or
+writing". One constraint shapes the implementation: the server reaches Postgres only through
+`@supabase/supabase-js`, so it gets one transaction per request, which means the mutating half has
+to be `security definer` functions — the pattern `request_jam_admission` and
+`set_jam_member_status` already use. If exit 1 is taken, claims 1 and 7 hold simultaneously and
+this contract is implementable as written.
+
+**A defect the current arrangement hides, and exit 1 also fixes.** `withJamLock` is an in-process
+mutex. The routers it protects are mounted only in the local Express host today, so it works; the
+moment they are deployed as Vercel functions, many instances run at once and a per-process mutex
+serializes nothing. The existing portion-edit and revert protection is therefore correct locally
+and silently insufficient once deployed. Any exit that keeps serialization in Node must replace
+that mutex with something cross-instance; exit 1 gets it from the database transaction.
+
+## Voting — one mechanism, shown for its requirements
+
+Per the boundary above, the voting *rules* belong to another effort. What follows is what the
+envelope must support if voting is among the mechanisms, and it is written to be read that way.
+The user's brief for the outline names up and down votes on parts of the future history, chat and
+polls together as intended mechanisms, so this is one adapter of several, not the path.
 
 `vote.cast` records one active member's vote on one queued proposal.
 
@@ -214,11 +263,17 @@ The two documents meet at a clean seam and neither subsumes the other:
 In the outline's terms a proposal is a proposed edit, and accepting one admits it to the outline
 queue. Read together they describe one path; read alone, each is missing the other half.
 
-**Unresolved between them:** whether a beat edit is gated by a vote at all. This spec assumes
-propose-and-accept; the outline's brief describes direct edits with a cascade and mentions no
-voting. Both can be true — edit rights without a formal vote is still a gate — but which one the
-product wants has not been decided, and it is the one question here that changes what gets built
-rather than how. It needs the user, not a reconciliation between two agents.
+**Settled.** This was briefly an open question — whether a beat edit is gated by a vote at all —
+and it is not open. Both briefs say the same thing: there are to be several ways to modify the
+history (up and down votes on parts of the future, chat, polls, direct rewrites), the history is
+centralized precisely because there are several, and defining those ways is other efforts' work.
+Voting is therefore one mechanism among several rather than the path or a displaced alternative,
+and this contract is the envelope all of them travel in.
+
+One naming hazard survives, and it is real rather than hypothetical. A vote on a **beat** — "not
+this one", producing a re-roll intent with no replacement text — and a vote on a **proposal** —
+deciding whether it is accepted — are different objects. Both are wanted. Both will be called
+"voting" in the UI unless someone names them apart.
 
 ## Open questions (unspecified)
 
@@ -233,8 +288,6 @@ rather than how. It needs the user, not a reconciliation between two agents.
   from and would be the first consumer of story versioning.
 - Whether the durable playback cursor (currently in-memory only) must land first, since a
   restart today returns a jam to `idle` while its clips remain.
-- Whether voting is the mechanism at all, or whether beat edit rights replace it — see
-  "Relationship to the story outline" above. This is a product decision, not a design gap.
 - Which of the three exits in "Prerequisite" is taken. Nothing below it can be built until then.
 
 ## Implementation status

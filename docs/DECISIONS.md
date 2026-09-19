@@ -1,5 +1,43 @@
 # Decisions
 
+## 2026-09-20 — Two ways to reach a film, and neither pretends to be the other
+
+Reverie now has both a conversation (`/discover`) and a catalogue (`/catalog`). The tempting move
+is to make one of them a mode of the other: put a grid behind the conversation, or bolt a chat bar
+onto the grid. Both were refused, and the split is the decision.
+
+**Browsing is not asking.** The conversation exists because a viewer who cannot name what they want
+can say it instead, and every turn costs a model call. Browsing is the opposite request — *show me
+what there is* — and it has to be free, instant and endless. Putting a conversation bar on the
+catalogue would make the cheap surface look like the expensive one and invite a model call from a
+viewer who only wanted to scroll. So the catalogue carries a title field, chips and a grid, and
+nothing that sends a message. Voice is the conversation's input; it is not on the catalogue either.
+
+**Nothing on the catalogue turns a title down.** "Not this one" belongs to the conversation, where
+refusing a film is a statement that shapes the next answer. On a browsing grid it would be an
+edit to a catalogue the viewer does not own, with no turn to carry it, so the action is simply not
+offered rather than offered and made inert.
+
+**The grid says which order it is in.** Unrefined it is the order the catalogue query answered, and
+nothing claims more. Once a chip narrows it, the shortlist is ordered by the deterministic scorer
+and the line above the grid says *Ranked by genre match*. The catalogue never calls the assistant,
+so it can never show a model's ranking — and, just as important, can never show a "Ranking…" state
+for something that will not happen. A ranking is named by what produced it or it is not named.
+
+**A refined grid stops paging, on purpose.** Filters are applied in Postgres over the whole
+catalogue, so a refined read is one shortlist of 48 rows rather than an endless walk through pages
+the database has already rejected. Paging a filtered feed would mean asking for page after page of
+rows that mostly do not match, and it would let the scorer's order change under the viewer as pages
+arrived. One shortlist, ranked once, is the honest shape of "everything that fits this".
+
+**A film page is a layer over whatever opened it.** The home already drew the film page over itself
+so its shelves, scroll and focus survived; the catalogue needs exactly that, for its loaded pages.
+Rather than add a second special case, `App.tsx` now reads the history entry the film was opened
+from and draws the page over that screen when it is one that can hold its place
+(`FILM_LAYER_OVER`). Everything else — including a film reached by URL — is Discover's, which is
+where a film with no history behind it should land. The rule is now one sentence instead of two
+exceptions, and the next screen that lists films inherits it by being named.
+
 ## 2026-09-20 — The account menu shows the real anonymous session, not a fabricated identity
 
 The top bar now ends in an avatar with a menu behind it. The obvious way to build that surface is

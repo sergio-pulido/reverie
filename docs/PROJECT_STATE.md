@@ -1350,7 +1350,15 @@ open a PR, merge the PR. The previous split between a "primary agent" pushing di
   decoupled the segmenter from the HLS flag — segments are muxed whenever any sink wants them, and
   `createSegmentSinks` is the per-session seam the durable archive (RV-18) plugs into — and made a
   dead muxer thread report `worker_failed` rather than masquerade as a codec problem.
-- Verified: `pnpm typecheck`, `pnpm test` (668 passing, 31 covering this slice: playlist shape and
+- **A review of the finished branch found six spend/liveness bugs, three introduced by
+  auto-attach** (docs/DECISIONS.md): the join poll releasing the session mid-handshake so fal
+  billed an untracked stream and the next Start bought a second one; a participant's tab close
+  ending the room's stream; the relay's last-peer rule disagreeing with `/end` about who counts as
+  watching; `renew` refreshing the session clock before validating the viewer id, so a stale
+  renewal kept a viewerless stream billing; the segmenter feeding a dead muxer every packet; and
+  `viewerId` read by hand instead of through a schema. Both spend races carry tests verified to
+  fail with the fix reverted.
+- Verified: `pnpm typecheck`, `pnpm test` (671 passing, 31 covering this slice: playlist shape and
   target-duration rounding, the sliding window and its refusal to reuse an evicted address, viewer
   attach/detach/renew and reclaim, the delivery routes served real bytes through an injected live
   sink — which is what proves `segment/:sequence.m4s` parses — and refused honestly, the archive

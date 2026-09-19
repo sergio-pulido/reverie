@@ -191,6 +191,39 @@ bug in the worker. And the delivery routes are now exercised with bytes through 
 live sink — until then every segment request in the suite answered 404 for a reason unrelated to
 the route, so `segment/:sequence.m4s` had never been shown to parse.
 
+**A review of the finished branch found six bugs, three of them introduced by auto-attach, and
+every one of them about spend or about who is watching rather than about pixels.** Recorded
+because the shape recurs: *making the room join automatically turned a rare race into a certainty.*
+
+- **A three-second join poll landed inside the handshake window.** Between `ledger.open` and
+  `streams.set` there is a fal round trip plus up to five seconds of ICE gathering, during which a
+  session is in the ledger but not in the stream map — which is exactly what an orphaned
+  reservation looks like. The poll took the "ledger and stream map disagree" branch and released
+  the session the host was opening, leaving fal billing a stream the server no longer tracked,
+  `renew` answering `404`, reclaim unable to find it, and the configuration unheld so the next
+  Start bought a second stream. A stream key is now marked *opening* across the handshake and a
+  poll that arrives is told `stream_starting` (retryable). Before auto-attach that branch was
+  effectively unreachable; the feature made it routine.
+- **A participant closing a tab ended the stream for the room.** The unmount path sent `/end`
+  with no viewer id, which is the host's outright stop. No participant held a session before
+  auto-attach, so nobody but the host ever reached it. Leaving is now always a detach.
+- **Two liveness rules disagreed.** The relay's last peer closing ended the session from its own
+  set alone, while `/end` consulted that set *and* the counted viewers, so a single ICE flap could
+  settle a session counted viewers were watching. Both ask `stillWatched` now. This changes what
+  RV-16's "last viewer leaving stops the session" test describes — opening a session also counts
+  its opener — so that test detaches the opener before asserting the relay peers are the last of
+  the audience, preserving the spend guarantee it was written for.
+- **`renew` refreshed the session clock before validating the viewer id**, so a backgrounded tab
+  renewing with an id already dropped as stale held a viewerless session open through the very
+  fallback meant to reclaim it, billing indefinitely. The check precedes the refresh.
+- **The segmenter discarded its RTP unsubscribers**, so a stopped or dead muxer kept receiving
+  every packet of the session, serialized on the main thread for nowhere.
+- **`viewerId` was the only participant-supplied body in the router read by hand** rather than
+  through a schema — the one field that decides whether a paid session keeps running.
+
+The two spend races are covered by tests verified to fail with the fixes reverted, which is the
+only evidence that a regression test for a race is worth anything.
+
 **Live delivery is off by default** (`REVERIE_DIRECTOR_HLS`), alongside recording's own
 `REVERIE_DIRECTOR_RECORD`. It stays off until a real session demonstrates that `/end` answers
 while the worker is mid-segment.

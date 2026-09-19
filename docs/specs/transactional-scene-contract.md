@@ -137,10 +137,23 @@ the code; the anchors above were re-verified here.)
 
 **Exit 1 has more ground under it than the table suggests.** The tables it needs already exist as
 unread migrations — `jam_scripts`, `jam_script_revisions` (with `script jsonb`) and `jam_playback`
-— and the mechanism is already written down in the repository: the structured-revisions migration
-instructs, at `supabase/migrations/20260919190000_structured_script_revisions.sql:40-41`, to "take
-a transaction-level lock on the jam's `jam_scripts` row before reading the lock boundary or
-writing". One constraint shapes the implementation: the server reaches Postgres only through
+— and the mechanism is prescribed in **two independent places** in the repository:
+
+- the comment on the `JamStore` interface (`apps/server/jams.ts:44-47`) requires that a Supabase
+  implementation serialize per-jam mutations — `updatePortion`, `revertScriptToRevision`,
+  `updatePlayback` — with, for example, a transaction holding a row lock on the jam's script row;
+- the trailing note in the structured-revisions migration
+  (`supabase/migrations/20260919190000_structured_script_revisions.sql:40-41`, after the
+  `jam_playback` policies) instructs to take a transaction-level lock on the jam's `jam_scripts`
+  row before reading the lock boundary or writing.
+
+Those are not two mentions of one idea. They were written by different slices of work — the
+storage work and the structured-revisions work — which arrived at the same row-lock design without
+coordinating. Convergent evidence from independent authors is what makes exit 1 look like the
+shape the system was always heading for, rather than a preference formed while writing this
+document.
+
+One constraint shapes the implementation: the server reaches Postgres only through
 `@supabase/supabase-js`, so it gets one transaction per request, which means the mutating half has
 to be `security definer` functions — the pattern `request_jam_admission` and
 `set_jam_member_status` already use. If exit 1 is taken, claims 1 and 7 hold simultaneously and

@@ -13,10 +13,15 @@
   --attribution-height: 64px;
   --control-height: 92px;
   --card-width: 200px;
+  /* What is on screen, and how much of the bottom a phone's keyboard has taken. `useViewport`
+     publishes both from the visual viewport; without it the whole screen is assumed. */
+  --screen: var(--search-viewport, 100dvh);
+  --keyboard: var(--search-keyboard, 0px);
 }
 .search-shell {
   --attribution-space: 0px;
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   background: radial-gradient(circle at 78% 4%, #2a2e4d 0, transparent 30rem), linear-gradient(160deg, #070a11 0%, #0a0f1a 60%, #131228 100%);
@@ -84,6 +89,7 @@
   margin: 0 calc(-1 * var(--safe-x)) 0 -12px;
   padding: 20px var(--safe-x) 26px 60px;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
   list-style: none;
   scrollbar-width: none;
 }
@@ -207,7 +213,7 @@ button.search-card:hover .search-card-poster { box-shadow: 0 0 0 3px rgba(207, 2
 /* The dock: the strip of what is narrowing, and the field. It stays on screen as the talk grows. */
 .search-dock {
   position: sticky;
-  bottom: var(--attribution-space);
+  bottom: calc(var(--attribution-space) + var(--keyboard));
   z-index: 4;
   display: grid;
   gap: 12px;
@@ -294,6 +300,7 @@ button.search-card:hover .search-card-poster { box-shadow: 0 0 0 3px rgba(207, 2
   font-weight: 700;
   transition: transform .16s ease, background-color .16s ease;
 }
+.search-send-mark { display: none; }
 .search-send:disabled { opacity: .5; cursor: default; }
 .search-send:focus-visible, :root:not([data-input="pointer"]) .search-send:focus {
   outline: 5px solid var(--focus);
@@ -313,6 +320,7 @@ button.search-card:hover .search-card-poster { box-shadow: 0 0 0 3px rgba(207, 2
   margin: 0 -10px;
   padding: 10px;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
   scrollbar-width: none;
 }
 .search-strip::-webkit-scrollbar { display: none; }
@@ -359,7 +367,7 @@ button.search-card:hover .search-card-poster { box-shadow: 0 0 0 3px rgba(207, 2
 .search-overlay {
   position: fixed;
   z-index: 40;
-  inset: 0;
+  inset: 0 0 var(--keyboard);
   display: grid;
   place-items: center;
   padding: 4vh var(--safe-x);
@@ -456,6 +464,7 @@ button.search-card:hover .search-card-poster { box-shadow: 0 0 0 3px rgba(207, 2
   gap: 22px;
   width: 100%;
   max-height: 92vh;
+  max-height: calc(var(--screen) * .92);
   overflow-y: auto;
   padding: 34px var(--safe-x) 24px;
   border-top: 1px solid rgba(207, 215, 255, .25);
@@ -489,37 +498,162 @@ button.search-card:hover .search-card-poster { box-shadow: 0 0 0 3px rgba(207, 2
   .search-field input { font-size: 24px; }
   .search-send { font-size: 22px; padding: 0 26px; }
 }
+/* A phone, held in one hand, with a software keyboard over the bottom half of the screen the
+   moment the field is tapped. Every number below is chosen for that, not scaled down from the
+   television: the resting state sits high, the row of controls gives its width to the field, the
+   poster rows and the strip are pulled by the finger on them, and both layers become sheets. */
 @media (max-width: 720px) {
-  /* The attribution wraps to four lines on a phone; its reserved height follows. */
-  .search-shell, .search-layer, .search-overlay { --card-width: 132px; --control-height: 60px; --attribution-height: 116px; }
-  .search-shell-resting .search-stage { gap: 28px; padding-bottom: 8vh; }
-  .search-invitation { font-size: 38px; }
-  .search-turns { gap: 44px; }
+  .search-shell, .search-layer, .search-overlay {
+    --safe-x: 16px;
+    --card-width: 132px;
+    --control-height: 56px;
+    /* The attribution wraps to four lines on a phone; its reserved height follows. */
+    --attribution-height: 116px;
+  }
+
+  /* At rest, high: the heading and the field stand near the top of the screen, so a keyboard
+     opening under them covers nothing that is being read or typed into. */
+  .search-shell-resting .search-stage {
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 20px;
+    padding: 8dvh var(--safe-x) 0;
+  }
+  .search-invitation { font-size: 34px; letter-spacing: -.03em; text-align: left; }
+
+  .search-turns { gap: 44px; padding: 0 var(--safe-x); }
   .search-line { max-width: 92%; font-size: 18px; }
   .search-line-viewer { padding: 12px 18px; }
-  .search-line-assistant, .search-line-system, .search-results-caption, .search-results-empty { padding-left: 32px; }
+  .search-line-assistant, .search-line-system, .search-results-caption, .search-results-empty { padding-left: 30px; }
   .search-line-assistant::before { font-size: 22px; }
   .search-results-caption { font-size: 14px; }
-  .search-track { gap: 18px; padding-left: 44px; }
-  .search-card-title { font-size: 16px; }
-  .search-card-year { font-size: 15px; }
-  .search-card-pick { font-size: 12px; padding: 3px 7px; }
+
+  /* A poster row runs from the gutter off the right edge and is dragged with the thumb. Its
+     cards settle on the gutter so a row never rests showing a sliver of one. */
+  .search-track {
+    gap: 12px;
+    margin: 0 calc(-1 * var(--safe-x));
+    padding: 12px var(--safe-x) 18px;
+    scroll-snap-type: x proximity;
+    scroll-padding-left: var(--safe-x);
+  }
+  .search-card-slot { scroll-snap-align: start; }
+  .search-card-title { min-height: 2.5em; margin-top: 6px; font-size: 15px; }
+  .search-card-year { font-size: 14px; }
+  .search-card-pick { top: 6px; left: 6px; padding: 3px 7px; font-size: 12px; }
+
+  .search-pending { margin-top: 36px; }
   .search-pending-text, .search-pending-placeholder { font-size: 20px; }
-  .search-heard-chip, .search-chip { font-size: 16px; padding: 9px 15px; }
-  .search-dock { padding: 20px var(--safe-x) 14px; }
-  .search-composer-form { gap: 10px; }
-  .search-field input { padding: 0 16px; font-size: 18px; border-radius: 14px; }
-  .search-send { padding: 0 16px; font-size: 17px; border-radius: 14px; }
-  .search-status { padding-left: 0; font-size: 16px; }
-  .voice-control-icon { width: 28px; height: 28px; }
-  .search-preview-body { grid-template-columns: minmax(0, 1fr); gap: 20px; padding: 120px 20px 20px; }
-  .search-preview-poster { width: 120px; }
-  .search-preview-summary h2 { font-size: 32px; }
-  .search-preview-headline, .search-preview-synopsis { font-size: 17px; }
-  .search-preview-attribution { padding: 12px 20px 16px; font-size: 13px; }
-  .search-panel-head h2 { font-size: 34px; }
+  .search-heard-chip { font-size: 16px; padding: 9px 15px; }
+  .search-results-preview .search-card-slot { width: 112px; }
+
+  /* The dock: its own padding clears a phone's home indicator, and the keyboard lifts it. */
+  .search-dock { padding: 14px var(--safe-x) calc(12px + env(safe-area-inset-bottom, 0px)); }
+  .search-composer-form { gap: 8px; }
+  .search-field input { padding: 0 14px; border-width: 2px; border-radius: 14px; font-size: 17px; }
+  .voice-control { border-width: 2px; }
+  .voice-control-icon { width: 26px; height: 26px; }
+  /* The send button gives its label back to the field and keeps the arrow: two words and a
+     microphone beside a 360-pixel field leave nothing to read what is being typed. */
+  .search-send { width: var(--control-height); padding: 0; border-width: 2px; border-radius: 14px; font-size: 26px; font-weight: 400; }
+  .search-send-word {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .search-send-mark { display: block; line-height: 1; }
+  .search-status { padding-left: 0; font-size: 15px; }
+
+  /* The strip: thumb-sized chips, dragged sideways, with Filters held at the leading edge so it
+     is never scrolled out of reach. */
+  .search-strip { gap: 8px; margin: 0; padding: 6px 0; scroll-padding-left: 0; }
+  .search-strip-label { font-size: 14px; }
+  .search-strip-notice { font-size: 15px; }
+  .search-chip { min-height: 44px; padding: 10px 16px; font-size: 15px; }
+  .search-chip-filters {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: #0b0f1b;
+    box-shadow: 8px 0 12px #080b13;
+  }
+
+  /* Both layers are sheets: they stand on the bottom of the screen and fill its width. */
+  .search-overlay { place-items: end stretch; padding: 0; }
+  .search-preview-sheet {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: var(--screen);
+    overflow: hidden;
+    border: 0;
+    border-radius: 0;
+  }
+  .search-preview-sheet .search-preview-body {
+    flex: 1;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
+    align-items: start;
+    gap: 14px;
+    padding: 88px var(--safe-x) 20px;
+    overflow-y: auto;
+  }
+  .search-preview-sheet .search-preview-attribution { flex: none; gap: 10px; padding: 10px var(--safe-x) calc(10px + env(safe-area-inset-bottom, 0px)); font-size: 12px; line-height: 1.3; }
+  .search-preview-backdrop { height: 200px; }
+  .search-preview-poster { width: 104px; }
+  .search-preview-summary h2 { font-size: 30px; }
+  .search-preview-headline { font-size: 16px; }
+  .search-preview-genres li { font-size: 15px; padding: 5px 12px; }
+  /* Four lines: the preview is for triage, and both of its actions belong on the screen with it. */
+  .search-preview-synopsis { margin-bottom: 18px; font-size: 16px; -webkit-line-clamp: 4; }
+  /* The two actions, full width and stacked: a thumb reaches the bottom of the screen, not a row
+     of buttons wrapped into a corner. */
+  .search-preview-actions { display: grid; gap: 10px; }
+  .search-preview-actions .tv-action { width: 100%; min-height: 52px; }
+  .search-preview-close {
+    position: absolute;
+    z-index: 2;
+    top: 10px;
+    right: 10px;
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 1px solid rgba(213, 218, 255, .35);
+    border-radius: 50%;
+    background: rgba(8, 11, 19, .72);
+    color: var(--ink);
+    font-size: 26px;
+    line-height: 1;
+  }
+
+  /* The filter panel: the same sheet, and Done stays on the screen however far the chips run. */
+  .search-panel { gap: 16px; max-height: calc(var(--screen) - 32px); padding: 18px var(--safe-x) 0; }
+  .search-panel-head h2 { font-size: 30px; }
   .search-panel-count { font-size: 15px; }
+  .search-panel-notice, .search-panel-empty { font-size: 16px; }
+  /* Chips wrap here rather than scrolling: a thumb should see every genre, not discover them. */
+  .search-panel-chips { flex-wrap: wrap; gap: 8px; margin: 0; padding: 4px 0; overflow-x: visible; }
+  .search-panel .search-track { margin: 0 calc(-1 * var(--safe-x)); padding-left: var(--safe-x); }
+  .search-panel-actions {
+    position: sticky;
+    bottom: 0;
+    margin: 0 calc(-1 * var(--safe-x));
+    padding: 12px var(--safe-x) calc(12px + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid rgba(213, 218, 255, .12);
+    background: #0c111e;
+  }
+  .search-panel-actions .tv-action { width: 100%; min-height: 52px; }
+  .search-panel .search-preview-attribution { padding: 14px 0 0; font-size: 13px; }
 }
+
 @media (prefers-reduced-motion: reduce) {
   .search-card, .search-chip, .voice-control, .search-field input, .search-send { transition: none; }
   .search-card:focus-visible, .search-chip:focus-visible, .voice-control:focus-visible, .search-field input:focus-visible, .search-send:focus-visible,

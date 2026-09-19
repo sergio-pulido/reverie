@@ -1348,6 +1348,31 @@ open a PR, merge the PR. The previous split between a "primary agent" pushing di
   stored session was removed, the app landed on `/`, and the next visit signed in as a different
   anonymous user (`c2f120dd…` → `3965a8c4…`) whose avatar drew a different derived colour.
 
+## 2026-09-20 — Search on a phone
+
+`/search` was drawn for a television and read badly in one hand. The screen now has a phone
+layout of its own, inside `src/search/` only:
+
+- At rest the heading and the field stand near the top of the screen instead of its middle, so a
+  software keyboard opening under them covers nothing. A phone keyboard does not resize the page —
+  it shrinks what is visible and leaves the page its height — so `useViewport` reads the visual
+  viewport and publishes the height left and what is covered; the sticky dock and both layers
+  stand on that, and `dvh` covers the browsers that resize the page instead.
+- The field has its own shorter invitations: the television's eight-word placeholder was cut
+  mid-word in a 264-pixel field.
+- The composer's send button keeps its arrow and gives its word to a screen reader, which returns
+  40 pixels to the field; the microphone keeps a thumb-sized circle at the field's leading edge.
+- A turn's row runs from the gutter off the right edge, snaps its cards to the gutter and keeps a
+  sideways drag to itself. The strip's chips are 44 pixels tall and Filters stays at its leading
+  edge. The filter panel's chips wrap rather than scroll, and Done stays against the bottom.
+- The preview fills the screen as a sheet rather than being a centred dialog taller than the
+  screen, and carries a close control there — a full-height sheet leaves no backdrop to press. A
+  remote still closes it with Back and never sees one.
+
+Nothing about the engine, the turn snapshots, the two preview actions or the remote's focus model
+changed. Verified in Chrome at 360×800 and 390×844, and held by DOM tests at 360 that read the
+real stylesheet at that width (`tests/searchPhone.dom.test.tsx`).
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

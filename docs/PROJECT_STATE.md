@@ -25,6 +25,11 @@
 - Movie Jam generated work remains separate from catalogue records and must be explicitly labelled as generated.
 - No Titan catalogue credentials, API contract, or real catalogue data has been added yet.
 
+## 2026-09-19 — Galtea evaluation specification added
+
+- `docs/GALTEA_AGENT_SPEC.md` defines the Discover Agent and Movie Jam Story Director behaviour, refusal boundaries, grounding rules, and adversarial evaluation scenarios.
+- It is ready to upload as a product specification during Galtea onboarding; no Galtea account, SDK, or evaluation run has been added yet.
+
 ## Next milestone
 
 Implement an independently testable local Jam room: server-owned room state, name/admission flow, shared WebSocket presence and chat, proposal queue, vote state, and a host-controlled scene transition. Provider adapters remain disabled until their individual probes pass.

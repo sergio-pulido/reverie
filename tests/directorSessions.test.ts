@@ -125,3 +125,27 @@ test("the budget refuses the session that would cross it", () => {
   assert.equal(ledger.open("c"), "budget_exhausted"); // would be $14.40
   assert.equal(ledger.remainingUsd.toFixed(2), "0.40");
 });
+
+test("a handshake that never opened refunds its whole reservation", () => {
+  const now = { value: 0 };
+  const ledger = ledgerAt(now, { maxSessionSeconds: 120 });
+  const session = ledger.open("jam") as { sessionId: string };
+  assert.equal(ledger.committedUsd.toFixed(2), "9.60");
+
+  // fal refused it, so there is no session to bill a 60-second minimum for.
+  assert.ok(ledger.release(session.sessionId));
+  assert.equal(ledger.committedUsd, 0);
+  assert.equal(ledger.openCount, 0);
+  assert.equal(ledger.release(session.sessionId), false);
+});
+
+test("release and close are not interchangeable", () => {
+  const now = { value: 0 };
+  const ledger = ledgerAt(now, { maxSessionSeconds: 120, maxConcurrentSessions: 2 });
+  const opened = ledger.open("ran") as { sessionId: string };
+  const refused = ledger.open("never-ran") as { sessionId: string };
+
+  ledger.close(opened.sessionId); // billed at the 60s minimum: $4.80
+  ledger.release(refused.sessionId); // billed nothing
+  assert.equal(ledger.committedUsd.toFixed(2), "4.80");
+});

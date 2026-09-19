@@ -98,8 +98,9 @@ export function createDirectorRouter(
         maxSessionSeconds: limits.maxSessionSeconds,
       });
     } catch (error) {
-      // A session that never opened must not keep holding its reservation.
-      ledger.close(session.sessionId);
+      // fal refused the handshake, so no session exists on their side and
+      // nothing will be billed: refund it rather than settling it.
+      ledger.release(session.sessionId);
       if (error instanceof DirectorError) {
         sendError(response, 502, "director_unavailable", error.message, error.retryable);
         return;

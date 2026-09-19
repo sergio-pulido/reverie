@@ -135,6 +135,21 @@ export class DirectorSessionLedger {
     return true;
   }
 
+  /**
+   * Cancels a session that never started, refunding the whole reservation.
+   *
+   * Only for a handshake fal refused: no session existed on their side, so
+   * billing it the 60-second minimum would charge the budget for nothing. A
+   * session that opened must go through `close` instead.
+   */
+  release(sessionId: string): boolean {
+    const session = this.sessions.get(sessionId);
+    if (!session) return false;
+    this.spentUsd -= session.reservedUsd;
+    this.sessions.delete(sessionId);
+    return true;
+  }
+
   /** Settles a session: the reservation is replaced by what it actually ran. */
   close(sessionId: string): boolean {
     const session = this.sessions.get(sessionId);

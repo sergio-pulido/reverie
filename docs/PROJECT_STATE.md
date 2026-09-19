@@ -177,7 +177,8 @@ produce that evidence.
 
 ### Verification
 
-Passed locally: `pnpm typecheck`, `pnpm test` (111 passing, 13 of them new and covering
+Passed locally after rebasing onto the RV-06 playback work: `pnpm typecheck`, `pnpm test`
+(118 passing, 13 of them new and covering
 invite state derivation, revocation outranking expiry, an unparseable expiry, the host-facing
 description never leaking a raw timestamp, rotation-lifetime bounds, the invite-code schema
 rejecting lookalikes, a jam row no longer carrying `invite_code`, and the throttle mapping to

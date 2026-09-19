@@ -1,4 +1,5 @@
 import { DIRECTOR_MIN_BILLED_SECONDS } from "./providers/falDirector";
+import { readPositive, SpendAccount } from "./spendLedger";
 
 /**
  * Server-owned accounting for Director sessions.
@@ -9,6 +10,10 @@ import { DIRECTOR_MIN_BILLED_SECONDS } from "./providers/falDirector";
  * and closing it refunds the difference between that and what it actually ran.
  * A session nobody closes expires on its own, because the alternative is a
  * budget that leaks whenever a browser tab dies.
+ *
+ * The money itself lives in a `SpendAccount` shared with everything else this
+ * process can spend, so `FAL_ASSET_BUDGET_USD` stays a ceiling on the process
+ * rather than one each feature gets a private copy of.
  */
 
 /** fal's list price per generated second; the promotional rate is lower. */
@@ -28,29 +33,24 @@ export function resolveDirectorLimits(
   env: NodeJS.ProcessEnv,
 ): DirectorSessionLimits {
   return {
-    budgetUsd: positiveNumber(env.FAL_ASSET_BUDGET_USD, 0),
-    usdPerSecond: positiveNumber(
+    budgetUsd: readPositive(env.FAL_ASSET_BUDGET_USD, 0),
+    usdPerSecond: readPositive(
       env.REVERIE_DIRECTOR_USD_PER_SECOND,
       DEFAULT_USD_PER_SECOND,
     ),
     maxConcurrentSessions: Math.max(
       1,
-      Math.floor(positiveNumber(env.REVERIE_DIRECTOR_MAX_SESSIONS, 1)),
+      Math.floor(readPositive(env.REVERIE_DIRECTOR_MAX_SESSIONS, 1)),
     ),
     // 120s reserves $9.60 at list price, so two streams still fit the $20
     // budget the project ships with. A higher ceiling is an explicit choice.
     maxSessionSeconds: Math.max(
       DIRECTOR_MIN_BILLED_SECONDS,
       Math.floor(
-        positiveNumber(env.REVERIE_DIRECTOR_MAX_SESSION_SECONDS, 120),
+        readPositive(env.REVERIE_DIRECTOR_MAX_SESSION_SECONDS, 120),
       ),
     ),
   };
-}
-
-function positiveNumber(raw: string | undefined, fallback: number): number {
-  const value = Number(raw?.trim());
-  return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
 export type SessionRefusal =
@@ -73,13 +73,18 @@ export interface OpenSession {
 
 export class DirectorSessionLedger {
   private readonly sessions = new Map<string, OpenSession>();
-  private spentUsd = 0;
   private counter = 0;
+  private readonly account: SpendAccount;
 
   constructor(
     private readonly limits: DirectorSessionLimits,
     private readonly now: () => number = () => Date.now(),
-  ) {}
+    account?: SpendAccount,
+  ) {
+    // A ledger given no account gets one of its own at its own limit, which is
+    // what tests want; the server passes the process-wide account instead.
+    this.account = account ?? new SpendAccount(limits.budgetUsd);
+  }
 
   /** Worst-case cost of a session that runs to its allowed limit. */
   private reservationUsd(): number {
@@ -95,11 +100,11 @@ export class DirectorSessionLedger {
   }
 
   get committedUsd(): number {
-    return this.spentUsd;
+    return this.account.committedUsd;
   }
 
   get remainingUsd(): number {
-    return Math.max(0, this.limits.budgetUsd - this.spentUsd);
+    return this.account.remainingUsd;
   }
 
   open(streamKey: string): OpenSession | SessionRefusal {
@@ -117,9 +122,7 @@ export class DirectorSessionLedger {
       return "too_many_sessions";
     }
     const reservedUsd = this.reservationUsd();
-    if (this.spentUsd + reservedUsd > this.limits.budgetUsd) {
-      return "budget_exhausted";
-    }
+    if (!this.account.commit(reservedUsd)) return "budget_exhausted";
     this.counter += 1;
     const at = this.now();
     const session: OpenSession = {
@@ -129,7 +132,6 @@ export class DirectorSessionLedger {
       lastSeenAt: at,
       reservedUsd,
     };
-    this.spentUsd += reservedUsd;
     this.sessions.set(session.sessionId, session);
     return session;
   }
@@ -152,7 +154,7 @@ export class DirectorSessionLedger {
   release(sessionId: string): boolean {
     const session = this.sessions.get(sessionId);
     if (!session) return false;
-    this.spentUsd -= session.reservedUsd;
+    this.account.refund(session.reservedUsd);
     this.sessions.delete(sessionId);
     return true;
   }
@@ -167,8 +169,7 @@ export class DirectorSessionLedger {
 
   private settle(session: OpenSession): void {
     const ranSeconds = (this.now() - session.startedAt) / 1000;
-    const billed = Math.min(session.reservedUsd, this.billedUsd(ranSeconds));
-    this.spentUsd = this.spentUsd - session.reservedUsd + billed;
+    this.account.settle(session.reservedUsd, this.billedUsd(ranSeconds));
     this.sessions.delete(session.sessionId);
   }
 

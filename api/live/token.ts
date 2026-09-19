@@ -130,13 +130,24 @@ export default async function liveToken(
       return;
     }
 
-    // A session is created only when the jam has none; the database settles the race so
-    // two members opening the stage at the same moment land in one room.
-    const created = await createVideoSession(vonage, options);
-    const sessionId = await callRpc(supabase, accessToken, "ensure_jam_live_session", {
+    // Reserve durable ownership before creating an external room. Without this step every
+    // concurrent join could allocate an unused Vonage session before Postgres settled on one.
+    const reservation = await callRpc(supabase, accessToken, "reserve_jam_live_session", {
       p_jam_id: jamId,
-      p_provider_session_id: created,
     }, options);
+    const reserved = reservation as { state?: unknown; sessionId?: unknown; reservationId?: unknown };
+    let sessionId: unknown = reserved.sessionId;
+    if (reserved.state === "reserved" && typeof reserved.reservationId === "string") {
+      const created = await createVideoSession(vonage, options);
+      sessionId = await callRpc(supabase, accessToken, "finalize_jam_live_session", {
+        p_jam_id: jamId,
+        p_reservation_id: reserved.reservationId,
+        p_provider_session_id: created,
+      }, options);
+    } else if (reserved.state !== "ready") {
+      fail(response, 503, "LIVE_SESSION_PENDING", "The live stage is opening. Try again shortly.", true);
+      return;
+    }
     if (typeof sessionId !== "string" || sessionId.length < 16) {
       fail(response, 502, "LIVE_UPSTREAM_ERROR", "The live stage is not available right now.", true);
       return;

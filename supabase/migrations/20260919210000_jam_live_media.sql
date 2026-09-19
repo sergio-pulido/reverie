@@ -1,6 +1,6 @@
 -- Reverie Movie Jam: opt-in live media. One Vonage session per jam, and a consent register
 -- that records owner, purpose, lifetime and a server-issued asset reference.
--- Apply after 20260919190000_jam_collaboration.sql.
+-- Apply after 20260919200000_jam_invite_lifecycle.sql.
 --
 -- Nothing here stores media. It stores permission to publish a live track and the reference
 -- the rest of the product may cite. Recording, export and transformation are separate

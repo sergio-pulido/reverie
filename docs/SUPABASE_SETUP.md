@@ -8,8 +8,10 @@ Reverie uses Supabase as the authoritative store for Jam rooms, membership, chat
 2. Enable **Anonymous Sign-Ins** in Auth. This gives each browser a real `auth.uid()` without asking a HackBarna audience member to create an account.
 3. Run every migration in `supabase/migrations` in filename order through the SQL Editor or
    Supabase CLI: `20260919140000_initial_jams.sql`, `20260919160000_jam_lobby_admission.sql`,
-   `20260919170000_script_format_and_sessions.sql`, `20260919180000_jam_scripts.sql`, then
-   `20260919190000_jam_collaboration.sql`. The last migration adds `jam_messages`,
+   `20260919170000_script_format_and_sessions.sql`, `20260919180000_jam_scripts.sql`,
+   `20260919190000_jam_collaboration.sql`, `20260919200000_jam_invite_lifecycle.sql`, then
+   `20260919210000_jam_live_media.sql` and `20260919211000_live_session_reservation.sql`.
+   The collaboration migration adds `jam_messages`,
    `jam_proposals` and `jam_members` to the `supabase_realtime` publication and creates the
    `realtime.messages` policies that authorize the private `jam:<id>` channel, so no manual
    publication step is needed.
@@ -34,10 +36,12 @@ Add the same `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` values to the Verc
 ## Current scope
 
 The migrations support server-authoritative Jam records, script/session metadata, invite
-entitlement, display names, the waiting lobby, host admission and removal, append-only chat
-and proposals, Postgres Changes and a private Presence channel. Membership is mutated only through
+entitlement and lifecycle, display names, the waiting lobby, host admission and removal,
+append-only chat and proposals, Postgres Changes, a private Presence channel, and opt-in
+live-media consent/session records. Membership is mutated only through
 `request_jam_admission` and `set_jam_member_status`; the browser has no write policy on
-`jam_members`. Votes, scene transitions, forks, Storage and every provider call remain
+`jam_members`. Live-session creation is reserved in Postgres before the server calls Vonage,
+so concurrent joins create one provider room. Votes, scene transitions, forks, Storage and every provider call remain
 subsequent milestones. Do not weaken RLS just to make a demo appear to work.
 
 ## Verification and security boundary

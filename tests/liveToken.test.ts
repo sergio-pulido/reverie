@@ -68,7 +68,10 @@ function supabaseFetch(overrides: { status?: string; role?: "host" | "member"; j
     if (target.includes("/rest/v1/jams")) {
       return new Response(JSON.stringify([{ status: overrides.jamStatus ?? "live" }]), { status: 200 });
     }
-    if (target.includes("/rest/v1/rpc/ensure_jam_live_session")) {
+    if (target.includes("/rest/v1/rpc/reserve_jam_live_session")) {
+      return new Response(JSON.stringify({ state: "reserved", reservationId: "30000000-0000-4000-8000-000000000003" }), { status: 200 });
+    }
+    if (target.includes("/rest/v1/rpc/finalize_jam_live_session")) {
       return new Response(JSON.stringify(SESSION_ID), { status: 200 });
     }
     if (target.includes("video.api.vonage.com")) {
@@ -161,7 +164,29 @@ test("an active member receives a publisher token bound to the jam's session", a
 
   assert.ok(calls.some((url) => url.endsWith("/auth/v1/user")), "identity is resolved from Auth, not from the body");
   assert.ok(calls.some((url) => url.includes(`user_id=eq.${USER_ID}`)), "membership is read for the authenticated user");
-  assert.ok(calls.some((url) => url.includes("ensure_jam_live_session")), "the session id is settled by the database");
+  const reserveIndex = calls.findIndex((url) => url.includes("reserve_jam_live_session"));
+  const providerIndex = calls.findIndex((url) => url.includes("video.api.vonage.com"));
+  const finalizeIndex = calls.findIndex((url) => url.includes("finalize_jam_live_session"));
+  assert.ok(reserveIndex >= 0, "the database reserves session creation before contacting Vonage");
+  assert.ok(providerIndex > reserveIndex, "Vonage is called only by the reservation owner");
+  assert.ok(finalizeIndex > providerIndex, "the provider session is finalized after creation");
+});
+
+test("a concurrent opener sees a pending reservation and does not create a second provider session", async () => {
+  const { fetchImpl, calls } = supabaseFetch();
+  const pendingFetch = (async (url: string | URL, init?: RequestInit) => {
+    if (String(url).includes("/rest/v1/rpc/reserve_jam_live_session")) {
+      return new Response(JSON.stringify({ state: "pending" }), { status: 200 });
+    }
+    return fetchImpl(url, init);
+  }) as unknown as typeof fetch;
+  const captured = await call(
+    { authorization: `Bearer ${ACCESS_TOKEN}`, body: { jamId: JAM_ID } },
+    { fetchImpl: pendingFetch },
+  );
+  assert.equal(captured.statusCode, 503);
+  assert.equal(captured.body.code, "LIVE_SESSION_PENDING");
+  assert.equal(calls.filter((url) => url.includes("video.api.vonage.com")).length, 0);
 });
 
 test("the host is the only caller who gets a moderator token", async () => {

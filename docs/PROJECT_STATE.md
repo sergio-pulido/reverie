@@ -133,13 +133,17 @@
   member → `publisher`), and returns a 10-minute token. A `role` in the request body is
   rejected, not ignored; the function holds no service-role key and the browser never sees a
   Vonage secret.
-- `supabase/migrations/20260919200000_jam_live_media.sql` adds `jam_live_sessions` (one
-  provider session per jam, written only by `ensure_jam_live_session`) and
+- `supabase/migrations/20260919210000_jam_live_media.sql` adds `jam_live_sessions` (one
+  provider session per jam) and
   `jam_live_consents`, the register recording owner, track kind, declared purpose, a
   server-issued `live:<uuid>` asset reference, and an expiry. A trigger issues the reference
   and clamps the lifetime, so neither is the browser's to choose. There is no update or
   delete policy: `withdraw_live_consent` is the only retirement path and can stamp only the
   caller's own row.
+- `supabase/migrations/20260919211000_live_session_reservation.sql` reserves live-session
+  creation in Postgres before the server contacts Vonage. A concurrent opener receives a
+  short retryable pending state, so only the reservation owner can create and finalise the
+  provider room.
 - Withdrawal stops use, not just the record. The owner's client unpublishes and calls
   `stop()` on the underlying tracks at once, and the row change reaches the room through
   Postgres Changes. Expiry behaves identically with no call at all, re-evaluated on a timer.

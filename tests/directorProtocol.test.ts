@@ -132,3 +132,45 @@ test("a malformed server message is rejected by the schema", () => {
   assert.ok(ok.success);
   assert.equal((ok.data as DirectorServerMessage).type, "error");
 });
+
+test("the stream's position on the script clock is tracked", () => {
+  // This is the only signal that says which beat is playing, so a producer
+  // deciding whether a beat is current or imminent depends on it.
+  const state = fold([
+    {
+      type: "chunk",
+      chunk_index: 0,
+      prompt_version: 1,
+      playback_seconds: 10,
+      script_offset_seconds: 0,
+    },
+    {
+      type: "chunk",
+      chunk_index: 1,
+      prompt_version: 1,
+      playback_seconds: 10,
+      script_offset_seconds: 10,
+    },
+  ]);
+  assert.equal(state.scriptOffsetSeconds, 10);
+});
+
+test("a chunk with no script offset keeps the last known one", () => {
+  const state = fold([
+    {
+      type: "chunk",
+      chunk_index: 0,
+      prompt_version: 1,
+      playback_seconds: 10,
+      script_offset_seconds: 5,
+    },
+    // Generated outside the script's timeline: the stream did not move back
+    // off the script, so blanking the offset would be the wrong claim.
+    { type: "chunk", chunk_index: 1, prompt_version: 1, playback_seconds: 10 },
+  ]);
+  assert.equal(state.scriptOffsetSeconds, 5);
+});
+
+test("position starts unknown rather than assumed to be zero", () => {
+  assert.equal(initialDirectorState().scriptOffsetSeconds, null);
+});

@@ -30,6 +30,12 @@ export interface DirectorAuditEntry {
   readonly promptVersion?: number;
   /** Where in the stream it took effect, when fal says. */
   readonly chunkIndex?: number;
+  /**
+   * Where that chunk sat on the SCRIPT's clock. Recorded because "which beat
+   * was playing when this was sent" is the question an audit gets asked, and
+   * it cannot be reconstructed from the chunk index alone.
+   */
+  readonly scriptOffsetSeconds?: number;
   /** The proposal this direction came from, when it came from one. */
   readonly proposalId?: string;
   /** Who asked for it. Absent for provider-originated entries. */

@@ -113,6 +113,15 @@ export interface DirectorState {
   chunksReceived: number;
   /** Seconds of video the session has produced, for the spend readout. */
   generatedSeconds: number;
+  /**
+   * Where the stream has reached on the SCRIPT's clock, as fal reports it.
+   *
+   * This is the only signal that says which beat is currently playing, so a
+   * producer deciding "is this beat current or imminent?" needs it. Null until
+   * fal reports one: a chunk generated outside the script's timeline has no
+   * offset, and guessing one would be worse than admitting we do not know.
+   */
+  scriptOffsetSeconds: number | null;
   endedReason: "stopped" | "session_limit" | null;
   error: string | null;
 }
@@ -124,6 +133,7 @@ export function initialDirectorState(): DirectorState {
     sentPromptVersion: 1,
     chunksReceived: 0,
     generatedSeconds: 0,
+    scriptOffsetSeconds: null,
     endedReason: null,
     error: null,
   };
@@ -152,6 +162,10 @@ export function reduceDirectorState(
         status: "streaming",
         chunksReceived: state.chunksReceived + 1,
         generatedSeconds: state.generatedSeconds + chunk.playback_seconds,
+        // A chunk without an offset leaves the last known one alone rather
+        // than blanking it: the stream did not move backwards off the script.
+        scriptOffsetSeconds:
+          chunk.script_offset_seconds ?? state.scriptOffsetSeconds,
       };
     }
     case "prompt_applied": {

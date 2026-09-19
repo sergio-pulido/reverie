@@ -346,3 +346,34 @@ test("a stored recording is served by this server", async () => {
   assert.equal(response.headers.get("content-type"), "video/webm");
   assert.equal(await response.text(), "webm-bytes");
 });
+
+test("the audit records where the stream stood when a direction was sent", async () => {
+  const { jam, sessionId } = await openJamSession();
+  peer.channel.open();
+
+  // The stream reaches the third beat of a 5s-portion script.
+  peer.channel.deliver({
+    type: "chunk",
+    chunk_index: 0,
+    prompt_version: 1,
+    playback_seconds: 10,
+    script_offset_seconds: 10,
+  });
+  await fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/direct`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ body: "Hold on her face." }),
+  });
+
+  const audit = await (
+    await fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}`)
+  ).json();
+  const sent = audit.audit.find(
+    (entry: { kind: string }) => entry.kind === "direction_sent",
+  );
+  // "Which beat was playing when this was sent" is what an audit gets asked.
+  assert.equal(sent.scriptOffsetSeconds, 10);
+  assert.equal(audit.state.scriptOffsetSeconds, 10);
+
+  await endSession(jam.id, sessionId);
+});

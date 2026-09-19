@@ -177,6 +177,7 @@ export class DirectorStream {
       body: request.body,
       authorId: request.authorId,
       proposalId: request.proposalId,
+      scriptOffsetSeconds: this.state.scriptOffsetSeconds ?? undefined,
     });
     return { accepted: true, promptVersion };
   }
@@ -228,11 +229,13 @@ export class DirectorStream {
         const chunk = message as {
           chunk_index: number;
           prompt_version: number;
+          script_offset_seconds?: number | null;
         };
         this.audit.record({
           kind: "chunk_received",
           chunkIndex: chunk.chunk_index,
           promptVersion: chunk.prompt_version,
+          scriptOffsetSeconds: chunk.script_offset_seconds ?? undefined,
         });
         break;
       }

@@ -43,6 +43,13 @@
 - Without that configuration, the UI explicitly creates a local preview URL and labels it as non-shareable; it does not present local state as a persistent room.
 - Room membership, invite lookup, proposal persistence, Realtime subscriptions, voting, and host admission remain the next milestones.
 
+## 2026-09-19 — Jam creation writes a real 4-minute script
+
+- `POST /api/jams` creates a jam from scratch (small prompt) or from an existing movie (inspiration only) and generates a full script through the Nebius adapter: ~240 seconds across scenes split into 10–20 second scene portions, validated with Zod and deterministically settled onto the 4-minute target.
+- `GET /api/jams/:id` returns the jam; `GET /api/jams/:id/script.md` renders the script as a labelled generated-work markdown document.
+- The create screen offers both sources, shows typed safe errors, and renders the generated script with per-portion time ranges before opening the studio preview. Verified live on 2026-09-19: both source kinds returned 201 with 240-second scripts (8.5s and 30.4s latency); dated Nebius probe receipts are in `docs/DECISIONS.md`.
+- Generated scripts are in-memory behind a `JamStore` interface (bounded, restart clears them); rate limits, payload caps, and a concurrency gate guard the paid provider call. Supabase persistence of scripts is a follow-up branch.
+
 ## 2026-09-19 — Deployment and documentation aligned
 
 - Vercel config defines the Vite build/output and SPA routing that excludes API paths; `/api/health` has a Node handler shared with local Express.

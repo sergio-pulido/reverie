@@ -15,7 +15,9 @@ These are Reverie application contracts, not provider API endpoints.
 
 | `GET /api/catalogue` | Read validated, real-title catalogue records allowed by the Titan integration |
 | `POST /api/discover/turns` | Apply a natural-language discovery refinement to real catalogue results |
-
+| `POST /api/jams` | Create a jam and generate its script from scratch or from an existing movie |
+| `GET /api/jams/:id` | Read a generated jam snapshot |
+| `GET /api/jams/:id/script.md` | Read the generated jam script rendered as markdown |
 | `POST /api/jams/:id/join` | Request admission using a display name and invite entitlement |
 | `POST /api/jams/:id/members/:memberId/admit` | Host-only lobby admission |
 | `POST /api/jams/:id/scene/accept` | Host or configured vote rule accepts the next turn |

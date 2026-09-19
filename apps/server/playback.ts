@@ -108,10 +108,23 @@ export class PlaybackCoordinator {
   }
 
   /** Pin the locked portion and enqueue its generation job. */
-  enqueue(jam: Jam, flat: FlatPortion, pinnedRevision: number): GenerationJob {
+  async enqueue(jam: Jam, flat: FlatPortion, pinnedRevision: number): Promise<GenerationJob> {
     const key = `${jam.id}:${flat.portionIndex}`;
     const existing = this.jobs.get(key);
     if (existing && existing.status !== "failed") return existing;
+    // A clip that is already stored is never bought again. Durable storage
+    // outlives this process while the job map does not, so without this a
+    // restart would pay the provider for a portion the server already holds.
+    if (await this.media.has(jam.id, flat.portionIndex)) {
+      const stored: GenerationJob = {
+        jamId: jam.id,
+        portionIndex: flat.portionIndex,
+        pinnedRevision,
+        status: "ready",
+      };
+      this.jobs.set(key, stored);
+      return stored;
+    }
     const job: GenerationJob = {
       jamId: jam.id,
       portionIndex: flat.portionIndex,

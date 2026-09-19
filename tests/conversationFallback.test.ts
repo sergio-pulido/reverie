@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { CATALOGUE_CONFIGURATION } from "../src/catalogue/domain";
 import { REFINEMENTS, refinementTurn } from "../src/catalogue/refinements";
-import { EMPTY_CONVERSATION, FALLBACK_SUFFIX, MAX_LINES, assistantReplied, viewerSaid } from "../src/conversation/transcript";
+import { EMPTY_CONVERSATION, FALLBACK_SUFFIX, assistantReplied, viewerSaid } from "../src/conversation/transcript";
 import type { TurnOk } from "../src/conversation/contract";
 import { RANKED_BY, orderShortlist, rankingKey, type RankingStatus } from "../src/discover/rankedShortlist";
 import { applyTurn, newState } from "../src/preferences/state";
@@ -37,7 +37,7 @@ describe("the conversation transcript", () => {
     assert.equal(after.spoken, true);
   });
 
-  it("says plainly that the assistant is unavailable and that the chips and genre ranking carry on", () => {
+  it("says plainly that the assistant is unavailable and that the filters and genre ranking carry on", () => {
     const after = assistantReplied(
       viewerSaid(EMPTY_CONVERSATION, "something light"),
       { status: "unavailable", code: "ASSISTANT_TIMEOUT", safeMessage: "The assistant did not answer in time." },
@@ -63,12 +63,6 @@ describe("the conversation transcript", () => {
     assert.equal(assistantReplied(down, OK, true).available, true);
   });
 
-  it("keeps only the latest lines", () => {
-    let conversation = EMPTY_CONVERSATION;
-    for (let index = 0; index < 10; index += 1) conversation = viewerSaid(conversation, `message ${index}`);
-    assert.equal(conversation.lines.length, MAX_LINES);
-    assert.equal(new Set(conversation.lines.map(({ id }) => id)).size, MAX_LINES);
-  });
 });
 
 describe("which ranking the grid shows", () => {

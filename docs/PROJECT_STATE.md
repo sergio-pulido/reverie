@@ -345,9 +345,14 @@ remain unproven until `scripts/verify-realtime.mjs` completes against the migrat
   script-screen actions: **Open the studio** (enter the collaborative room), **Open as
   markdown** (the shared, unpersonalized screenplay export), and **Start my session** (a
   personal playback seat on the same script).
-- It states the one mental model behind them — one authoritative script per jam, many playback
-  seats — and repeats the standing gap: a session records and exposes playback parameters only;
-  translated or re-ambiented rendering, and per-session generated media, are not implemented.
+- It states the one mental model behind them — one authoritative script and one collaborative
+  room per jam, where a session is a participant's **seat in that same room** carrying only
+  per-participant overrides — and repeats the standing gap: a session records and exposes
+  playback parameters only; translated or re-ambiented rendering, and per-session generated
+  media, are not implemented.
+- `docs/DECISIONS.md` records that session-as-room-seat model, including the current gap that
+  the owner-token playback session and Supabase `jam_members` membership are still separate
+  records that do not imply one another.
 - It also records the intended (not implemented) direction: **Open as markdown** becomes the
   door to an editable script **version**, and the screenplay is revised through a **chat** on
   this screen, appended as versions rather than overwriting the shared script.

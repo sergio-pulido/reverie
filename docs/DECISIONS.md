@@ -24,20 +24,31 @@ and a `postMessage` (`directorPieces.ts`). A dead worker is reported as
 Stopping is bounded at two seconds: the tail of the film is worth a moment, the
 route that settles the spend is worth more.
 
-**Why WebM, and why it also does fMP4.** werift's offer is VP8-only today, and WebM
-is the container that holds VP8. The archive sink follows the codec the muxer
+**Why WebM, and why it also does fMP4.** werift's offer is VP8-only today, so VP8 is
+what fal answers — an answer to a VP8-only offer, which is not fal's preference and
+says nothing about what it would answer to an offer preferring H.264. That offer is
+RV-19's change, and the reply is unprobed. WebM is the container that holds VP8, so
+it stores what comes back today; the fallback it covers stays real either way. The archive sink follows the codec the muxer
 reports — VP8 into WebM, H.264 into fMP4 — and stores the container alongside the
 session, so nothing downstream guesses. The same `DirectorSegmentSink` interface as
 RV-19's fMP4 segmenter, by agreement: one muxer per stream, many sinks, one timeline.
 
 **Verified with real bytes, not a description.** Fabricated VP8 RTP — the payload
 format is simple enough to build honestly — pushed through the real werift pipeline
-and across the real worker thread cuts pieces at exactly the keyframe past the target:
-`[0–10s] [10–20s] [20–end]`, with the last piece settled by the muxer's own
-end-of-stream rather than a guess at stop. **Not** verified with fal's own media:
+and across the real worker thread is cut at the first keyframe past the target, with
+the last piece settled by the muxer's own end-of-stream rather than a guess at stop.
+The cut points observed — `[0–10s] [10–20s] [20–end]` — are what those synthetic
+keyframes produced: they measure werift's pipeline and the worker boundary, not
+fal's chunking. **Not** verified with fal's own media:
 no real session has yet run with recording on. The unknowns that only a live run can
 settle are the provider's keyframe cadence, which sets real piece length, and the
 worker's CPU on a real 480p stream.
+
+End to end against the local stack's real Postgres and real Storage, with the real
+worker: three pieces uploaded and indexed with no failed uploads, the session row
+carrying `webm`/`vp8`, and `pieces/1` served as 893 bytes of `video/webm` beginning
+with the EBML magic — header prepended, playable on its own, fetched without the
+2035 bytes of film around it.
 
 ## 2026-09-19 — A jam is live, then playing, then ended, and ended is terminal (RV-18)
 

@@ -7,8 +7,10 @@ import {
 import type { DirectorAuditEntry } from "../core/directorAudit";
 import type { DirectorBeatWindow } from "../core/directorBeats";
 import type { SessionSettings } from "../core/session";
+import { configurationKey, DEFAULT_CONFIGURATION } from "../core/configuration";
 import { attachHlsStream } from "../lib/hlsPlayback";
 import {
+  attachDirectorSession,
   directorPlaylistSrc,
   directorRecordingSrc,
   DirectorSessionError,
@@ -18,6 +20,7 @@ import {
   sendDirection,
   startDirectorSession,
   watchDirectorStream,
+  type OpenedDirectorSession,
 } from "../lib/directorSession";
 
 type JamDirectorProps = {
@@ -30,6 +33,8 @@ type JamDirectorProps = {
 
 const POLL_MS = 2_000;
 const RENEW_MS = 30_000;
+/** How often a room that is not yet streaming checks whether it has started. */
+const ATTACH_MS = 3_000;
 
 /**
  * The live director: one continuous MiniMax H3 Max stream the room directs.
@@ -63,6 +68,17 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
     active.current = sessionId ? { sessionId, viewerId } : null;
   }, [sessionId, viewerId]);
 
+  /** Takes up a stream this viewer has just opened or joined. */
+  const adopt = useCallback((opened: OpenedDirectorSession) => {
+    setSessionId(opened.sessionId);
+    setViewerId(opened.viewerId ?? null);
+    setLiveDelivery(opened.liveDelivery ?? false);
+    setState(opened.state);
+    setBeats(opened.beats);
+    setAttached(opened.attached);
+    setDurable(opened.recordingDurable);
+  }, []);
+
   /**
    * Plays the shared stream.
    *
@@ -78,6 +94,37 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
     });
     return () => attachment.detach();
   }, [jamId, liveDelivery, sessionId]);
+
+  /**
+   * Joins a stream that is already running.
+   *
+   * Opening a jam where the room is watching something should show the film,
+   * not a button. This never starts a stream — starting bills a sixty-second
+   * minimum, and only the host does it — so a participant either attaches to
+   * what is running or waits, which is also how the host rejoins their own
+   * stream after reopening the jam.
+   */
+  useEffect(() => {
+    if (sessionId) return;
+    let cancelled = false;
+    const join = async () => {
+      try {
+        const opened = await attachDirectorSession(jamId, configuration);
+        if (cancelled) return;
+        adopt(opened);
+      } catch {
+        // `no_stream` is the ordinary answer before the host presses start.
+      }
+    };
+    void join();
+    const poll = setInterval(() => void join(), ATTACH_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(poll);
+    };
+    // Keyed by the configuration's value: two settings that normalize to the
+    // same key are the same stream, and must not re-attach on every render.
+  }, [adopt, configuration, configurationKey(configuration ?? DEFAULT_CONFIGURATION), jamId, sessionId]);
 
   // Polling is the surface until Realtime events land, matching the player.
   useEffect(() => {
@@ -154,14 +201,7 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
     setFailure(null);
     setRecording(null);
     try {
-      const opened = await startDirectorSession(jamId, configuration);
-      setSessionId(opened.sessionId);
-      setViewerId(opened.viewerId ?? null);
-      setLiveDelivery(opened.liveDelivery ?? false);
-      setState(opened.state);
-      setBeats(opened.beats);
-      setAttached(opened.attached);
-      setDurable(opened.recordingDurable);
+      adopt(await startDirectorSession(jamId, configuration));
     } catch (error) {
       setFailure(
         error instanceof DirectorSessionError
@@ -171,13 +211,16 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
     } finally {
       setBusy(false);
     }
-  }, [configuration, jamId]);
+  }, [adopt, configuration, jamId]);
 
   const stop = useCallback(async () => {
     if (!sessionId) return;
     setBusy(true);
     try {
-      await endDirectorSession(jamId, sessionId, viewerId ?? undefined);
+      // The host's stop ends the stream for the room, so it names no viewer.
+      // Leaving as a viewer is what closing the screen does; this is the
+      // deliberate end of something the host is paying for.
+      await endDirectorSession(jamId, sessionId);
       setRecording(directorRecordingSrc(jamId, sessionId));
     } catch {
       // Ending is idempotent server-side; nothing useful to say here.
@@ -186,7 +229,7 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
       setViewerId(null);
       setBusy(false);
     }
-  }, [jamId, sessionId, viewerId]);
+  }, [jamId, sessionId]);
 
   const send = useCallback(async () => {
     const body = direction.trim();
@@ -251,48 +294,60 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
     <p className="form-note" aria-live="polite">{statusLine(state, live, canDrive)}</p>
     {live && beats && <BeatWindow beats={beats} attached={attached} />}
 
-    <div className="hero-actions">
-      <button
-        className="button button-primary"
-        onClick={() => void start()}
-        disabled={!canDrive || busy || live}
-      >
-        {busy && !live ? "Starting…" : "Start the stream"} <span>▶</span>
-      </button>
-      <button className="button button-quiet" onClick={() => void stop()} disabled={!live || busy}>
-        Stop
-      </button>
-    </div>
+    {/*
+      * Only whoever started the stream directs it. Everyone else is watching
+      * the same film and is given no controls at all — not disabled ones,
+      * which would read as something they could earn. Starting and directing
+      * spend money and change what the room sees; both belong to one person.
+      */}
+    {canDrive ? <>
+      <div className="hero-actions">
+        <button
+          className="button button-primary"
+          onClick={() => void start()}
+          disabled={busy || live}
+        >
+          {busy && !live ? "Starting…" : "Start the stream"} <span>▶</span>
+        </button>
+        <button className="button button-quiet" onClick={() => void stop()} disabled={!live || busy}>
+          Stop
+        </button>
+      </div>
 
-    <label className="field">
-      <span>New direction</span>
-      <input
-        value={direction}
-        onChange={(event) => setDirection(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") void send();
-        }}
-        placeholder="Cut to the lighthouse at dusk."
-        disabled={!live}
-        maxLength={2000}
-      />
-    </label>
-    <div className="hero-actions">
-      <button
-        className="button button-quiet"
-        onClick={() => void send()}
-        disabled={!live || !direction.trim()}
-      >
-        Direct
-      </button>
-    </div>
+      <label className="field">
+        <span>New direction</span>
+        <input
+          value={direction}
+          onChange={(event) => setDirection(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") void send();
+          }}
+          placeholder="Cut to the lighthouse at dusk."
+          disabled={!live}
+          maxLength={2000}
+        />
+      </label>
+      <div className="hero-actions">
+        <button
+          className="button button-quiet"
+          onClick={() => void send()}
+          disabled={!live || !direction.trim()}
+        >
+          Direct
+        </button>
+      </div>
+    </> : null}
 
     <DirectionLog entries={audit} />
 
     <p className="form-note">
-      Every direction goes through this server, which holds the stream and records
-      it. The stream bills by the second with a one-minute minimum, so stop it when
-      you are done.{durable ? "" : " This server has no recording storage configured, so the recording is lost when it restarts."}
+      {canDrive
+        ? <>Every direction goes through this server, which holds the stream and
+            records it. The stream bills by the second with a one-minute minimum,
+            so stop it when you are done.
+            {durable ? "" : " This server has no recording storage configured, so the recording is lost when it restarts."}</>
+        : <>You are watching the room's stream. Whoever started it directs it;
+            everyone here sees the same film.</>}
     </p>
 
     {failure && <Notice>{failure}</Notice>}
@@ -360,8 +415,12 @@ function badge(state: DirectorState, busy: boolean, live: boolean): string {
 
 function placeholder(state: DirectorState, live: boolean, canDrive: boolean): string {
   if (state.status === "failed") return "The stream stopped.";
-  if (live) return "The stream is running on the server and forwarded here as it is generated.";
-  if (!canDrive) return "The host starts the live stream.";
+  if (live) {
+    return canDrive
+      ? "The stream is running on the server and forwarded here as it is generated."
+      : "The stream is running on the server.";
+  }
+  if (!canDrive) return "The host starts the live stream. It appears here when they do.";
   return "Nothing is streaming yet.";
 }
 

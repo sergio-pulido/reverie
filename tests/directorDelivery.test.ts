@@ -28,10 +28,14 @@ const CONFIG: DirectorConfig = {
   // the thing that pins the event loop.
   record: false,
 };
+// Roomy on purpose: these tests share one server and most of them deliberately
+// leave a stream open, so a realistic concurrency cap would refuse later tests
+// for a reason that has nothing to do with what they assert. The cap's own
+// refusal is covered in directorRoutes.test.ts.
 const LIMITS = {
   budgetUsd: 1000,
   usdPerSecond: 0.08,
-  maxConcurrentSessions: 4,
+  maxConcurrentSessions: 20,
   maxSessionSeconds: 60,
 };
 
@@ -202,4 +206,67 @@ test("delivery routes for a session that is not open are a plain 404", async () 
     `${delivering.baseUrl}/api/jams/${jam}/director/session/nope/playlist.m3u8`,
   );
   assert.equal(response.status, 404);
+});
+
+test("attaching never starts a stream, so arriving in a room cannot bill", async () => {
+  const jam: Jam = {
+    id: randomUUID(),
+    createdAt: new Date().toISOString(),
+    source: { kind: "from-scratch", prompt: "A lighthouse keeper finds a door." },
+    format: { totalSeconds: 20, portionMinSeconds: 5, portionMaxSeconds: 5 },
+    script: buildScript(5, 2, 2),
+  };
+  await store.createJam(jam);
+
+  const early = await fetch(`${delivering.baseUrl}/api/jams/${jam.id}/director/session`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ attachOnly: true }),
+  });
+  // Nothing is running and this caller may not open one. Retryable, because a
+  // participant who arrived before the host pressed start is early, not wrong.
+  assert.equal(early.status, 404);
+  const body = await early.json();
+  assert.equal(body.error.code, "no_stream");
+  assert.equal(body.error.retryable, true);
+
+  // The host starts it; the same attach now joins rather than being refused.
+  const started = await fetch(`${delivering.baseUrl}/api/jams/${jam.id}/director/session`, {
+    method: "POST",
+  });
+  assert.equal(started.status, 201);
+  const host = await started.json();
+
+  const joined = await fetch(`${delivering.baseUrl}/api/jams/${jam.id}/director/session`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ attachOnly: true }),
+  });
+  assert.equal(joined.status, 200);
+  const viewer = await joined.json();
+  assert.equal(viewer.sessionId, host.sessionId);
+  assert.equal(viewer.attached, true);
+  assert.notEqual(viewer.viewerId, host.viewerId);
+});
+
+test("the host's stop ends the stream even while others are watching", async () => {
+  const { jam, sessionId } = await openSession(delivering.baseUrl);
+  const joined = await fetch(`${delivering.baseUrl}/api/jams/${jam.id}/director/session`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ attachOnly: true }),
+  });
+  assert.equal(joined.status, 200);
+
+  // Naming no viewer is the host's deliberate stop, as distinct from one viewer
+  // leaving — it ends what the host is paying for, for everyone.
+  const stopped = await fetch(
+    `${delivering.baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/end`,
+    { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+  );
+  assert.equal(stopped.status, 204);
+  const gone = await fetch(
+    `${delivering.baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/playlist.m3u8`,
+  );
+  assert.equal(gone.status, 404);
 });

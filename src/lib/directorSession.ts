@@ -80,6 +80,26 @@ export function startDirectorSession(
   });
 }
 
+/**
+ * Joins the stream running for a configuration, and never starts one.
+ *
+ * This is how everyone but the host arrives. Opening a stream bills a
+ * sixty-second minimum, so walking into a room must not be able to start one:
+ * a participant attaches to what the host is already paying for, or is told
+ * `no_stream` and waits. The same call serves the host reopening the jam, which
+ * is why it is not gated on who is asking.
+ */
+export function attachDirectorSession(
+  jamId: string,
+  configuration?: SessionSettings | null,
+): Promise<OpenedDirectorSession> {
+  return call<OpenedDirectorSession>(`/api/jams/${jamId}/director/session`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ attachOnly: true, ...(configuration ? { configuration } : {}) }),
+  });
+}
+
 export function readDirectorSession(
   jamId: string,
   sessionId: string,

@@ -106,6 +106,90 @@ the boundary moved meanwhile. A cascade in a fast-playing room can therefore be 
 discarded, which is preferred over a half-rewritten story or a room frozen for the length of a
 provider call.
 
+## 2026-09-19 — The room watches one stream over HTTP, and the muxer stays off the main thread (RV-19)
+
+Session sharing already worked: a second viewer on the same configuration received the same
+`sessionId`. There was no way to watch it. The stream is now **delivered as HLS with fMP4
+segments** — the container writes segments and a playlist, every viewer fetches them over
+ordinary HTTP.
+
+**Why HLS and not a second peer connection.** The problem was never sockets, it was *per-viewer*
+sockets. There should be exactly one long-lived connection in the system — container to fal — and
+viewers should need none. HLS gives that: no persistent per-viewer connection, no per-viewer
+state, segments are immutable and cacheable, and fan-out is free, which is the entire point of
+multiplexing. An SFU (werift can do it) would have reinstated a long-lived connection per viewer
+and put the room back where it started. The cost is latency — roughly 1-6 seconds against
+WebRTC's sub-second — and for a room watching a film together rather than a video call that is
+the right trade. If sub-second ever becomes a product requirement, the SFU is the route and it is
+a different design, not a tuning change.
+
+**The peer was only ever offering VP8, and nobody had noticed.** `directorStream.ts` built a bare
+`new RTCPeerConnection()`, and werift 0.24.4 defaults to **VP8 alone** for video. Dumping the
+offer SDP locally — free, no provider call — showed `a=rtpmap:98 VP8/90000` and nothing else. So
+fal could not have sent H.264 whatever it supports, and a paid probe "to discover the codec"
+would have discovered a constraint we had imposed on ourselves. This matters because
+`Mp4Container` accepts `mp4SupportedCodecs = ["avc1", "opus"]` — H.264 and Opus — so VP8 cannot
+go into fMP4 at all. The offer now advertises **H.264 first with VP8 retained as a fallback**: a
+provider that cannot do H.264 still connects and still records, and live delivery refuses in the
+open rather than the handshake failing. A negotiated codec fMP4 cannot carry produces no segments
+and a typed `unsupported_codec`, never a playlist of undecodable bytes.
+
+**Muxing runs in a worker thread, because the stop path must survive the media path.** A real
+480p session with a recorder attached drove Node to 99% CPU and stalled the event loop:
+`/api/health` stopped answering and so did `POST .../director/session/:sessionId/end`, the route
+that closes the paid session. It had to be killed, which drops the peer without telling fal to
+stop, against a provider ceiling of 900 seconds. A server that cannot answer is a server that
+cannot stop spending. So `SegmentMuxer` takes serialized RTP and emits fMP4 segments with no
+knowledge of peers, tracks or HTTP, and runs in a worker; the main thread's whole per-packet cost
+is serializing a packet and posting it. A worker that dies stops live delivery and touches
+neither the recording nor the route that settles the session. Stopping waits at most two seconds
+for the muxer's last segments and then terminates it: the tail of the film is worth a moment, the
+route that ends the spend is worth more.
+
+**One segmenter, two sinks, one timeline.** Durable recording and live delivery both want the
+inbound track, and two independent muxers would have produced two numberings for one session —
+the audit trail refers to segments by index, so the record would describe one timeline while the
+archive held another. `DirectorStream` owns `onTrack` alone and fans it to consumers; there is
+one segmenter, and it fans finished segments to sinks. RTCP does not cross the worker boundary,
+so the muxer uses the RTP clock rather than NTP; both tracks come from one generated source on
+one clock, so what is given up is absolute wall-clock alignment, which nothing here uses.
+
+**Viewers are counted, and that is a spend control.** A shared stream cannot answer "is anyone
+still watching?" from a single timestamp. With one clock per session, any one viewer's keepalive
+held the stream open for a room that had emptied, and the last viewer leaving did not end it —
+it stopped being renewed and was reclaimed ninety seconds later, billing the whole silence. Each
+viewer now checks in under an id **the server issues** (a client-chosen id could collide and make
+two people look like one, ending a stream somebody was still watching). Leaving is this viewer
+leaving, not ending the session; the session settles when the last one goes, and a reclaimed
+session now tells the router to stop the stream it was paying for.
+
+**Arriving in a room that is streaming shows the film, and only its owner directs it.** Opening a
+jam attaches to whatever is running for that configuration — there is no button to press to see
+what the room is already watching. The attach is explicitly *attach-only* (`attachOnly` on `POST
+.../director/session`): it joins a stream or answers a retryable `no_stream`, and it can never
+open one. That separation is a spend control, not a convenience — starting bills a sixty-second
+minimum, so walking into a room must not be able to start a paid session, and a participant who
+arrives before the host presses start is early rather than wrong. Everyone but the host is given
+no controls at all rather than disabled ones, which would read as something they could earn.
+The host's explicit **Stop** ends the stream for the room and names no viewer; the host merely
+closing the screen only detaches them, so the film survives the person paying for it stepping
+away and ends when the last viewer leaves.
+
+**Live delivery is off by default** (`REVERIE_DIRECTOR_HLS`), alongside recording's own
+`REVERIE_DIRECTOR_RECORD`. It stays off until a real session demonstrates that `/end` answers
+while the worker is mid-segment.
+
+**Not probed.** No Director session has been opened with a valid key on this branch. Which codec
+fal answers now that H.264 is actually offered, what its keyframe cadence is — which sets segment
+length and therefore live latency — and whether segment start times correspond to the `chunk`
+messages' `chunk_index`/`script_offset_seconds` are all unknown and are not claimed. The
+handshake shape itself was proven elsewhere (`/start-session` answers `text/event-stream`, the
+SDP arriving as the first `data:` frame).
+
+Verified: `pnpm typecheck`, `pnpm test` (526/526), `pnpm build`. The worker tests spawn the real
+muxer thread. No synthetic H.264 was fed through it — producing valid encoded frames without a
+provider is not something a test can honestly do — so muxing of real frames is unexercised.
+
 ## 2026-09-19 — Viewers watch the live stream by RTP relay, not by waiting for a recording (RV-16)
 
 A director session is watched **as it is generated**. The browser peers with THIS SERVER, which

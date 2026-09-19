@@ -64,6 +64,15 @@ const directionSchema = z.object({
 const attachSchema = z
   .object({
     configuration: sessionSettingsSchema.optional(),
+    /**
+     * Join the stream for this configuration, but never start one.
+     *
+     * This is what everyone who is not the host sends. Opening a stream bills a
+     * sixty-second minimum, so a participant merely arriving in a room must not
+     * be able to start one by arriving — they attach to what the host is paying
+     * for, or they are told there is nothing to watch yet.
+     */
+    attachOnly: z.boolean().optional(),
   })
   .optional();
 
@@ -267,6 +276,20 @@ export function createDirectorRouter(
       // Ledger and stream map disagree: the session is not really serving
       // anyone, so release it rather than attach a viewer to nothing.
       ledger.release(existing.sessionId);
+    }
+
+    if (attach.data?.attachOnly) {
+      // Nothing is running for this configuration and this caller may not start
+      // one. Retryable on purpose: a participant who opened the room before the
+      // host pressed start is early, not wrong.
+      sendError(
+        response,
+        404,
+        "no_stream",
+        "Nobody is streaming this configuration yet.",
+        true,
+      );
+      return;
     }
 
     const session = ledger.open(streamKey);

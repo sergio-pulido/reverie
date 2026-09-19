@@ -98,7 +98,8 @@ a room.
 | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` | browser/build | rooms, join, collaboration |
 | `REVERIE_LIVE_ENABLED=true` | server | any script or video generation |
 | `NEBIUS_API_KEY` | server | script generation |
-| `FAL_KEY` | server | portion video generation |
+| `FAL_KEY` | server | the live director |
+| `REVERIE_DIRECTOR_ENABLED` | server | the live director only. It bills per second with a 60-second minimum, so it is off unless set to `true` |
 | `SUPABASE_URL`, `SUPABASE_ANON_KEY` | server | Discover titles from `public.catalogue_titles` (falls back to the `VITE_` pair) |
 | `NEBIUS_API_KEY` + `REVERIE_LIVE_ENABLED=true` | server | Discover conversation and assistant ranking (chips work without them) |
 
@@ -193,10 +194,11 @@ Use stable, obvious values so screenshots are easy to compare:
 | Guest names | `Guest Alpha`, `Guest Beta` |
 | Message | `UJ message <timestamp>` |
 | Proposal | `UJ proposal <timestamp>` |
-| Smallest format | Total length `0.2` min, shortest portion `4` s, longest portion `4` s (3 portions) |
+| Smallest format | Total length `0.33` min, shortest portion `5` s, longest portion `5` s (4 portions) |
 
-The smallest format is intentional: the script completes in seconds and bounds provider cost
-to three short clips. Do not use the default 4-minute format for smoke runs.
+The smallest format is now also the **default** (RV-16): 20 seconds of 5-second portions. A
+4-second portion is no longer selectable — 5 seconds is the floor MiniMax H3 Max accepts, on
+every route. The script completes in seconds and bounds provider cost to four short clips.
 
 ## Reset and teardown
 

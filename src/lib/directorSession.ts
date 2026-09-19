@@ -1,0 +1,179 @@
+import type { DirectorState } from "../core/directorProtocol";
+import type { DirectorAuditEntry } from "../core/directorAudit";
+import type { DirectorBeatWindow } from "../core/directorBeats";
+import type { SessionSettings } from "../core/session";
+
+/**
+ * Client for the server-proxied live director.
+ *
+ * There is no WebRTC here by design. The server holds the peer connection so
+ * every frame can be recorded and every direction audited, which means this
+ * browser can ask for a direction to be sent but can never reach the provider
+ * itself. What it gets back is state, the audit trail, and a recording URL.
+ */
+
+export class DirectorSessionError extends Error {
+  constructor(
+    message: string,
+    readonly code: string,
+  ) {
+    super(message);
+    this.name = "DirectorSessionError";
+  }
+}
+
+export interface OpenedDirectorSession {
+  sessionId: string;
+  /** True when this joined a stream that was already running for this configuration. */
+  attached: boolean;
+  maxSessionSeconds: number;
+  /** False when the server has no object storage: the recording is lost on restart. */
+  recordingDurable: boolean;
+  state: DirectorState;
+  beats: DirectorBeatWindow;
+}
+
+export interface DirectorSnapshot {
+  state: DirectorState;
+  beats: DirectorBeatWindow;
+  audit: DirectorAuditEntry[];
+  droppedAuditEntries: number;
+}
+
+async function call<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, init);
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    const error = (body as { error?: { code?: string; safeMessage?: string } } | null)?.error;
+    throw new DirectorSessionError(
+      typeof error?.safeMessage === "string"
+        ? error.safeMessage
+        : "The live director is not available.",
+      typeof error?.code === "string" ? error.code : "director_unavailable",
+    );
+  }
+  return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
+}
+
+/**
+ * Opens the stream for a configuration, or joins the one already running for
+ * it. Everyone watching the same configuration shares one paid stream.
+ */
+export function startDirectorSession(
+  jamId: string,
+  configuration?: SessionSettings | null,
+): Promise<OpenedDirectorSession> {
+  return call<OpenedDirectorSession>(`/api/jams/${jamId}/director/session`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(configuration ? { configuration } : {}),
+  });
+}
+
+export function readDirectorSession(
+  jamId: string,
+  sessionId: string,
+): Promise<DirectorSnapshot> {
+  return call<DirectorSnapshot>(`/api/jams/${jamId}/director/session/${sessionId}`);
+}
+
+/** Asks the server to send one direction. It decides what reaches the model. */
+export function sendDirection(
+  jamId: string,
+  sessionId: string,
+  direction: {
+    body: string;
+    authorId?: string;
+    proposalId?: string;
+    /** The outline beat this rewrites; the server refuses a locked one. */
+    beatIndex?: number;
+  },
+): Promise<{ promptVersion: number; state: DirectorState; beats: DirectorBeatWindow }> {
+  return call(`/api/jams/${jamId}/director/session/${sessionId}/direct`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(direction),
+  });
+}
+
+export function endDirectorSession(jamId: string, sessionId: string): Promise<void> {
+  return call<void>(`/api/jams/${jamId}/director/session/${sessionId}/end`, {
+    method: "POST",
+  });
+}
+
+/** Best-effort keepalive; a missed renewal only risks the session being reclaimed. */
+export function renewDirectorSession(jamId: string, sessionId: string): void {
+  void fetch(`/api/jams/${jamId}/director/session/${sessionId}/renew`, {
+    method: "POST",
+  }).catch(() => undefined);
+}
+
+export function directorRecordingSrc(jamId: string, sessionId: string): string {
+  return `/api/jams/${jamId}/director/recordings/${sessionId}`;
+}
+
+/**
+ * Opens a live view of a running session.
+ *
+ * The browser peers with OUR SERVER, never with fal: the server holds the
+ * provider connection and forwards a copy, so every frame is still seen,
+ * audited and recordable on the way through. Returns the stream to render,
+ * and a teardown.
+ */
+export async function watchDirectorStream(
+  jamId: string,
+  sessionId: string,
+  onStream: (stream: MediaStream) => void,
+): Promise<() => void> {
+  const connection = new RTCPeerConnection();
+  // Receive-only: nothing from this machine is uploaded.
+  connection.addTransceiver("video", { direction: "recvonly" });
+  connection.addTransceiver("audio", { direction: "recvonly" });
+  connection.addEventListener("track", (event) => {
+    const [stream] = event.streams;
+    if (stream) onStream(stream);
+    else onStream(new MediaStream([event.track]));
+  });
+
+  const offer = await connection.createOffer();
+  await connection.setLocalDescription(offer);
+  await waitForIceGathering(connection);
+
+  try {
+    const { answer } = await call<{ answer: { sdp: string } }>(
+      `/api/jams/${jamId}/director/session/${sessionId}/watch`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sdp: connection.localDescription?.sdp ?? offer.sdp }),
+      },
+    );
+    await connection.setRemoteDescription({ type: "answer", sdp: answer.sdp });
+  } catch (error) {
+    connection.close();
+    throw error;
+  }
+  return () => connection.close();
+}
+
+/**
+ * The server takes a single complete offer rather than trickled candidates, so
+ * the offer waits for gathering. The timeout is a safeguard: one candidate that
+ * never arrives must not hang a viewer forever.
+ */
+function waitForIceGathering(connection: RTCPeerConnection): Promise<void> {
+  if (connection.iceGatheringState === "complete") return Promise.resolve();
+  return new Promise((resolve) => {
+    const finish = () => {
+      clearTimeout(timer);
+      connection.removeEventListener("icegatheringstatechange", onChange);
+      resolve();
+    };
+    const onChange = () => {
+      if (connection.iceGatheringState === "complete") finish();
+    };
+    const timer = setTimeout(finish, 5_000);
+    connection.addEventListener("icegatheringstatechange", onChange);
+  });
+}

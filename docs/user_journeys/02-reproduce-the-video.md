@@ -45,12 +45,12 @@ play and stop alone.
 ### 2. Register the room and generate the script
 
 - Do: set title `UJ Run <date> 1`, premise
-  `A lighthouse keeper receives a letter from the future.`, total `0.2`, portions `4`–`4`,
+  `A lighthouse keeper receives a letter from the future.`, total `0.33`, portions `5`–`5`,
   `Invite only`; click `Write the script`.
 - Expect:
   - The room row is registered **first** (Supabase `jams` insert), then one `POST /api/jams`
     with `mode: "generate"`, `source.kind: "from-scratch"`, the room's `jamId`, and
-    `format { totalSeconds: 12, portionMinSeconds: 4, portionMaxSeconds: 4 }`.
+    `format { totalSeconds: 20, portionMinSeconds: 5, portionMaxSeconds: 5 }` (the default; 4 seconds is below the model floor).
   - `wait_for` `Open the studio` (allow up to 60 s): the script screen shows the title,
     logline, the note `An original generated Movie Jam script — not an existing film or
     catalogue title.`, and portions summing to 12 s.
@@ -60,7 +60,7 @@ play and stop alone.
 ### 3. Cheap path — import a script (no Nebius call)
 
 - Do: on `/jams/new`, choose `Import a script`, set title `UJ Imported <date>`, paste a
-  ~600-character original synopsis, total `0.2`, portions `4`–`4`; submit.
+  ~600-character original synopsis, total `0.33`, portions `5`–`5`; submit.
 - Expect: one `POST /api/jams` with `mode: "import"`, `source.kind: "imported-script"`,
   `scriptMarkdown` = the pasted text, and the room's `jamId`. **No Nebius call is made.** The
   script screen shows one `Scene 1 — Imported script` and the note

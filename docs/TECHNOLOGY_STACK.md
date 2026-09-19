@@ -27,7 +27,7 @@ All provider code lives behind server-side adapters. The client receives our typ
 | Nebius Token Factory | Structured creative reasoning: extract turns, update story state, generate screenplay/material, rank or clarify options | Accessible model, valid structured response, deadline/cost receipt, safe failure path |
 | SLNG | Real-time speech-to-text and optional text-to-speech | Exact model, locale, codec, partial/final behavior, authorization and close semantics |
 | Vonage Video API | Live participant camera/screen inputs, broadcast, archive, captions and signaling | Verified session/token lifecycle, browser permissions, broadcast/recording consent, reconnect and teardown |
-| fal.ai | Image/video generation and live scene direction | Verified model path, server proxy/auth flow, update lifecycle, latency, cancellation and billing receipt |
+| fal.ai | Image/video generation and live scene direction | Verified model path, server proxy/auth flow, update lifecycle, latency, cancellation and billing receipt. Queue: `minimax/h3-max/text-to-video` (portions `[5, 15]`s). Live: `minimax/h3-max/director`, WebRTC, billed per second with a 60-second minimum |
 | Titan OS | TV-first product context only. There is no Titan API; the challenge names the Kaggle TMDB dataset as the catalogue source | Nothing to integrate |
 | TMDB (dataset snapshot) | Real film metadata and poster/backdrop paths, served from `image.tmdb.org` | Done: loaded into Postgres (27,839 rows), attribution rendered on every title and page |
 
@@ -39,6 +39,8 @@ The public repository documents only variable names. Actual values belong in ign
 VITE_SUPABASE_URL=
 VITE_SUPABASE_ANON_KEY=
 FAL_KEY=
+FAL_MODEL=
+REVERIE_DIRECTOR_ENABLED=
 NEBIUS_API_KEY=
 SLNG_API_KEY=
 NEBIUS_MODEL=

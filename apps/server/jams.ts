@@ -21,11 +21,6 @@ import {
   type PortionPatch,
   type ScriptRevision,
 } from "../../src/core/scriptHistory";
-import {
-  playbackStateSchema,
-  StaleStateVersionError,
-  type PlaybackState,
-} from "../../src/core/playback";
 import type { JamScript } from "../../src/core/script";
 import { resolveNebiusConfig, NebiusError } from "./providers/nebius";
 import { ScriptwriterError, writeJamScript } from "./scriptwriter";
@@ -69,12 +64,6 @@ export interface JamStore {
   getScriptAtRevision(jamId: string, revision: number): Promise<JamScript | null>;
   getCurrentScriptRevision(jamId: string): Promise<ScriptRevision | null>;
   listScriptRevisions(jamId: string): Promise<ScriptRevision[]>;
-  getPlayback(jamId: string): Promise<PlaybackState | null>;
-  updatePlayback(
-    jamId: string,
-    expectedStateVersion: number,
-    next: PlaybackState,
-  ): Promise<PlaybackState>;
 }
 
 // The playback guard is synchronous so the router can read it in the same
@@ -132,7 +121,6 @@ export async function withJamLock<T>(
 interface JamEntry {
   jam: Jam;
   history: JamScriptHistory;
-  playback?: PlaybackState;
 }
 
 export class InMemoryJamStore implements JamStore {
@@ -204,27 +192,6 @@ export class InMemoryJamStore implements JamStore {
       },
     );
     return currentRevision(entry.history);
-  }
-
-  async getPlayback(jamId: string): Promise<PlaybackState | null> {
-    return this.jams.get(jamId)?.playback ?? null;
-  }
-
-  async updatePlayback(
-    jamId: string,
-    expectedStateVersion: number,
-    next: PlaybackState,
-  ): Promise<PlaybackState> {
-    const entry = this.requireEntry(jamId);
-    const currentVersion = entry.playback?.stateVersion ?? 0;
-    if (expectedStateVersion !== currentVersion) {
-      throw new StaleStateVersionError(
-        `Playback state is at version ${currentVersion}, not ${expectedStateVersion}.`,
-        currentVersion,
-      );
-    }
-    entry.playback = playbackStateSchema.parse(next);
-    return entry.playback;
   }
 
   async getScriptRevision(

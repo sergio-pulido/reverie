@@ -120,10 +120,6 @@ code — both go through the host-only functions above, which run as owner.
 | `POST /api/jams/:id/forks` | Fork from a declared past scene version |
 | `POST /api/jams/:id/close` | Close a room and release active resources |
 
-| `POST /api/jams/:id/playback/start` | Host-only: lock portion 0, request its video, enter `priming` |
-| `POST /api/jams/:id/playback/advance` | Host-only: move playback to the next portion once its video is ready |
-| `GET /api/jams/:id/playback` | Read playback state: current/locked portion indices, per-portion media status |
-| `GET /api/jams/:id/portions/:index/video` | Stream a generated portion clip (HTTP Range, `video/mp4`); server-hosted, never a provider URL |
 
 The **shared playback clock** is a separate, room-wide position that every viewer derives from one server anchor, so two participants can compare where the room is. It is implemented as Supabase RPCs, not the Express routes above:
 
@@ -148,42 +144,30 @@ The position is derived, never stored as a mutable counter: `elapsedMs = paused_
 
 The reconciliation is idempotent and backfills before enforcing `NOT NULL`. It is required because `190000` sorts before `230000`: on a fresh database the cursor migration creates the table first, so the clock migration's `create table if not exists` no-ops and its `jam_playback_json` function would fail to compile against the missing `started_at` column.
 
-`POST /api/jams` accepts an optional `format` object (`totalSeconds`, `portionMinSeconds`, `portionMaxSeconds`); omitted fields default to a 4-minute script of 10–20 second portions. The jam stores its format and all generation and validation follow it.
+`POST /api/jams` accepts an optional `format` object (`totalSeconds`, `portionMinSeconds`, `portionMaxSeconds`); omitted fields default to a 20-second script of 5-second portions. The jam stores its format and all generation and validation follow it.
 
 The command is a discriminated union on `mode`:
 
 - `mode: "generate"` (the default when `mode` is omitted) takes `source` as `from-scratch` or `from-movie`, calls the server-configured Nebius allowlist behind the generation concurrency gate, and stores revision 1 as the rendered markdown.
-- `mode: "import"` takes `source: { kind: "imported-script", scriptTitle }` and `scriptMarkdown` (40–9000 characters). It makes **no** provider call and takes no concurrency slot; the pasted markdown is stored verbatim as revision 1, while a derived timed projection (`src/core/scriptImport.ts`) provides the portions playback needs. Text too short or too long for the selected format returns `invalid_script_import` (`400`, `retryable: false`).
+- `mode: "import"` takes `source: { kind: "imported-script", scriptTitle }` and `scriptMarkdown` (40–9000 characters). It makes **no** provider call and takes no concurrency slot; the pasted markdown is stored verbatim as revision 1, while a derived timed projection (`src/core/scriptImport.ts`) provides the portions the director uses as beats. Text too short or too long for the selected format returns `invalid_script_import` (`400`, `retryable: false`).
 
 Both modes accept an optional `jamId` — the room id created before the script — so the script and its revisions attach to the registered jam rather than a second server-minted id. Reusing an id that already has a script returns `jam_exists` (`409`). Success is `201 { jam, scriptMarkdown }`. The browser registry (`GET`-free: `src/lib/jams.ts#listJams`) reads `jams` under the existing RLS select policy, so `/jams` shows the rooms an identity hosts or has joined, newest first, hiding `completed`/`closed`.
 
-## Portion playback, locking, and video generation
+## Beat locking and the live director
 
-Portions are addressed by a zero-based global `portionIndex` in flattened scene order — the single address used by edits, playback, and media routes (the markdown label `Portion 2.1` is a render, not the address). Structural edits (insert/delete/reorder of scenes or portions) are forbidden in v1: the portion count is fixed at generation time and only `action`, `dialogue`, `visualDirection`, and `durationSeconds` are editable, so indices and generation job keys stay stable. Stable portion ids become a later extension if forks or insertion ever need them. The structured script (scenes → portions) is the editing source of truth; markdown revisions are deterministic renders of it (coordination ruling, 2026-09-19, contract agreed with jam-storage).
+Portions are addressed by a zero-based global `portionIndex` in flattened scene order — the single address used by edits and by the director's beats (the markdown label `Portion 2.1` is a render, not the address). Structural edits (insert/delete/reorder of scenes or portions) are forbidden in v1, so indices stay stable. The structured script (scenes → portions) is the editing source of truth; markdown revisions are deterministic renders of it.
 
-**Lock window.** Server-owned playback state on the jam: `playback: { status: "idle" | "priming" | "playing" | "finished", currentPortionIndex, stateVersion }`. Derived rules, never stored per portion:
+**The lock window comes from the stream.** A live director generates ahead of playback, so by the time a viewer sees beat N the provider is already committed to N+1. `src/core/directorBeats.ts` derives the window from where the stream has reached on the script clock:
 
-- `portionIndex <= currentPortionIndex`: immutable (played or playing).
-- `portionIndex == currentPortionIndex + 1` (or `0` while `priming`): **locked** — the generation buffer. Its text is pinned at the script revision current at lock time.
-- `portionIndex >= currentPortionIndex + 2`: freely editable.
+- `beatIndex <= currentBeatIndex`: immutable (played or playing).
+- `beatIndex == currentBeatIndex + 1`: **locked** — already with the provider.
+- `beatIndex >= currentBeatIndex + 2`: freely editable.
 
-Any script edit that changes a portion at or below the locked index is rejected with `portion_locked` (`retryable: false`, includes the locked index and current `stateVersion`). Edits to later portions succeed as normal revisions. The JamStore stays persistence-only: portion edit and revert operations take a `minEditablePortionIndex` parameter and throw `PORTION_LOCKED` below it, and the router wires that parameter from the playback guard, which returns `{ minEditablePortionIndex, stateVersion }` in a single call. Playback state itself persists through the JamStore (`getPlayback`, `updatePlayback` with compare-and-swap on `stateVersion`); playback semantics — the advance rule, monotonicity — live outside the store. Per-jam mutations (`updatePortion`, `revertToRevision`, `updatePlayback`) serialize, and the router reads the guard in the same critical section as the mutation it protects, so the boundary cannot move between check and write. A revert whose target revision differs from the current one in any locked or played portion is rejected with `portion_locked` — no partial reverts. Duration edits must stay within the jam format's hard portion bounds, but the total-runtime tolerance is not re-enforced on live edits.
+Before the first chunk arrives, beat `0` is already locked: `configure` carried the whole script to the provider when the session opened. With no stream open, nothing is locked.
 
-Pinning needs no store API: an advance commits the new cursor via `updatePlayback` first, then reads the current revision number `N` and pins `(jamId, portionIndex, N)`; because the boundary is already enforced and history is append-only, the locked portion's text at revision `N` is immutable.
+The same boundary answers both routes. `POST /api/jams/:id/director/session/:sessionId/direct` refuses a direction naming a closed beat with `beat_locked` (`retryable: false`, carries the beat window), and a script `PATCH`/`revert` at or below the boundary is refused with `portion_locked`. A jam may hold one stream per configuration, and an edit is only safe if it is ahead of all of them, so the strictest open stream sets the boundary (`DirectorStreamRegistry`). The JamStore stays persistence-only: edit and revert take `minEditablePortionIndex` and throw below it, and the router reads the guard in the same critical section as the mutation it protects, so the boundary cannot move between check and write.
 
-**Advance rule.** `playback.advance` (host-only, `expectedStateVersion`-guarded) moves the cursor forward by exactly one portion, and only when the locked portion's video is `ready`; otherwise it fails with `media_not_ready` (`retryable: true`) and the room holds on the current portion (`media.delayed`). On a successful advance the next portion is locked, its text pinned, and its generation job enqueued — the pipeline stays exactly one portion ahead. Skipping is not expressible in the API.
-
-**Generation jobs.** Locking a portion enqueues one job: `queued → submitted → generating → downloading → ready | failed` (`failed` carries `retryable`). Jobs are keyed by `(jamId, portionIndex, pinnedRevision)` and idempotent. The clip duration target is the portion's `durationSeconds` (within the jam format's hard bounds). Late provider output after `room.closed` is discarded (locked portions cannot be reverted, so a pinned generation is never superseded). Events: `portion.locked`, `media.requested`, `media.ready`, `media.delayed`.
-
-**fal.ai boundary.** Calls go through a typed adapter in `apps/server/providers/fal.ts` behind `REVERIE_LIVE_ENABLED` and `FAL_KEY`, with a server-owned model allowlist (`FAL_MODEL` may only select from it), bounded generation concurrency, and per-jam clip-count and spend caps. The adapter is not claimed live until a dated probe receipt is recorded. Clients never receive fal URLs or request bodies.
-
-**Delivery.** The server downloads each finished clip into its own storage and serves it at `GET /api/jams/:id/portions/:index/video` with Range support. Storage limits: at most `MAX_PORTIONS` (48) clips per jam, a per-clip size cap, and eviction of all clips on jam close or store eviction. A clip the store already holds is never generated again, so a restart cannot re-buy a portion the server owns.
-
-Storage is a `PortionMediaStore` with two implementations. With `SUPABASE_SERVICE_ROLE_KEY` set, clips are written to the private `jam-portions` bucket (`SupabasePortionMediaStore`) and survive a restart; the bucket has no `storage.objects` policies, so only the server reaches it, and participants still receive our own bytes — never a storage or provider URL. Without that key the bounded in-memory store is used and reports `durable: false` rather than implying persistence. Whether clips exist is answered from one listing per jam, not one request per portion, because every playback poll asks about every portion. A read that storage refuses is `media_unavailable` (`503`, `retryable: true`); it names neither the bucket nor the provider.
-
-**Playback state is not durable.** The cursor still lives in the `PlaybackCoordinator`'s memory: `JamStore.getPlayback`/`updatePlayback` exist but nothing wires the coordinator to them yet. After a restart a jam reads `idle` while its clips are still stored, and playback replays from portion 0 without regenerating.
-
-`GET /api/jams/:id/playback` as a polling surface is an interim mechanism only, until the `portion.locked` / `media.*` events ride Supabase Realtime; do not build on polling as the contract — the events above are the contract.
+**There is no per-portion generation.** Video is produced by one continuous director session, not by a queue of clips; the events `portion.locked`, `media.requested`, `media.ready` and `media.delayed` described elsewhere in this document belong to a pipeline that no longer exists.
 
 ## Planned Supabase mutation and Realtime contracts
 

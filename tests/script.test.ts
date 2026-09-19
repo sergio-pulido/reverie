@@ -3,28 +3,29 @@ import { test } from "node:test";
 import {
   createJamScriptSchema,
   DEFAULT_SCRIPT_FORMAT,
+  hardPortionBounds,
   jamScriptSchema,
   scriptFormatSchema,
   totalDurationSeconds,
 } from "../src/core/script";
-import { buildScript } from "./helpers";
+import { buildDefaultFormatScript, buildScript } from "./helpers";
 
 const defaultSchema = createJamScriptSchema(DEFAULT_SCRIPT_FORMAT);
 
-test("accepts a 4-minute script made of 10-20 second portions", () => {
-  const script = buildScript(15);
-  assert.equal(totalDurationSeconds(script), 240);
+test("accepts a 20-second script made of 5-second portions", () => {
+  const script = buildDefaultFormatScript();
+  assert.equal(totalDurationSeconds(script), 20);
   assert.ok(defaultSchema.safeParse(script).success);
 });
 
 test("rejects a script far from the format's target", () => {
-  const script = buildScript(12); // 16 × 12s = 192s
+  const script = buildScript(5, 4, 4); // 16 × 5s = 80s, not 20s
   assert.equal(defaultSchema.safeParse(script).success, false);
 });
 
 test("rejects portions outside the format's hard duration bounds", () => {
-  const script = buildScript(15);
-  script.scenes[0].portions[0].durationSeconds = 30;
+  const script = buildDefaultFormatScript();
+  script.scenes[0].portions[0].durationSeconds = 12;
   assert.equal(defaultSchema.safeParse(script).success, false);
 });
 
@@ -33,32 +34,48 @@ test("structural schema accepts scripts from any format", () => {
   assert.ok(jamScriptSchema.safeParse(script).success);
 });
 
-test("format defaults to 4 minutes of 10-20 second portions", () => {
+test("structural schema still refuses a portion the model cannot render", () => {
+  const tooShort = buildScript(12);
+  tooShort.scenes[0].portions[0].durationSeconds = 4;
+  assert.equal(jamScriptSchema.safeParse(tooShort).success, false);
+  const tooLong = buildScript(12);
+  tooLong.scenes[0].portions[0].durationSeconds = 16;
+  assert.equal(jamScriptSchema.safeParse(tooLong).success, false);
+});
+
+test("format defaults to 20 seconds of 5-second portions", () => {
   const format = scriptFormatSchema.parse({});
   assert.deepEqual(format, {
-    totalSeconds: 240,
-    portionMinSeconds: 10,
-    portionMaxSeconds: 20,
+    totalSeconds: 20,
+    portionMinSeconds: 5,
+    portionMaxSeconds: 5,
   });
 });
 
 test("format accepts partial overrides", () => {
-  const format = scriptFormatSchema.parse({ totalSeconds: 480 });
-  assert.equal(format.totalSeconds, 480);
-  assert.equal(format.portionMinSeconds, 10);
+  const format = scriptFormatSchema.parse({ totalSeconds: 60 });
+  assert.equal(format.totalSeconds, 60);
+  assert.equal(format.portionMinSeconds, 5);
 });
 
 test("format rejects a minimum portion above the maximum", () => {
   const result = scriptFormatSchema.safeParse({
-    portionMinSeconds: 25,
-    portionMaxSeconds: 20,
+    portionMinSeconds: 12,
+    portionMaxSeconds: 8,
   });
   assert.equal(result.success, false);
+});
+
+test("format refuses a portion band outside what the model can render", () => {
+  assert.equal(scriptFormatSchema.safeParse({ portionMinSeconds: 4 }).success, false);
+  assert.equal(scriptFormatSchema.safeParse({ portionMaxSeconds: 16 }).success, false);
 });
 
 test("format rejects out-of-range totals", () => {
   assert.equal(scriptFormatSchema.safeParse({ totalSeconds: 5 }).success, false);
   assert.equal(scriptFormatSchema.safeParse({ totalSeconds: 3600 }).success, false);
+  // 720s is MAX_PORTIONS × the longest renderable portion, so it is the ceiling.
+  assert.equal(scriptFormatSchema.safeParse({ totalSeconds: 721 }).success, false);
 });
 
 test("format accepts a tiny 20-second test jam of 5-second portions", () => {
@@ -72,31 +89,41 @@ test("format accepts a tiny 20-second test jam of 5-second portions", () => {
 });
 
 test("format rejects combinations needing more than 48 portions", () => {
-  // 900s of 4s portions could need 225 portions.
+  // 600s of 5s portions could need 120 portions.
   const result = scriptFormatSchema.safeParse({
-    totalSeconds: 900,
-    portionMinSeconds: 4,
-    portionMaxSeconds: 20,
+    totalSeconds: 600,
+    portionMinSeconds: 5,
+    portionMaxSeconds: 15,
   });
   assert.equal(result.success, false);
-  // 900s at ≥19s stays within the cap.
+  // 720s of 15s portions is exactly 48.
   assert.ok(
     scriptFormatSchema.safeParse({
-      totalSeconds: 900,
-      portionMinSeconds: 19,
-      portionMaxSeconds: 30,
+      totalSeconds: 720,
+      portionMinSeconds: 15,
+      portionMaxSeconds: 15,
     }).success,
   );
 });
 
 test("a custom format validates scripts against its own target", () => {
   const format = scriptFormatSchema.parse({
-    totalSeconds: 480,
-    portionMinSeconds: 20,
-    portionMaxSeconds: 40,
+    totalSeconds: 240,
+    portionMinSeconds: 12,
+    portionMaxSeconds: 15,
   });
   const schema = createJamScriptSchema(format);
-  const script = buildScript(30); // 16 × 30s = 480s
+  const script = buildScript(15, 4, 4); // 16 × 15s = 240s
   assert.ok(schema.safeParse(script).success);
-  assert.equal(schema.safeParse(buildScript(15)).success, false);
+  assert.equal(schema.safeParse(buildDefaultFormatScript()).success, false);
+});
+
+test("hard bounds never widen past the model band", () => {
+  const format = scriptFormatSchema.parse({
+    totalSeconds: 240,
+    portionMinSeconds: 5,
+    portionMaxSeconds: 15,
+  });
+  // Slack would give 3s..17s; the model band clamps it back to 5s..15s.
+  assert.deepEqual(hardPortionBounds(format), { min: 5, max: 15 });
 });

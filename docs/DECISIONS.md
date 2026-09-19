@@ -1,5 +1,228 @@
 # Decisions
 
+## 2026-09-19 — Viewers watch the live stream by RTP relay, not by waiting for a recording (RV-16)
+
+A director session is watched **as it is generated**. The browser peers with THIS SERVER, which
+already holds the fal connection, and the server forwards a copy of the inbound track. Nothing
+peers with fal, so every frame still arrives here first and stays auditable and recordable — the
+"proxy everything through the server" rule is kept, and the viewer stops having to wait for a
+recording that only appeared at stop.
+
+**Relaying is not muxing, and that distinction is the whole design.** The 99% CPU that blocked
+the event loop came from muxing WebM, not from receiving RTP. Forwarding depacketizes nothing,
+muxes nothing and re-encodes nothing: the packet that arrives is the packet that leaves.
+
+Measured on a real session at 480p, one viewer attached, 2749 RTP packets relayed over 30s:
+
+| | muxing to disk | relaying to a viewer |
+| --- | --- | --- |
+| Server CPU | 99% | 3.5–5.8% |
+| `GET /api/health` | timed out | 200 in 4–13ms |
+| `POST .../end` | timed out | 204 |
+
+So the stop path survives the media path, which is the invariant that failed before. Video and
+audio both forward; the first packet arrived 4.8s after attach, which is fal's generation
+warm-up rather than relay latency.
+
+**This corrects the earlier recommendation of HLS for live viewing.** That advice assumed the
+choice was between cheap HTTP segments and expensive per-viewer connections. The real cost driver
+turned out to be muxing — which HLS *requires* and a relay *avoids* — so for getting video in
+front of a viewer, relaying is both cheaper and lower latency. HLS remains the right answer for
+scale and CDN reach, and RV-19 is building it off-thread; the two are complementary, and a relay
+is what makes the feature work today.
+
+One fal session fans out to every viewer attached to it, so a shared configuration still costs
+one stream rather than one per person. A viewer whose peer dies cannot take down the session or
+the other viewers: a failed `writeRtp` is swallowed per-viewer.
+
+**The measurement above is one viewer, and per-viewer cost is exactly what a relay is supposed to
+be questioned on.** One viewer at 3.5–5.8% does not establish what ten cost, and "several
+consumers watching one stream" is the requirement. A probe with three or four attached viewers
+costs the same billed minute and is the one still owed; until it is run, the relay is proven
+cheap for one viewer and *assumed* to scale.
+
+**Viewers are counted, because a session bills whether or not anyone is watching.** A viewer that
+navigates away never calls the teardown route, so the peer's connection state is the only honest
+signal that it is gone. When a session's last viewer leaves, the session stops rather than
+billing on to the 90-second idle reclaim. A session nobody has joined *yet* is left alone: having
+had no audience is not the same as having lost one. Viewer peers are tracked per session, so
+ending one session does not tear down another's audience.
+
+## 2026-09-19 — Capturing the director's media on the server thread blocks the server (RV-16)
+
+Measured, not predicted. With a real session running at 480p, the Node process sat at **99% CPU**
+and the event loop stopped: `/api/health` timed out, and so did
+`POST /api/jams/:id/director/session/:sessionId/end` — **the route that stops the paid session**.
+The server had to be killed, which drops the peer without telling fal to stop, and fal's
+`max_session_seconds` is 900.
+
+Depacketizing RTP and muxing WebM on the same thread that serves HTTP does not work. Recording is
+therefore **opt-in and off by default** (`REVERIE_DIRECTOR_RECORD`), and `DirectorStream` discards
+the track unless it is set. The control path — opening a session, sending direction, recording the
+audit trail, enforcing the beat lock — does not touch media and is unaffected.
+
+This makes the honest split visible: **direction and audit are proven; capture is not.** Moving
+capture off-thread (a worker, or a separate process) is RV-18's problem, and RV-19's delivery work
+inherits the same constraint. Neither should assume the main thread can carry media.
+
+The cost lesson is separate and worth stating on its own: a server that cannot answer is a server
+that cannot stop spending. Any future media work needs the stop path to survive the media path.
+
+## 2026-09-19 — The portion-by-portion pipeline is removed; the director is the only video path (RV-16)
+
+Reverie generated a film as a queue of per-portion clips: lock portion N, submit it to a
+text-to-video model, download the result, store it, play it, advance. That whole path is
+**deleted**. There is one way to make video now, and it is the live director.
+
+Removed: the portion player and its hook (`JamPlayer`, `usePortionPlayback`), the viewer rules
+(`src/core/portionPlayback.ts`), the typed client (`src/lib/portionPlayback.ts`), the shared
+playback clock (`PlaybackBar`, `usePlaybackClock`, `src/core/playbackClock.ts`, `src/lib/playback.ts`),
+the server coordinator and its routes (`apps/server/playback.ts`), per-portion clip storage
+(`apps/server/media.ts`, `apps/server/supabaseMedia.ts`), and the queue model adapter with its
+allowlist (`apps/server/providers/fal.ts`, `falModels.ts`) — whose only consumer was that
+pipeline. `FAL_MODEL` is gone with it: there is no queue model to select.
+
+`JamStore.getPlayback`/`updatePlayback` are removed too. They were the persistence seam for the
+portion cursor and, per the RV-14 handover, nothing ever wired them; with the pipeline gone they
+had no possible consumer.
+
+**What survived, and where it went.** `configurationKey` / `DEFAULT_CONFIGURATION` moved to
+`src/core/configuration.ts` — they key director streams, which is now their only job. The
+Supabase Storage config moved to `apps/server/objectStorage.ts`, since director recordings use
+the same bucket and credential. `flattenPortions` had one remaining caller and was inlined.
+
+**The script-edit lock now has a driver again.** `PlaybackGuard` existed but defaulted to
+"everything editable" and was never wired, so `portion_locked` could never fire. It is now driven
+by the director's beat window through `DirectorStreamRegistry`: a jam's strictest open stream
+sets `minEditablePortionIndex`. A beat edit *is* a script edit, so refusing direction on a closed
+beat while letting a `PATCH` rewrite the same portion would have left two different answers to
+one question.
+
+**Two things are deliberately left behind rather than deleted.** The `jam_playback` migrations
+(`20260919190000`, `20260919225000`, `20260919230000`) stay: applied migrations are history, and
+rewriting them would diverge every database that has run them. The table is now unused. And
+`docs/reviews/review-2026-09-19-fal-playback-pipeline.md` stays as the record of a review that
+happened, about code that no longer exists.
+
+**What this costs.** Nothing in this build stores a finished film any more. A director recording
+is one session's stream, kept under `director/<jamId>/<sessionId>.webm`, and the durable
+reproduction of a jam is RV-18's work. Until then, stopping a stream is the only way to keep it,
+and a server without a service-role key keeps it only in memory.
+
+## 2026-09-19 — Probe receipt: the director handshake works, and it speaks SSE (RV-16)
+
+First live run of `minimax/h3-max/director` with a valid key, via
+`scripts/probe-director.mts`, on 2026-09-19. Two sessions were opened and stopped
+immediately; each bills fal's 60-second minimum.
+
+Result: **the handshake completes and the control channel opens.** A 2095-character
+offer with three media sections was answered in ~2.5s with a 3313-character answer,
+also three media sections; the remote description applied, the data channel reached
+`open`, `stop` was sent and the peer closed cleanly. Our server, as the WebRTC peer,
+can hold a director session.
+
+**`/start-session` answers `text/event-stream`, not JSON.** The answer arrives as the
+first `data:` frame carrying `{"sdp": ...}`. The adapter had parsed the body as JSON
+and reported "the director stream returned an unexpected shape" on every real
+session — the endpoint's own OpenAPI declares a JSON response, so the mistake was
+reading the contract rather than the wire. It now reads the event stream
+incrementally and stops at the answer, because the stream may stay open for the
+session and waiting for it to end would hang the handshake it completes. The JSON
+branch is kept, since the published contract still says JSON.
+
+`POST /info` also answered and confirms every constant hard-coded from the published
+schema: `min_chunk_duration` 5, `max_chunk_duration` 15, `fps` 24, resolutions
+480p/768p/1080p, aspect ratios 16:9/9:16/1:1. It adds two facts worth recording:
+`max_session_seconds` is **900**, and `one_session_per_machine` is **true**.
+
+**Still not probed:** no video has been received or watched. The handshake and the
+control channel are proven; the media track is not.
+
+## 2026-09-19 — MiniMax H3 Max is the video model, and its limits are the product's limits (RV-16)
+
+Reverie generates video on **`minimax/h3-max/text-to-video`**. It is entry `[0]` of the
+server-owned allowlist, which makes it both the default and what an unconfigured or
+misconfigured server falls back to. `FAL_MODEL` still selects a different entry, and a value
+that is not on the list is **refused** rather than quietly replaced — serving a model the
+operator did not ask for is exactly the kind of unverified provider claim `AGENTS.md` forbids.
+
+The allowlist stopped being a list of slugs. A model differs from its neighbours in the duration
+band it accepts and the request body it wants, so `apps/server/providers/falModels.ts` holds
+typed specs and the transport adapter asks the spec how to build a request. The same file records
+that a queued request is addressed by its **application** (`minimax/h3-max/requests/<id>`) and not
+by its full slug; the previous code polled the slug, which works only for models without a
+sub-path and would have 404'd on this one.
+
+**The model's duration band is now the product's portion band: whole seconds in `[5, 15]`.**
+H3 Max publishes it as `duration`; the Director model publishes the same numbers as
+`min_chunk_duration`/`max_chunk_duration`. A portion outside that band cannot be rendered by
+anything this build can call, so it is refused at the script boundary instead of at spend time:
+the format schema enforces it, the transport schema enforces it for imported scripts, and the
+slack that lets a beat breathe may no longer widen past it. `TOTAL_MAX_SECONDS` is derived
+(`MAX_PORTIONS × 15s = 720s`) so the advertised ceiling stays reachable. The default jam is
+**20 seconds of 5-second portions**, four portions in total.
+
+A 4-second portion was asked for and is not possible: 5 seconds is the vendor floor on every
+H3 Max route. That is a vendor limit, not a preference, and nothing in this build rounds it away.
+
+## 2026-09-19 — The server is the WebRTC peer, so every frame and every direction is on the record (RV-16)
+
+`minimax/h3-max/director` is **not a queue model**. A session is a WebRTC peer connection: the
+caller POSTs an SDP offer to `/start-session`, fal answers, and video then arrives as a media
+track while direction travels over a JSON control channel (`configure`, `prompt`, `ping`, `stop`
+out; `configured`, `chunk`, `prompt_applied`, `prompt_rejected`, `stream_exhausted`, `error`
+back). There is no result URL.
+
+**This server is the peer.** An earlier revision of this branch made the browser the peer and had
+the server broker only the handshake, on the grounds that a browser renders a media track for
+free. That was reversed: if the browser holds the connection, prompts go from the browser
+straight to fal and there is no record of what the room asked for or what came back. Full control
+and a complete audit trail are the point of the integration, so the server takes the connection
+and pays the costs that come with it.
+
+What that buys: every direction is **originated** here (`POST .../director/session/:id/direct`),
+recorded with its prompt version, its author and the proposal it came from, and matched against
+fal's `prompt_applied` / `prompt_rejected` verdict. The media track is recorded to WebM and
+stored. A client has no route to the provider at all.
+
+What it costs, stated plainly:
+- **It cannot run in a serverless function.** A peer connection is long-lived, so the live
+  director belongs to the container process, not to Vercel. `AGENTS.md` already forbids a
+  long-lived socket server on Vercel; this is the same constraint arriving from the provider side.
+- **A WebRTC stack is now a server dependency** (`werift`, pure TypeScript, no native bindings).
+  `AGENTS.md` requires a measured need for new infrastructure; the audit requirement is it.
+- **The browser no longer watches live.** It watches the stored recording, because forwarding the
+  track to a second peer connection is a separate piece of work. The screen says so rather than
+  implying liveness it does not have.
+
+`werift` sits behind one interface (`DirectorPeer` in `apps/server/directorStream.ts`) so nothing
+else in the server knows it exists, and so route tests can drive a session without opening real
+sockets — a real peer also keeps the Node event loop alive and hangs the test runner.
+
+**The audit log is deliberately stream-specific.** It records the prompt version, whether fal
+applied or refused it, and which chunk it took effect on. It does not duplicate author, body,
+decision or timestamps for the *proposal* that produced a direction; that record belongs to
+`jam_proposals`, and a second copy would be a second, divergent account of the same event.
+
+**Spend is unchanged and still the sharp edge.** fal bills each session a **60-second minimum of
+wall-clock runtime**, so an idle open session costs as much as a working one. Opening reserves the
+worst case, closing settles against the billed minimum, a session whose client stops checking in
+is reclaimed without a refund, and a handshake fal *refused* is released in full — nothing ran, so
+nothing is billed. The default rate is fal's list price rather than the promotional one, because
+the safe direction is to over-estimate. Director stays behind its own `REVERIE_DIRECTOR_ENABLED`
+flag.
+
+**Still open, and not decided here:** whether an accepted proposal becomes live direction on an
+open stream or a script edit gated by the portion-lock window. `docs/specs/transactional-scene-contract.md`
+assumes the second; this integration currently implements the first as a minimal typed seam
+(`DirectionRequest`) that carries `authorId` and `proposalId` without assuming where they came
+from. The seam is one interface wide so it is cheap to move.
+
+**Not probed.** No Director session has been opened with a valid key, and no generated video has
+been seen by anyone. The route shape was confirmed unauthenticated — `/start-session` and `/info`
+answer 401, `/health` and the bare application 404 — and every constant comes from the model's
+published `/info` and AsyncAPI documents.
+
 ## 2026-09-19 — Generated streams are keyed by configuration, and a cap makes the room attach
 
 Per-participant overrides select a configuration (today `language` + `ambientation`), and Reverie

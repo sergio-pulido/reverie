@@ -105,6 +105,13 @@ test("rejects a revert that would change a locked portion", () => {
 });
 
 test("addresses portions by flat index and patches within format bounds", () => {
+  // States its own format: the default is now a 20-second jam of 5s portions,
+  // whose hard bounds would reject the 12s patch this test is about.
+  const format = {
+    totalSeconds: 240,
+    portionMinSeconds: 12,
+    portionMaxSeconds: 15,
+  };
   const base = buildScript(15);
   // 4 scenes × 4 portions: flat index 5 is scene 1, portion 1.
   const located = getPortionAt(base, 5);
@@ -116,7 +123,7 @@ test("addresses portions by flat index and patches within format bounds", () => 
     base,
     5,
     { dialogue: "“Who left this open?”", durationSeconds: 12 },
-    DEFAULT_SCRIPT_FORMAT,
+    format,
   );
   const portion = getPortionAt(patched, 5)!.portion;
   assert.equal(portion.dialogue, "“Who left this open?”");
@@ -126,11 +133,11 @@ test("addresses portions by flat index and patches within format bounds", () => 
 
   assert.throws(
     () =>
-      applyPortionPatch(base, 5, { durationSeconds: 59 }, DEFAULT_SCRIPT_FORMAT),
+      applyPortionPatch(base, 5, { durationSeconds: 59 }, format),
     ScriptHistoryError,
   );
   assert.throws(
-    () => applyPortionPatch(base, 99, { action: "Nope." }, DEFAULT_SCRIPT_FORMAT),
+    () => applyPortionPatch(base, 99, { action: "Nope." }, format),
     ScriptHistoryError,
   );
 });

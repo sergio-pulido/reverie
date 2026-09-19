@@ -7,7 +7,6 @@ import {
   withJamLock,
 } from "../apps/server/jams";
 import { PortionLockedError } from "../src/core/scriptHistory";
-import { StaleStateVersionError } from "../src/core/playback";
 import { DEFAULT_SCRIPT_FORMAT } from "../src/core/script";
 import type { Jam } from "../src/core/jam";
 import { buildScript } from "./helpers";
@@ -90,39 +89,6 @@ test("rejects edits and reverts below the lock boundary", async () => {
     store.revertScriptToRevision(jam.id, 1, 2),
     PortionLockedError,
   );
-});
-
-test("persists playback under compare-and-swap on stateVersion", async () => {
-  const store = new InMemoryJamStore();
-  const jam = buildJam();
-  await store.createJam(jam);
-  assert.equal(await store.getPlayback(jam.id), null);
-
-  const first = await store.updatePlayback(jam.id, 0, {
-    status: "priming",
-    currentPortionIndex: null,
-    stateVersion: 1,
-  });
-  assert.equal(first.stateVersion, 1);
-
-  await assert.rejects(
-    store.updatePlayback(jam.id, 0, {
-      status: "playing",
-      currentPortionIndex: 0,
-      stateVersion: 1,
-    }),
-    (error: unknown) =>
-      error instanceof StaleStateVersionError &&
-      error.currentStateVersion === 1,
-  );
-
-  const second = await store.updatePlayback(jam.id, 1, {
-    status: "playing",
-    currentPortionIndex: 0,
-    stateVersion: 2,
-  });
-  assert.equal((await store.getPlayback(jam.id))?.stateVersion, 2);
-  assert.equal(second.status, "playing");
 });
 
 test("raises jam_not_found for unknown jams", async () => {

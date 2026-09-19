@@ -79,11 +79,12 @@ export function createJamsRouter(store: JamStore = new InMemoryJamStore()): Rout
 
     activeGenerations += 1;
     try {
-      const script = await writeJamScript(config, command.data.source);
+      const script = await writeJamScript(config, command.data.source, command.data.format);
       const jam: Jam = {
         id: randomUUID(),
         createdAt: new Date().toISOString(),
         source: command.data.source,
+        format: command.data.format,
         script,
       };
       await store.createJam(jam);
@@ -136,7 +137,7 @@ function allowCreation(byIp: Map<string, number[]>, ip: string): boolean {
   return true;
 }
 
-function sendError(
+export function sendError(
   response: Response,
   status: number,
   code: string,

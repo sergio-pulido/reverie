@@ -1,9 +1,11 @@
 import { totalDurationSeconds, type JamScript } from "./script";
 import type { JamSource } from "./jam";
+import type { JamSession } from "./session";
 
 export function renderScriptMarkdown(
   script: JamScript,
   source: JamSource,
+  session?: JamSession,
 ): string {
   const lines: string[] = [];
   const total = totalDurationSeconds(script);
@@ -23,6 +25,14 @@ export function renderScriptMarkdown(
   lines.push(
     "- This is a generated Movie Jam script, not an existing film or catalogue title.",
   );
+  if (session) {
+    lines.push(
+      `- Playback for ${session.owner.displayName}: language ${session.settings.language}` +
+        (session.settings.ambientation
+          ? `, ambientation “${session.settings.ambientation}”`
+          : ", ambientation as written"),
+    );
+  }
 
   let elapsed = 0;
   script.scenes.forEach((scene, sceneIndex) => {

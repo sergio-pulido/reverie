@@ -32,6 +32,20 @@ test("rejects an invalid jam command", async () => {
   assert.equal(body.error.code, "invalid_command");
 });
 
+test("rejects an invalid script format", async () => {
+  const response = await fetch(`${baseUrl}/api/jams`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      source: { kind: "from-scratch", prompt: "A lighthouse keeper finds a door." },
+      format: { totalSeconds: 30 },
+    }),
+  });
+  assert.equal(response.status, 400);
+  const body = await response.json();
+  assert.equal(body.error.code, "invalid_command");
+});
+
 test("refuses generation honestly when live providers are disabled", async () => {
   const response = await fetch(`${baseUrl}/api/jams`, {
     method: "POST",

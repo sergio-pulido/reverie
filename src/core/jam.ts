@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { jamScriptSchema } from "./script";
+import { jamScriptSchema, scriptFormatSchema } from "./script";
 
 // A jam starts either from scratch (a short prompt seeds the script) or from
 // an existing movie the room wants to riff on. Catalogue titles are source
@@ -18,12 +18,16 @@ export const jamSourceSchema = z.discriminatedUnion("kind", [
 
 export const createJamCommandSchema = z.object({
   source: jamSourceSchema,
+  // Optional timing overrides; omitted fields fall back to the 4-minute,
+  // 10–20s-portion default.
+  format: scriptFormatSchema.prefault({}),
 });
 
 export const jamSchema = z.object({
   id: z.uuid(),
   createdAt: z.string(),
   source: jamSourceSchema,
+  format: scriptFormatSchema,
   script: jamScriptSchema,
 });
 

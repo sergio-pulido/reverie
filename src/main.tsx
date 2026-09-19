@@ -37,6 +37,9 @@ function App() {
   const [sourceKind, setSourceKind] = useState<SourceKind>("from-scratch");
   const [movieTitle, setMovieTitle] = useState("");
   const [movieSummary, setMovieSummary] = useState("");
+  const [totalMinutes, setTotalMinutes] = useState(4);
+  const [portionMinSeconds, setPortionMinSeconds] = useState(10);
+  const [portionMaxSeconds, setPortionMaxSeconds] = useState(20);
   const [generatedJam, setGeneratedJam] = useState<GeneratedJam | null>(null);
   const [contributions, setContributions] = useState(starterContributions);
   const [draft, setDraft] = useState("");
@@ -95,7 +98,14 @@ function App() {
       const response = await fetch("/api/jams", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ source }),
+        body: JSON.stringify({
+          source,
+          format: {
+            totalSeconds: totalMinutes * 60,
+            portionMinSeconds,
+            portionMaxSeconds,
+          },
+        }),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
@@ -135,7 +145,7 @@ function App() {
   }
 
   if (screen === "create") {
-    return <CreateRoom title={roomTitle} premise={premise} visibility={visibility} sourceKind={sourceKind} movieTitle={movieTitle} movieSummary={movieSummary} onTitle={setRoomTitle} onPremise={setPremise} onVisibility={setVisibility} onSourceKind={setSourceKind} onMovieTitle={setMovieTitle} onMovieSummary={setMovieSummary} onBack={() => navigate("home", "/")} onSubmit={createRoom} isCreating={isCreating} notice={notice} />;
+    return <CreateRoom title={roomTitle} premise={premise} visibility={visibility} sourceKind={sourceKind} movieTitle={movieTitle} movieSummary={movieSummary} totalMinutes={totalMinutes} portionMinSeconds={portionMinSeconds} portionMaxSeconds={portionMaxSeconds} onTitle={setRoomTitle} onPremise={setPremise} onVisibility={setVisibility} onSourceKind={setSourceKind} onMovieTitle={setMovieTitle} onMovieSummary={setMovieSummary} onTotalMinutes={setTotalMinutes} onPortionMinSeconds={setPortionMinSeconds} onPortionMaxSeconds={setPortionMaxSeconds} onBack={() => navigate("home", "/")} onSubmit={createRoom} isCreating={isCreating} notice={notice} />;
   }
   if (screen === "script" && generatedJam) {
     return <ScriptScreen jam={generatedJam} roomTitle={roomTitle} onStudio={() => setScreen("studio")} onBack={() => navigate("create", "/jams/new")} />;
@@ -155,14 +165,16 @@ function Home({ onCreate, onJoin }: { onCreate: () => void; onJoin: () => void }
 type CreateRoomProps = {
   title: string; premise: string; visibility: JamVisibility;
   sourceKind: SourceKind; movieTitle: string; movieSummary: string;
+  totalMinutes: number; portionMinSeconds: number; portionMaxSeconds: number;
   onTitle: (value: string) => void; onPremise: (value: string) => void; onVisibility: (value: JamVisibility) => void;
   onSourceKind: (value: SourceKind) => void; onMovieTitle: (value: string) => void; onMovieSummary: (value: string) => void;
+  onTotalMinutes: (value: number) => void; onPortionMinSeconds: (value: number) => void; onPortionMaxSeconds: (value: number) => void;
   onBack: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; isCreating: boolean; notice: string | null;
 };
 
-function CreateRoom({ title, premise, visibility, sourceKind, movieTitle, movieSummary, onTitle, onPremise, onVisibility, onSourceKind, onMovieTitle, onMovieSummary, onBack, onSubmit, isCreating, notice }: CreateRoomProps) {
+function CreateRoom({ title, premise, visibility, sourceKind, movieTitle, movieSummary, totalMinutes, portionMinSeconds, portionMaxSeconds, onTitle, onPremise, onVisibility, onSourceKind, onMovieTitle, onMovieSummary, onTotalMinutes, onPortionMinSeconds, onPortionMaxSeconds, onBack, onSubmit, isCreating, notice }: CreateRoomProps) {
   return <main className="site-shell setup-shell"><Header onHome={onBack} /><section className="setup-layout">
-    <div className="setup-intro"><button className="back-link" onClick={onBack}>← Back to Reverie</button><p className="eyebrow">NEW MOVIE JAM</p><h1>Set the first <em>scene.</em></h1><p className="intro">Start from scratch with a small prompt, or riff on a movie you love. Reverie writes a 4-minute script in 10–20 second scene portions for the room to direct.</p></div>
+    <div className="setup-intro"><button className="back-link" onClick={onBack}>← Back to Reverie</button><p className="eyebrow">NEW MOVIE JAM</p><h1>Set the first <em>scene.</em></h1><p className="intro">Start from scratch with a small prompt, or riff on a movie you love. Pick the runtime and portion length, and Reverie writes a script in scene portions for the room to direct.</p></div>
     <form className="room-form" onSubmit={onSubmit}>
       <label>Jam title<input value={title} onChange={(event) => onTitle(event.target.value)} maxLength={72} required /></label>
       <div className="jam-kind" role="radiogroup" aria-label="Story source">
@@ -177,9 +189,14 @@ function CreateRoom({ title, premise, visibility, sourceKind, movieTitle, movieS
           <label>What the room remembers about it (optional)<textarea value={movieSummary} onChange={(event) => onMovieSummary(event.target.value)} maxLength={1000} /></label>
         </>
       )}
+      <div className="format-row" role="group" aria-label="Script length">
+        <label>Total length<select value={totalMinutes} onChange={(event) => onTotalMinutes(Number(event.target.value))}>{[2, 3, 4, 5, 6, 8, 10].map((minutes) => <option key={minutes} value={minutes}>{minutes} minutes</option>)}</select></label>
+        <label>Shortest portion (s)<input type="number" min={4} max={60} value={portionMinSeconds} onChange={(event) => onPortionMinSeconds(Number(event.target.value))} required /></label>
+        <label>Longest portion (s)<input type="number" min={4} max={60} value={portionMaxSeconds} onChange={(event) => onPortionMaxSeconds(Number(event.target.value))} required /></label>
+      </div>
       <label>Who can join?<select value={visibility} onChange={(event) => onVisibility(event.target.value as JamVisibility)}><option value="invite_only">Invite only</option><option value="public">Public room</option></select></label>
       <p className="form-note">{hasSupabaseConfiguration() ? "This room will receive its own persistent URL." : "Supabase is not configured yet, so this creates a clearly labelled local preview."} The script is an original generated work — never a copy of an existing film.</p>
-      <button className="button button-primary form-submit" type="submit" disabled={isCreating}>{isCreating ? "Writing your 4-minute script…" : "Write the script"}<span>↗</span></button>
+      <button className="button button-primary form-submit" type="submit" disabled={isCreating}>{isCreating ? `Writing your ${totalMinutes}-minute script…` : "Write the script"}<span>↗</span></button>
       {notice && <aside className="notice" role="alert"><span className="notice-dot" />{notice}</aside>}
     </form>
   </section><Footer />

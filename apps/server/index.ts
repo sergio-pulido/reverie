@@ -3,7 +3,8 @@ import health from "../../api/health";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer as createViteServer } from "vite";
-import { createJamsRouter } from "./jams";
+import { createJamsRouter, InMemoryJamStore } from "./jams";
+import { createSessionsRouter } from "./sessions";
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const rootDirectory = path.resolve(currentDirectory, "../..");
@@ -23,7 +24,9 @@ app.use("/api", (_request, response) => {
   response.status(404).json({ code: "NOT_FOUND", safeMessage: "API route not found." });
 });
 
-app.use(createJamsRouter());
+const jamStore = new InMemoryJamStore();
+app.use(createJamsRouter(jamStore));
+app.use(createSessionsRouter(jamStore));
 
 async function start() {
   if (!isProduction) {

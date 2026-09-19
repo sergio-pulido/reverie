@@ -50,3 +50,19 @@ test("settles a short mixed draft exactly on 240 seconds", () => {
 test("rejects drafts too far from the target to rescale", () => {
   assert.throws(() => finalizeScriptDraft(buildScript(8)), ScriptDraftError); // 128s
 });
+
+test("rescales onto a custom format's target", () => {
+  const format = {
+    totalSeconds: 120,
+    portionMinSeconds: 6,
+    portionMaxSeconds: 10,
+  };
+  const draft = buildScript(9); // 16 × 9s = 144s, within 1.25× of 120s
+  const script = finalizeScriptDraft(draft, format);
+  assert.equal(totalDurationSeconds(script), 120);
+  for (const scene of script.scenes) {
+    for (const portion of scene.portions) {
+      assert.ok(portion.durationSeconds >= 4 && portion.durationSeconds <= 12);
+    }
+  }
+});

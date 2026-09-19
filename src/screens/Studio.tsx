@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { authorName, type ConnectionState, type JamMember } from "../core/room";
+import { authorName, type ConnectionState, type JamMember, type JamProposal } from "../core/room";
+import type { SessionSettings } from "../core/session";
 import { Footer, Notice } from "../chrome";
 import { TopBar } from "../shell/TopBar";
 import { InvitePanel } from "./InvitePanel";
+import { EscapeRoom } from "./EscapeRoom";
 import { JamDirector } from "./JamDirector";
+import { useEscapeRoom } from "./useEscapeRoom";
 import { useAccessStatus } from "./useAccessStatus";
 import { useJamRoom } from "./useJamRoom";
 import { readJamConfiguration } from "../lib/jamConfiguration";
@@ -86,18 +89,16 @@ export function Studio({ slug, onLeave }: { slug: string; onLeave: () => void })
           </aside>
 
           <div className="studio-scene">
-            <JamDirector jamId={jam.id} canDrive={isHost} configuration={configuration} />
-            <div className="queue-card queue-card-stack">
-              <div><p className="eyebrow">UP NEXT</p><h2>Proposal queue</h2></div>
-              <div className="contribution-list" aria-live="polite">
-                {proposals.length === 0 && <p>Nothing queued yet.</p>}
-                {proposals.map((proposal) => <article className="contribution director" key={proposal.id}>
-                  <span>{authorName(members, proposal.author_id)} · {proposal.status}</span><p>{proposal.body}</p>
-                </article>)}
-              </div>
-              <Composer placeholder="Add a character, twist, shot, or feeling…" maxLength={280} disabled={!contributionAllowed} label="Propose" onSubmit={actions.addProposal} />
-              <p className="form-note">Accepting a proposal into a scene needs the versioned transactional contract that is not implemented yet.</p>
-            </div>
+            <Story
+              jamId={jam.id}
+              isHost={isHost}
+              displayName={self.display_name}
+              contributionAllowed={contributionAllowed}
+              configuration={configuration}
+              members={members}
+              proposals={proposals}
+              onPropose={actions.addProposal}
+            />
 
             <LiveStage jamId={jam.id} userId={self.user_id} members={members} canJoin={contributionAllowed} />
 
@@ -106,6 +107,66 @@ export function Studio({ slug, onLeave }: { slug: string; onLeave: () => void })
           </div>
         </section>}
   </Shell>;
+}
+
+/**
+ * What the room is making, which is one of two things.
+ *
+ * An escape room is a jam with a fixed world and a goal, so it is drawn here,
+ * in the slot the live director occupies otherwise, rather than on a screen of
+ * its own — everything around it (the invite, the lobby, the chat, the roster,
+ * the live stage) is the jam's and is untouched. Which one this is comes from
+ * the server: `absent` means this jam has no escape room, and until the answer
+ * arrives neither is drawn, so the panels do not swap under the reader.
+ */
+function Story({
+  jamId,
+  isHost,
+  displayName,
+  contributionAllowed,
+  configuration,
+  members,
+  proposals,
+  onPropose,
+}: {
+  jamId: string;
+  isHost: boolean;
+  displayName: string;
+  contributionAllowed: boolean;
+  configuration: SessionSettings | null;
+  members: readonly JamMember[];
+  proposals: readonly JamProposal[];
+  onPropose: (body: string) => void | Promise<void>;
+}) {
+  const escape = useEscapeRoom(jamId);
+
+  if (escape.state.status === "unknown") return null;
+  if (escape.state.status === "present") {
+    return <EscapeRoom
+      snapshot={escape.state.snapshot}
+      isHost={isHost}
+      displayName={displayName}
+      canContribute={contributionAllowed}
+      busy={escape.busy}
+      failure={escape.failure}
+      actions={escape.actions}
+    />;
+  }
+
+  return <>
+    <JamDirector jamId={jamId} canDrive={isHost} configuration={configuration} />
+    <div className="queue-card queue-card-stack">
+      <div><p className="eyebrow">UP NEXT</p><h2>Proposal queue</h2></div>
+      <div className="contribution-list" aria-live="polite">
+        {proposals.length === 0 && <p>Nothing queued yet.</p>}
+        {proposals.map((proposal) => <article className="contribution director" key={proposal.id}>
+          <span>{authorName(members, proposal.author_id)} · {proposal.status}</span><p>{proposal.body}</p>
+        </article>)}
+      </div>
+      <Composer placeholder="Add a character, twist, shot, or feeling…" maxLength={280} disabled={!contributionAllowed} label="Propose" onSubmit={onPropose} />
+      <p className="form-note">Accepting a proposal into a scene needs the versioned transactional contract that is not implemented yet.</p>
+    </div>
+  </>;
 }
 
 const CHAT_WIDTH = { key: "reverie.studio.chatWidth", min: 22, max: 62, fallback: 38 };

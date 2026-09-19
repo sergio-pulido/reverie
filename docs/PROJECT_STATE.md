@@ -239,11 +239,18 @@ server (9 checks). In the browser: an invite link prefills the code on `/join`, 
 preview is still labelled non-shareable. The QR was rendered through `qrcode.react` with the
 real `inviteUrl` output and produced a 37x37-module SVG carrying an accessible title.
 
-**Not verified:** this repository still has no Supabase credentials, so no migration has been
-applied and `pnpm verify:realtime` has not been run. The column grants, the throttle, the
-lifecycle functions and the two-session host/participant journey are implemented and
-specified but unproven against a live database. `scripts/verify-realtime.mjs` now asserts all
-of them and needs only `SUPABASE_URL` and `SUPABASE_ANON_KEY` against a migrated project.
+**Not verified:** the live-project check is blocked by the extension-schema correction below.
+The column grants, throttle, lifecycle functions and two-session host/participant journey
+remain unproven until `scripts/verify-realtime.mjs` completes against the migrated project.
+
+## 2026-09-19 — Supabase production check found an extension-schema fix
+
+- The first live-project verification reached the database using anonymous sessions and the
+  publishable key, but Jam creation stopped at `public.generate_invite_code`: Supabase places
+  `pgcrypto` functions in `extensions`, while the security-definer function deliberately has
+  a `public`-only search path. `20260919212000_fix_invite_code_randomness.sql` now qualifies
+  `extensions.gen_random_bytes(8)`. Apply it, then rerun `pnpm verify:realtime`; no
+  collaboration, RLS or Realtime assertion has been claimed as passed before that rerun.
 
 ## Next milestones
 

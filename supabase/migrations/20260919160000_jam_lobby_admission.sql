@@ -19,7 +19,7 @@ declare
   i int;
 begin
   loop
-    bytes := gen_random_bytes(8);
+    bytes := extensions.gen_random_bytes(8);
     code := '';
     for i in 0..7 loop
       code := code || substr(alphabet, 1 + (get_byte(bytes, i) % 31), 1);

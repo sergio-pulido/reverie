@@ -58,3 +58,11 @@ in the shared room, carrying per-participant overrides; those overrides **select
 configuration**, and each active configuration maps to one generated stream. Overrides still
 never fork the script or split the room.
 
+## Implementation status
+
+**Nothing in this spec is implemented.** There is no configuration key, stream registry, cache,
+per-configuration generation, cap, active-configuration listing, or attach endpoint/UI. See the
+register in `docs/specs/intended-vs-implemented.md`. The existing `MAX_SESSIONS_PER_JAM = 32`
+(`apps/server/sessions.ts:12`) caps how many sessions a jam holds and does **not** cap
+configurations — do not mistake one for the other.
+

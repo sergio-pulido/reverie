@@ -138,3 +138,11 @@ decision is recorded in `docs/DECISIONS.md`.
 version; plus a chat-to-edit route that appends versions through the same revision boundary as
 `PUT /api/jams/:id/script`. Neither route exists today.
 
+## Implementation status
+
+Actual vs intended, with code anchors, is tracked in `docs/specs/intended-vs-implemented.md`.
+Short version: the three current actions and the session endpoints exist in the local Express
+host; the **copy-to-version** step, **chat editing**, and **session-as-room-membership**
+unification have **no code**. The script/session routes are also not deployed as Vercel
+functions (only `api/health`, `api/catalogue` and `api/live/token` are).
+

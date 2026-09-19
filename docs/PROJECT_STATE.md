@@ -360,6 +360,11 @@ remain unproven until `scripts/verify-realtime.mjs` completes against the migrat
   **one stream per distinct configuration**, not per participant; cap the number of distinct
   configurations the server holds; and, when the cap is full, show the active configurations so
   participants **attach** to an existing one instead of triggering new paid generation.
+- `docs/specs/intended-vs-implemented.md` is the register that separates actual behaviour from
+  intended, with code anchors: the copy-to-version step, chat editing, session/room-membership
+  unification, Supabase-backed session persistence and configuration-keyed streams have **no
+  code** (or no wiring), and the script/session routes are local Express only, not Vercel
+  functions.
 - Documentation only; no code or runtime behaviour changed.
 
 ## Next milestones

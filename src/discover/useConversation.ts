@@ -32,8 +32,11 @@ export type SendOutcome =
   /** Nothing was sent: an empty message, one already on its way, or a session that ended. */
   | { kind: "ignored" }
   | { kind: "lookup"; turn: number }
-  /** The assistant answered. `accepted` is whether the engine applied its turn here. */
-  | { kind: "reply"; turn: number; answerLine: number | null; accepted: boolean };
+  /**
+   * The assistant answered. `accepted` is whether the engine applied its turn here; `canRank` is
+   * whether the assistant has interpreted something and is still available, so it may rank films.
+   */
+  | { kind: "reply"; turn: number; answerLine: number | null; accepted: boolean; canRank: boolean };
 
 /**
  * The viewer's side of the conversation for one session. A message opens a turn; it is looked up
@@ -87,7 +90,7 @@ export function useConversation({ sessionId, current, say }: Speaker) {
         const accepted = reply?.status === "ok" ? say(reply.turn) : false;
         const answered = assistantReplied(latest.current, reply, accepted);
         commit(answered);
-        return { kind: "reply", turn, answerLine: accepted ? answerLineOf(answered, turn) : null, accepted };
+        return { kind: "reply", turn, answerLine: accepted ? answerLineOf(answered, turn) : null, accepted, canRank: answered.spoken && answered.available };
       } finally {
         if (session.current === askedIn) {
           busy.current = false;

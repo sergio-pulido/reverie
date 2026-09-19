@@ -31,7 +31,20 @@ function interpret(message: string): Heard {
   return heard;
 }
 
-export function fakeAssistant() {
+/** Rankings wait on this while it is held, so a turn stays waiting for its films. */
+export function rankingGate() {
+  let open: () => void = () => undefined;
+  let held = new Promise<void>((resolve) => (open = resolve));
+  return {
+    wait: () => held,
+    release: () => open(),
+    hold: () => {
+      held = new Promise<void>((resolve) => (open = resolve));
+    },
+  };
+}
+
+export function fakeAssistant(gate?: ReturnType<typeof rankingGate>) {
   const turns: string[] = [];
   const rankings: string[][] = [];
   const client: Assistant = {
@@ -59,6 +72,7 @@ export function fakeAssistant() {
     },
     async requestRanking(state, titles): Promise<RankResponse> {
       rankings.push(titles.map(({ id }) => id));
+      await gate?.wait();
       // The assistant's order is the catalogue's, reversed, so its hand is visible.
       const ranking = [...titles].reverse().map(({ id }, index) => ({ candidateId: id, utility: 1 - index / 100 }));
       return { status: "ok", source: "nebius", model: "test", stateVersion: state.stateVersion, ranking, reasons: [{ candidateId: ranking[0].candidateId, reason: "The best fit here." }] };
@@ -67,9 +81,9 @@ export function fakeAssistant() {
   return { client, turns, rankings };
 }
 
-export async function openSearch(at: string | Entry[] = "/search", { unknown = [] as readonly string[] } = {}) {
+export async function openSearch(at: string | Entry[] = "/search", { unknown = [] as readonly string[], gate }: { unknown?: readonly string[]; gate?: ReturnType<typeof rankingGate> } = {}) {
   const catalogue = fakeCatalogue({ unknown });
-  const assistant = fakeAssistant();
+  const assistant = fakeAssistant(gate);
   await render(
     <CatalogueReadProvider read={catalogue.read}>
       <AssistantProvider assistant={assistant.client}>

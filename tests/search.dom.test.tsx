@@ -1,4 +1,4 @@
-import { cards, field, openSearch, say, turns, type } from "./searchScreen";
+import { cards, field, openSearch, rankingGate, say, turns, type } from "./searchScreen";
 import { cleanup, click, focusOn, focused, press, settle } from "./render";
 import { scrollCalls } from "./dom";
 import assert from "node:assert/strict";
@@ -40,12 +40,14 @@ describe("search at rest", () => {
     assert.equal(assistant.turns.length, 0);
   });
 
-  it("still shows no film while a request is only being typed", async () => {
+  it("still shows no film while a request is only being typed, whatever it asks for", async () => {
     const { catalogue } = await openSearch();
-    await type(field(), "Inception");
-    await settle(4);
-    assert.equal(catalogue.requests.length, 0);
-    assert.equal(document.querySelectorAll("img, .search-card").length, 0);
+    for (const draft of ["Inception", "something funny from the nineties, under two hours"]) {
+      await type(field(), draft);
+      await settle(4);
+      assert.equal(catalogue.requests.length, 0, draft);
+      assert.equal(document.querySelectorAll("img, .search-card, .search-heard-chip").length, 0, draft);
+    }
     assert.ok(document.querySelector(".search-send"), "a draft brings the send button");
   });
 
@@ -108,6 +110,37 @@ describe("a turn", () => {
     assert.deepEqual(second.lines, ["from the nineties", "Heard: from the nineties."]);
     assert.equal(second.posters.length, 12);
     assert.equal(document.querySelectorAll(".search-turn").length, 2);
+  });
+
+  it("keeps a turn's films for the state its reply left, even if a filter comes off while they load", async () => {
+    const gate = rankingGate();
+    const { catalogue } = await openSearch("/search", { gate });
+    await say("something funny");
+    assert.ok(document.querySelector(".search-results-waiting"), "the turn is waiting for its ranking");
+    await click(document.querySelector('.search-strip [aria-label="Remove Comedy"]'));
+    assert.equal(document.querySelector('.search-strip [aria-label="Remove Comedy"]'), null, "the filter is off");
+    gate.release();
+    await settle(6);
+    const [turn] = turns();
+    assert.equal(turn.caption, "Ranked by the assistant · 500 films");
+    assert.equal(turn.posters[0], "Comedies 47", "ranked for the comedy the reply asked for, not for what came after");
+    assert.ok(catalogue.requests.some(({ filters }) => filters?.includeGenres?.[0] === "comedy"));
+  });
+
+  it("gives each turn its own films when the next message goes before the first's are ready", async () => {
+    const gate = rankingGate();
+    await openSearch("/search", { gate });
+    await say("something funny");
+    await say("from the nineties");
+    assert.equal(document.querySelectorAll(".search-results-waiting").length, 2, "both turns wait for their own films");
+    gate.release();
+    await settle(8);
+    const years = (turn: number) => Array.from(document.querySelectorAll(".search-turn")[turn].querySelectorAll(".search-card-year")).map((year) => Number(year.textContent));
+    assert.equal(years(0).length, 12);
+    assert.equal(years(1).length, 12);
+    assert.ok(years(0).every((year) => year >= 2000), "the first turn's films are from before the era was asked for");
+    assert.ok(years(1).every((year) => year >= 1990 && year <= 1999), "the second turn's films are from the nineties");
+    assert.equal(turns()[0].caption, "Ranked by the assistant · 500 films");
   });
 
   it("lets filler fire nothing: no turn, no read, no assistant", async () => {

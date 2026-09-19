@@ -7,8 +7,8 @@ import type { TurnBlock } from "./results";
 
 type SearchTranscriptProps = {
   blocks: readonly TurnBlock[];
-  /** The answer line whose films are still on their way. */
-  awaiting: number | null;
+  /** Answer lines whose films are still on their way. */
+  waiting: ReadonlySet<number>;
   /** A message is on its way to the assistant. */
   pending: boolean;
   cellProps: (row: string, index: number) => { "data-row": string; "data-index": number; tabIndex: number };
@@ -30,14 +30,14 @@ export function turnRow(turn: number) {
  * back, and under it the films that turn produced. Earlier turns keep their own films, so
  * scrolling back shows how the search narrowed.
  */
-export function SearchTranscript({ blocks, awaiting, pending, cellProps, onOpen, hover, children }: SearchTranscriptProps) {
+export function SearchTranscript({ blocks, waiting, pending, cellProps, onOpen, hover, children }: SearchTranscriptProps) {
   const last = blocks.at(-1);
   return (
     <section className="search-transcript" role="log" aria-label="Conversation">
       <ol className="search-turns">
         {blocks.map((block) => {
           const said = block.lines.find(({ speaker }) => speaker === "viewer")?.text;
-          const waiting = !block.answer && awaiting !== null && block.lines.some(({ id }) => id === awaiting);
+          const preparing = !block.answer && block.lines.some(({ id }) => waiting.has(id));
           const thinking = pending && block === last && block.lines.every(({ speaker }) => speaker === "viewer");
           return (
             <li key={block.turn} className="search-turn" data-block="">
@@ -67,7 +67,7 @@ export function SearchTranscript({ blocks, awaiting, pending, cellProps, onOpen,
                   hover={hover}
                 />
               )}
-              {waiting && <ResultRowWaiting />}
+              {preparing && <ResultRowWaiting />}
             </li>
           );
         })}

@@ -16,6 +16,7 @@ import { NarrowingStrip, STRIP_ROW, stripCells } from "./NarrowingStrip";
 import { PendingVoice } from "./PendingVoice";
 import { turnsOf } from "./results";
 import { SearchTranscript, turnRow } from "./SearchTranscript";
+import { TurnFilms } from "./TurnFilms";
 import { useHoverPreview } from "./useHoverPreview";
 import { useRows, type Row } from "./useRows";
 import { useSearch } from "./useSearch";
@@ -48,7 +49,7 @@ const NOT_A_REQUEST = "Say a little more: a film’s name, a genre, a mood.";
  */
 export function SearchScreen({ film, searchRequest, onOpenFilm, onCloseFilm, onStartJam }: SearchScreenProps) {
   const search = useSearch();
-  const { refinement, conversation, pending, awaiting } = search;
+  const { refinement, conversation, pending, waiting } = search;
   const [draft, setDraft] = useState("");
   /** The draft came from speech and has not been sent: the pending line stays up, showing it. */
   const [spokenDraft, setSpokenDraft] = useState(false);
@@ -175,6 +176,7 @@ export function SearchScreen({ film, searchRequest, onOpenFilm, onCloseFilm, onS
   }, [searchRequest, layered, focusInput]);
 
   const blocks = useMemo(() => turnsOf(conversation.lines), [conversation.lines]);
+  const waitingLines = useMemo(() => new Set(waiting.map(({ lineId }) => lineId)), [waiting]);
   const rows = useMemo<Row[]>(
     () => [
       ...blocks.flatMap((block) => (block.answer && block.answer.results.titles.length > 0 ? [{ key: turnRow(block.turn), count: block.answer.results.titles.length }] : [])),
@@ -195,7 +197,7 @@ export function SearchScreen({ film, searchRequest, onOpenFilm, onCloseFilm, onS
 
   /** New lines and new films appear at the bottom; follow them while the viewer is at the field. */
   const last = blocks.at(-1);
-  const growth = `${conversation.lines.length}:${last?.answer ? 1 : 0}:${awaiting}:${pendingShown}:${heard.titles?.length ?? 0}`;
+  const growth = `${conversation.lines.length}:${last?.answer ? 1 : 0}:${waiting.length}:${pendingShown}:${heard.titles?.length ?? 0}`;
   useEffect(() => {
     if (!started && !pendingShown) return;
     const active = document.activeElement;
@@ -228,7 +230,7 @@ export function SearchScreen({ film, searchRequest, onOpenFilm, onCloseFilm, onS
         <div className="search-stage">
           {!started && <h1 className="search-invitation">{INVITATION}</h1>}
           {(started || pendingShown) && (
-            <SearchTranscript blocks={blocks} awaiting={awaiting} pending={pending} cellProps={nav.cellProps} onOpen={openPreview} hover={hover}>
+            <SearchTranscript blocks={blocks} waiting={waitingLines} pending={pending} cellProps={nav.cellProps} onOpen={openPreview} hover={hover}>
               {pendingShown && <PendingVoice phase={voice.phase} level={voice.level} text={speaking ? voice.partial : draft} detected={heard.detected} titles={heard.titles} />}
             </SearchTranscript>
           )}
@@ -267,6 +269,9 @@ export function SearchScreen({ film, searchRequest, onOpenFilm, onCloseFilm, onS
           </div>
         </div>
         {filmsOnScreen && <TmdbAttribution />}
+        {waiting.map((turn) => (
+          <TurnFilms key={turn.lineId} turn={turn} shared={search.shared} onSettled={search.settle} />
+        ))}
       </main>
 
       {filtersOpen && (

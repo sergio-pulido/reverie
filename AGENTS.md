@@ -24,6 +24,20 @@ Reverie is the public HackBarna 2026 Movie Jam project. Read `README.md`, `docs/
 - Raw audio is transient. Log safe identifiers, duration, state version, and typed errors instead of transcript or provider payload dumps.
 - Paid generation needs explicit concurrency and spend limits. Never silently fall back from a failed live provider to a mock or claim that an untested provider works.
 
+## Worktrees and local environment
+
+- Feature and fix work happens in its own worktree on a `codex/rv-NN-description` branch, one
+  worktree per branch, outside this checkout.
+- A fresh worktree has **no `.env.local`**: the file is ignored, so it exists only in the primary
+  checkout. Symlink it rather than copying, so there is one file to rotate and no second copy of a
+  secret on disk: `ln -s <primary checkout>/.env.local <worktree>/.env.local`. `.env.compose` is
+  tracked and already present in every worktree; it needs no link.
+- `node_modules` is absent for the same reason. Symlink it from the primary checkout or run
+  `pnpm install` in the worktree; a symlink is not matched by the ignored `node_modules/` pattern,
+  so stage files explicitly and never `git add -A` there.
+- Before running the local Docker stack or a dev server from a worktree, give it a port of its own
+  (`PORT=…`) so it does not collide with a server already running from the primary checkout.
+
 ## Delivery standard
 
 - Make focused changes with tests that exercise the affected behavior.

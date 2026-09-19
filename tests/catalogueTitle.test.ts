@@ -210,3 +210,54 @@ test("the detail migration reads one row by key, as the caller, for signed-in vi
   assert.equal(/search_catalogue_titles/.test(sql.replace(/^--.*$/gm, "")), false, "the list query is not touched");
   assert.equal(/'(document|genre_slugs|popularity)'/.test(sql), false, "internal columns are not returned");
 });
+
+test("a film never checked for subtitles or audio description carries neither key", () => {
+  for (const row of [inceptionRow, { ...inceptionRow, subtitle_languages: null, subtitle_count: null, subtitle_checked_at: null, has_audio_description: null, audio_description_source: null }]) {
+    const film = toCatalogueTitleDetail(row);
+    assert.ok(film);
+    assert.equal("subtitles" in film, false, "not checked is absent, not an empty list");
+    assert.equal("audioDescription" in film, false, "unknown is absent, never false");
+  }
+});
+
+test("subtitle and audio-description answers keep all three states", () => {
+  const checked = { subtitle_count: 140, subtitle_checked_at: "2026-09-19T19:00:00.123456+00:00" };
+  const found = toCatalogueTitleDetail({ ...inceptionRow, ...checked, subtitle_languages: ["fr", "en", "pt-BR", "en", "<i>"], has_audio_description: true, audio_description_source: "Audio Description Project directory (adp.acb.org): Netflix" });
+  assert.ok(found);
+  assert.deepEqual(found.subtitles, { languages: ["en", "fr", "pt-BR"], count: 140, checkedAt: "2026-09-19T19:00:00.123Z" });
+  assert.deepEqual(found.audioDescription, { available: true, source: "Audio Description Project directory (adp.acb.org): Netflix" });
+
+  const none = toCatalogueTitleDetail({ ...inceptionRow, subtitle_languages: [], subtitle_count: 0, subtitle_checked_at: checked.subtitle_checked_at, has_audio_description: false, audio_description_source: "a source" });
+  assert.ok(none);
+  assert.deepEqual(none.subtitles?.languages, [], "checked with none found stays an empty list");
+  assert.equal(none.audioDescription?.available, false, "a sourced no stays false");
+});
+
+test("a half-written or unsourced answer is treated as never checked, and never breaks the page", () => {
+  const half = toCatalogueTitleDetail({ ...inceptionRow, subtitle_languages: ["en"], subtitle_count: null, subtitle_checked_at: null, has_audio_description: true, audio_description_source: null });
+  assert.ok(half);
+  assert.equal("subtitles" in half, false);
+  assert.equal("audioDescription" in half, false, "a yes without its source is not shown");
+  const contradicting = toCatalogueTitleDetail({ ...inceptionRow, subtitle_languages: [], subtitle_count: 12, subtitle_checked_at: "2026-09-19T19:00:00Z" });
+  assert.ok(contradicting);
+  assert.equal("subtitles" in contradicting, false);
+});
+
+test("the accessibility migration keeps three states, stays read-only, and is read by the film page", () => {
+  const sql = readFileSync(new URL("../supabase/migrations/20260919234000_catalogue_title_accessibility.sql", import.meta.url), "utf8");
+  const code = sql.replace(/^--.*$/gm, "");
+  assert.match(code, /create table if not exists public\.catalogue_title_accessibility/);
+  assert.match(code, /references public\.catalogue_titles \(id\) on delete cascade/);
+  assert.match(code, /subtitle_languages\s+text\[\],/, "nullable: null is never checked");
+  assert.match(code, /has_audio_description\s+boolean,/, "nullable: null is unknown");
+  assert.equal(/has_audio_description\s+boolean\s+(not null|default)/.test(code), false, "unknown is never collapsed into false");
+  assert.equal(/alter table public\.catalogue_titles/.test(code), false, "the licensed catalogue is not rewritten");
+  assert.match(code, /enable row level security/);
+  assert.match(code, /revoke all on table public\.catalogue_title_accessibility from anon, authenticated;/);
+  assert.match(code, /grant select on table public\.catalogue_title_accessibility to authenticated;/);
+  assert.match(code, /left join public\.catalogue_title_accessibility a on a\.title_id = c\.id/);
+  assert.match(code, /where c\.id = get_catalogue_title\.title_id;/, "the parameter is qualified, or the joined column shadows it");
+  assert.match(code, /security invoker/);
+  assert.match(code, /grant execute on function public\.get_catalogue_title\(bigint\) to authenticated;/);
+  assert.equal(/subtitle_text|subtitle_file|srt/i.test(code), false, "no subtitle content column exists");
+});

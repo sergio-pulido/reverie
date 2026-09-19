@@ -3,6 +3,7 @@ import {
   CATALOGUE_LIMITS,
   catalogueTitleDetailSchema,
   namespaceCatalogueId,
+  subtitleLanguageCode,
   type CatalogueTitleDetail,
   type CatalogueTitleNotFound,
   type CatalogueTitleResponse,
@@ -28,7 +29,8 @@ import { callRpc, readSupabaseConfig } from "./supabase-rest";
  * the caller under RLS. The grid query stays lean; only this page pays for the full record.
  *
  * A field the row does not state is left out of the mapped title. Nothing is defaulted: no
- * "unknown" tagline, no zero rating, no zero runtime. Availability stays empty.
+ * "unknown" tagline, no zero rating, no zero runtime. Availability stays empty. Subtitle and
+ * audio-description facts keep three states: absent (never checked), empty/false, and present.
  */
 
 export const CATALOGUE_TITLE_RPC = "get_catalogue_title";
@@ -56,6 +58,11 @@ const detailRowSchema = z.object({
   genres: z.string().nullable().optional(),
   keywords: z.string().nullable().optional(),
   imdb_id: z.string().nullable().optional(),
+  subtitle_languages: z.array(z.string()).nullable().optional(),
+  subtitle_count: z.number().nullable().optional(),
+  subtitle_checked_at: z.string().nullable().optional(),
+  has_audio_description: z.boolean().nullable().optional(),
+  audio_description_source: z.string().nullable().optional(),
 });
 
 export type CatalogueDetailRow = z.infer<typeof detailRowSchema>;
@@ -127,7 +134,31 @@ function mapDetailRow(row: CatalogueDetailRow) {
     backdropUrl: tmdbImageUrl(TMDB_DETAIL_BACKDROP_BASE, row.backdrop_path),
     attribution: TMDB_ATTRIBUTION,
     availability: [],
+    subtitles: subtitlesOf(row),
+    audioDescription: audioDescriptionOf(row),
   });
+}
+
+/**
+ * Null languages mean the film was never checked, so the key is left out. An empty list is a
+ * real answer (checked, none found) and is kept. An answer missing its count or time is not
+ * trusted and is dropped as unchecked, rather than guessed at.
+ */
+function subtitlesOf(row: CatalogueDetailRow) {
+  if (!Array.isArray(row.subtitle_languages)) return undefined;
+  const checkedAt = row.subtitle_checked_at ? new Date(row.subtitle_checked_at) : undefined;
+  if (typeof row.subtitle_count !== "number" || !checkedAt || Number.isNaN(checkedAt.getTime())) return undefined;
+  const languages = [...new Set(row.subtitle_languages.filter((code) => subtitleLanguageCode.safeParse(code).success))];
+  const count = Math.trunc(row.subtitle_count);
+  if ((languages.length === 0) !== (count === 0) || count < 0) return undefined;
+  return { languages: languages.sort(), count, checkedAt: checkedAt.toISOString() };
+}
+
+/** Null is unknown and stays absent; only a sourced true or false becomes a fact. */
+function audioDescriptionOf(row: CatalogueDetailRow) {
+  const source = row.audio_description_source?.trim();
+  if (typeof row.has_audio_description !== "boolean" || !source) return undefined;
+  return { available: row.has_audio_description, source: source.slice(0, 240) };
 }
 
 /** A score is shown only with the votes behind it; zero votes means there is no score. */

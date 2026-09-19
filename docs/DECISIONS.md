@@ -482,3 +482,33 @@ jam created from an imported script answered `idle` with four portions, `start` 
 typed `generation_disabled`, the video route `404`, and advance `invalid_transition`. The screens
 themselves were not opened in a browser this session: the shared Chrome profile was locked by
 another session, so the UI states in UJ-02 section C are unrun.
+
+## 2026-09-19 — Subtitle and audio-description availability is metadata in a companion table
+
+Every catalogue film may carry two availability facts: which subtitle languages exist, and
+whether it is known to have an audio-description track. Decisions taken:
+
+- **A companion table, not new catalogue columns.** `catalogue_titles` is licensed reference data
+  that is never rewritten. `catalogue_title_accessibility` is keyed by `title_id`, filled by an
+  offline backfill, read-only through the API, and joined into `get_catalogue_title` only.
+- **Three states, never collapsed.** `subtitle_languages` null = never checked, `'{}'` = checked,
+  none found. `has_audio_description` null = unknown. Check constraints keep each answer whole
+  (languages + count + time + source, or AD value + source + time). No row = never checked.
+- **Subtitles from OpenSubtitles `/features?imdb_id=`, one request per film.** Its
+  `subtitles_counts` gives the per-language counts, so The Matrix costs one request, not the 17
+  pages `/subtitles` would. Search is not quota-limited; the client can build no URL except
+  `/features`, so it can never spend a download or fetch subtitle text. Requests are paced 400 ms
+  apart against the published 5 req/s per IP and 40 per 10 s on `/features`.
+- **Audio description from the Audio Description Project directory, yes-only.** There is no API
+  or export; the directory is a public HTML table with an IMDb link per row. A listed film is a
+  sourced yes. An unlisted film stays unknown: the list is curated and US-centred, so absence is
+  not a no. The backfill never writes `false`.
+- **The page shows found facts only.** "Subtitles: 14 languages" and "Audio description:
+  Available". Not checked, checked-none, and a sourced no all render nothing: a community index
+  lacking a film is weak evidence that no subtitles exist. The contract still carries all three
+  states for any later consumer.
+- **The backfill holds no write credential.** It reads the catalogue as an anonymous viewer,
+  appends answers to JSONL ledgers under `.backfill/` (resumable), and emits one SQL file of
+  upserts that the database owner applies. It lives in `apps/backfill/`, and a test fails if
+  anything under `api/`, `src/` or `apps/server/` imports it.
+- **Not decided here:** fetching, storing or showing subtitle text, or giving it to a model.

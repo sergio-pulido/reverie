@@ -307,7 +307,7 @@ export function SearchScreen({ film, searchRequest, onOpenFilm, onCloseFilm, onS
         </div>
       )}
       {preview && !filmOpen && (
-        <FilmPreview title={preview.title} attribution={TMDB_ATTRIBUTION_FALLBACK} onClose={closePreview} onOpenFilm={openFilmPage} onStartJam={onStartJam} />
+        <FilmPreview title={preview.title} attribution={TMDB_ATTRIBUTION_FALLBACK} sheet={narrow} onClose={closePreview} onOpenFilm={openFilmPage} onStartJam={onStartJam} />
       )}
     </>
   );

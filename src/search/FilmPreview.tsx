@@ -7,6 +7,8 @@ import { dialogKey, focusables } from "./dialog";
 type FilmPreviewProps = {
   title: CatalogueTitle;
   attribution: string;
+  /** Drawn as a sheet filling a phone's screen, with a control to close it by thumb. */
+  sheet: boolean;
   onClose: () => void;
   onOpenFilm: (title: CatalogueTitle) => void;
   onStartJam: (title: CatalogueTitle) => void;
@@ -23,8 +25,12 @@ const MOVES = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
  * Two things can be done from it: open the film's own page, or start a Jam inspired by it. The
  * catalogue is for finding films, not a licence to show them, so nothing here plays or implies
  * that it can. It opens on its first action and keeps focus inside; Back or Escape closes it.
+ *
+ * On a phone it fills the screen from the bottom, because a dialog centred in a 360-pixel window
+ * is taller than the window and loses both its ends. Filling the screen leaves no backdrop to
+ * press, so there it also carries a close control; a remote has Back and never sees one.
  */
-export function FilmPreview({ title, attribution, onClose, onOpenFilm, onStartJam }: FilmPreviewProps) {
+export function FilmPreview({ title, attribution, sheet, onClose, onOpenFilm, onStartJam }: FilmPreviewProps) {
   const { state } = useFilm(providerIdOf(title.id));
   const film: FilmRecord = state.phase === "ready" ? { ...title, ...state.film } : title;
   const headline = filmHeadline(film);
@@ -37,7 +43,7 @@ export function FilmPreview({ title, attribution, onClose, onOpenFilm, onStartJa
   return (
     <div className="search-overlay" onPointerDown={(event) => event.target === event.currentTarget && onClose()}>
       <section
-        className="search-preview"
+        className={`search-preview${sheet ? " search-preview-sheet" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="search-preview-title"
@@ -60,6 +66,11 @@ export function FilmPreview({ title, attribution, onClose, onOpenFilm, onStartJa
         }}
       >
         {film.backdropUrl && <img className="search-preview-backdrop" src={film.backdropUrl} alt="" aria-hidden="true" />}
+        {sheet && (
+          <button type="button" className="search-preview-close" aria-label="Close the preview" onClick={onClose}>
+            <span aria-hidden="true">×</span>
+          </button>
+        )}
         <div className="search-preview-body">
           {film.posterUrl ? (
             <img className="search-preview-poster" src={film.posterUrl} alt={`Poster for ${film.title}`} width={500} height={750} />

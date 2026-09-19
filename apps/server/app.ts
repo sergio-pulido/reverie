@@ -8,7 +8,9 @@ import discoverRank from "../../api/discover/rank";
 import voiceTranscribe from "../../api/voice/transcribe";
 import { createJamsRouter, InMemoryJamStore, type JamStore } from "./jams";
 import { createDirectorRouter, DirectorStreamRegistry } from "./director";
+import { createEscapeRouter } from "./escape";
 import { createSessionsRouter } from "./sessions";
+import { resolveSpendAccount } from "./spendLedger";
 
 /**
  * API wiring shared by the real server and tests. Order matters: the JSON
@@ -42,6 +44,9 @@ export function createApiApp(store: JamStore = new InMemoryJamStore()): Express 
   // beat, and the script routes refuse an edit to the same portion. Two
   // answers to one question would be worse than either alone.
   const streams = new DirectorStreamRegistry();
+  // FAL_ASSET_BUDGET_USD is a ceiling on this process, so the live director
+  // and the escape room debit one account rather than a copy each.
+  const account = resolveSpendAccount();
   app.use(
     createJamsRouter(store, (jamId) => ({
       minEditablePortionIndex: streams.minEditablePortionIndex(jamId),
@@ -49,7 +54,8 @@ export function createApiApp(store: JamStore = new InMemoryJamStore()): Express 
     })),
   );
   app.use(createSessionsRouter(store));
-  app.use(createDirectorRouter(store, { registry: streams }));
+  app.use(createDirectorRouter(store, { registry: streams, account }));
+  app.use(createEscapeRouter({ account }));
   app.use("/api", (_request, response) => {
     response.status(404).json({ code: "NOT_FOUND", safeMessage: "API route not found." });
   });

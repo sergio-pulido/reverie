@@ -6,7 +6,7 @@ Reverie is the public HackBarna 2026 Movie Jam project. Read `README.md`, `docs/
 
 - Build a shared, real-time creative room where a host and participants direct an original AI movie together.
 - Preserve a coherent story through a server-owned queue, voting, scene boundaries, versioned creative artifacts, and forks.
-- Keep the public repository independent. Do not copy private rehearsal code, private assets, credentials, account information, or unverified provider claims.
+- Keep the public repository self-contained. Everything here is written for this repository. Do not import private code or assets from elsewhere, and do not commit credentials, account information, or unverified provider claims.
 
 ## Architecture rules
 

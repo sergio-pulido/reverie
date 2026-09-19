@@ -1,10 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { gridMove, type GridIntent } from "./gridMove";
+
+export type GridHandlers = {
+  onActivate?: (index: number) => void;
+  onExitTop?: () => void;
+  onExitBottom?: () => void;
+  onBack?: () => void;
+};
 
 /**
  * Roving focus for a TV remote or a keyboard: arrows traverse the grid, Home/End jump to the
- * row edges, and the column count is read from the live grid layout instead of assumed.
+ * row edges, Enter opens and Escape/Back returns. The key mapping lives in `gridMove`; the
+ * column count is read from the live grid layout instead of assumed.
  */
-export function useGridNavigation(itemCount: number, onExitTop?: () => void, onActivate?: (index: number) => void) {
+export function useGridNavigation(itemCount: number, handlers: GridHandlers) {
   const gridRef = useRef<HTMLDivElement | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [columns, setColumns] = useState(1);
@@ -34,41 +43,41 @@ export function useGridNavigation(itemCount: number, onExitTop?: () => void, onA
     setActiveIndex(index);
     const target = gridRef.current?.querySelector<HTMLElement>(`[data-grid-index="${index}"]`);
     target?.focus();
+    target?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }, []);
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if (itemCount === 0) return;
-      const last = itemCount - 1;
-      const rowStart = activeIndex - (activeIndex % columns);
-      const moves: Record<string, number | undefined> = {
-        ArrowRight: Math.min(activeIndex + 1, last),
-        ArrowLeft: Math.max(activeIndex - 1, 0),
-        ArrowDown: Math.min(activeIndex + columns, last),
-        ArrowUp: activeIndex - columns >= 0 ? activeIndex - columns : undefined,
-        Home: rowStart,
-        End: Math.min(rowStart + columns - 1, last),
-      };
-
-      if ((event.key === "Enter" || event.key === " ") && onActivate) {
-        event.preventDefault();
-        onActivate(activeIndex);
-        return;
-      }
-
-      if (event.key === "ArrowUp" && moves.ArrowUp === undefined && onExitTop) {
-        event.preventDefault();
-        onExitTop();
-        return;
-      }
-
-      const next = moves[event.key];
-      if (next === undefined) return;
-      event.preventDefault();
-      focusItem(next);
+      const intent = gridMove(event.key, { index: activeIndex, columns, count: itemCount });
+      if (!intent) return;
+      const run = runIntent(intent, handlers, focusItem);
+      if (run) event.preventDefault();
     },
-    [activeIndex, columns, focusItem, itemCount, onActivate, onExitTop],
+    [activeIndex, columns, focusItem, handlers, itemCount],
   );
 
   return { gridRef, activeIndex, setActiveIndex, handleKeyDown, focusItem };
+}
+
+/** Carries out one grid intent; returns false when nothing handles it, so the key is left alone. */
+function runIntent(intent: GridIntent, handlers: GridHandlers, focusItem: (index: number) => void) {
+  switch (intent.kind) {
+    case "focus":
+      focusItem(intent.index);
+      return true;
+    case "activate":
+      return call(handlers.onActivate, intent.index);
+    case "exitTop":
+      return call(handlers.onExitTop);
+    case "exitBottom":
+      return call(handlers.onExitBottom);
+    case "back":
+      return call(handlers.onBack);
+  }
+}
+
+function call<A extends unknown[]>(handler: ((...args: A) => void) | undefined, ...args: A) {
+  if (!handler) return false;
+  handler(...args);
+  return true;
 }

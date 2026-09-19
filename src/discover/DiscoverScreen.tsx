@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CatalogueTitle } from "../catalogue/contract";
 import { useCatalogue, type CatalogueState } from "./useCatalogue";
 import { useGridNavigation } from "./useGridNavigation";
@@ -6,11 +6,16 @@ import "./discover.css";
 
 type DiscoverScreenProps = { onExit: () => void };
 
+/** Shown whenever TMDB records are on screen, even if a response omits its own attribution. */
+const TMDB_ATTRIBUTION_FALLBACK =
+  "Film data and images from TMDB (themoviedb.org). This product uses TMDB data but is not endorsed or certified by TMDB.";
+
 export function DiscoverScreen({ onExit }: DiscoverScreenProps) {
   const [searchInput, setSearchInput] = useState("");
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<CatalogueTitle | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
+  const pagerRef = useRef<HTMLElement | null>(null);
 
   const { state, retry } = useCatalogue(searchInput, page);
   const items = state.phase === "ready" ? state.response.items : [];
@@ -23,13 +28,28 @@ export function DiscoverScreen({ onExit }: DiscoverScreenProps) {
     },
     [items],
   );
+  const focusPager = useCallback(() => {
+    pagerRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+  }, []);
+  const gridHandlers = useMemo(
+    () => ({ onActivate: activate, onExitTop: focusSearch, onExitBottom: focusPager, onBack: focusSearch }),
+    [activate, focusSearch, focusPager],
+  );
   const { gridRef, activeIndex, setActiveIndex, handleKeyDown, focusItem } = useGridNavigation(
     items.length,
-    focusSearch,
-    activate,
+    gridHandlers,
   );
+  const spotlight = items[activeIndex];
 
   useEffect(() => setPage(1), [searchInput]);
+
+  /** A remote has no pointer: when posters arrive and nothing holds focus, start on the grid. */
+  const hasItems = items.length > 0;
+  useEffect(() => {
+    if (!hasItems) return;
+    const idle = !document.activeElement || document.activeElement === document.body;
+    if (idle) focusItem(activeIndex);
+  }, [hasItems, state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const closeDetail = useCallback(() => {
     setSelected(null);
@@ -58,33 +78,42 @@ export function DiscoverScreen({ onExit }: DiscoverScreenProps) {
       </header>
 
       <section className="discover-head">
-        <h1>
-          Find a <em>real</em> film.
-        </h1>
-        <p className="discover-note">
-          Discover shows real films from a curated TMDB catalogue, with their own artwork and
-          metadata. It does not say where a film can be watched. Generated Movie Jam scenes never
-          appear here.
-        </p>
-        <label className="discover-search">
-          <span className="sr-only">Search the catalogue</span>
-          <input
-            ref={searchRef}
-            type="search"
-            value={searchInput}
-            maxLength={120}
-            placeholder="Search by title, mood or genre…"
-            autoComplete="off"
-            onChange={(event) => setSearchInput(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "ArrowDown" && items.length > 0) {
-                event.preventDefault();
-                focusItem(activeIndex);
-              }
-              if (event.key === "Escape") setSearchInput("");
-            }}
-          />
-        </label>
+        {spotlight?.backdropUrl && (
+          <img key={spotlight.id} className="discover-backdrop" src={spotlight.backdropUrl} alt="" aria-hidden="true" />
+        )}
+        <div className="discover-intro">
+          <h1>
+            Find a <em>real</em> film.
+          </h1>
+          <p className="discover-note">
+            Discover shows real films from a curated TMDB catalogue, with their own artwork and
+            metadata. It does not say where a film can be watched. Generated Movie Jam scenes never
+            appear here.
+          </p>
+          <label className="discover-search">
+            <span className="sr-only">Search the catalogue</span>
+            <input
+              ref={searchRef}
+              type="search"
+              value={searchInput}
+              maxLength={120}
+              placeholder="Search by title, mood or genre…"
+              autoComplete="off"
+              onChange={(event) => setSearchInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "ArrowDown" && items.length > 0) {
+                  event.preventDefault();
+                  focusItem(activeIndex);
+                }
+                if (event.key === "Escape") {
+                  if (searchInput) setSearchInput("");
+                  else onExit();
+                }
+              }}
+            />
+          </label>
+        </div>
+        {spotlight && <Spotlight title={spotlight} />}
       </section>
 
       <CatalogueRegion
@@ -99,7 +128,12 @@ export function DiscoverScreen({ onExit }: DiscoverScreenProps) {
       />
 
       {state.phase === "ready" && (state.response.page > 1 || state.response.hasMore) && (
-        <nav className="discover-pager" aria-label="Catalogue pages">
+        <nav
+          className="discover-pager"
+          aria-label="Catalogue pages"
+          ref={pagerRef}
+          onKeyDown={(event) => handlePagerKey(event, () => focusItem(activeIndex))}
+        >
           <button disabled={state.response.page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
             ← Previous
           </button>
@@ -108,6 +142,13 @@ export function DiscoverScreen({ onExit }: DiscoverScreenProps) {
             Next →
           </button>
         </nav>
+      )}
+
+      {state.phase === "ready" && state.response.items.length > 0 && (
+        <p className="discover-attribution">
+          <span className="discover-attribution-mark" aria-hidden="true">TMDB</span>
+          {state.response.attribution ?? TMDB_ATTRIBUTION_FALLBACK}
+        </p>
       )}
 
       {selected && <TitleDetail title={selected} onClose={closeDetail} />}
@@ -196,7 +237,12 @@ function CatalogueRegion({ state, gridRef, activeIndex, onKeyDown, onSelect, onF
                 onFocus={() => onFocusIndex(index)}
                 onClick={() => onSelect(title)}
               >
-                <Artwork title={title} />
+                <span className="discover-card-poster">
+                  <Artwork title={title} />
+                  <span className="discover-card-cue" aria-hidden="true">
+                    <kbd>OK</kbd> Details
+                  </span>
+                </span>
                 <span className="discover-card-title">{title.title}</span>
                 <span className="discover-card-meta">
                   {[title.year, title.rating, title.genres[0]].filter(Boolean).join(" · ") || "Catalogue title"}
@@ -206,9 +252,44 @@ function CatalogueRegion({ state, gridRef, activeIndex, onKeyDown, onSelect, onF
           ))}
         </ul>
       </div>
-      {state.response.attribution && <p className="discover-attribution">{state.response.attribution}</p>}
     </>
   );
+}
+
+/**
+ * Large-type summary of the focused poster, so the title and synopsis read from the sofa without
+ * opening it. It repeats what the focused button already announces, so it is hidden from
+ * assistive technology.
+ */
+function Spotlight({ title }: { title: CatalogueTitle }) {
+  return (
+    <div className="discover-spotlight" aria-hidden="true">
+      <p className="discover-spotlight-eyebrow">Selected</p>
+      <p className="discover-spotlight-title">{title.title}</p>
+      <p className="discover-spotlight-meta">
+        {[title.year, title.rating, title.runtimeMinutes && `${title.runtimeMinutes} min`, ...title.genres.slice(0, 3)]
+          .filter(Boolean)
+          .join(" · ")}
+      </p>
+      {title.synopsis && <p className="discover-spotlight-synopsis">{title.synopsis}</p>}
+    </div>
+  );
+}
+
+/** Left/Right move between the pager buttons; Up or Escape hands focus back to the grid. */
+function handlePagerKey(event: React.KeyboardEvent<HTMLElement>, returnToGrid: () => void) {
+  if (event.key === "ArrowUp" || event.key === "Escape") {
+    event.preventDefault();
+    returnToGrid();
+    return;
+  }
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+  const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"));
+  const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+  const next = buttons[current + (event.key === "ArrowRight" ? 1 : -1)];
+  if (!next) return;
+  event.preventDefault();
+  next.focus();
 }
 
 function Artwork({ title }: { title: CatalogueTitle }) {

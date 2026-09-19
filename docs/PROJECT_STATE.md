@@ -316,6 +316,35 @@ project (it was applied by hand, so no tracking table records it). Each run of
   `SUPABASE_ANON_KEY` (or the `VITE_` pair) at runtime. The new function was applied by hand
   through the session pooler, like the earlier migrations, so no tracking table records it.
 
+## 2026-09-19 — Discover looks and navigates like a TV app
+
+- Discover is laid out for a 1920×1080 screen read from about three metres: everything sits
+  inside a 5% title-safe inset, poster titles are 24px, metadata and body text 20–22px, and the
+  grid shows seven posters per row at 1920px, built from each title's `posterUrl`.
+- A spotlight beside the search shows the focused poster's title, year, runtime, genres and a
+  three-line synopsis over its `backdropUrl`. It repeats what the focused button announces, so it
+  is hidden from assistive technology. Below 1100px it and the backdrop give way to the search.
+- Focus is visible without relying on colour: the focused poster scales up, gains a 6px ring,
+  shows an "OK Details" label and underlines its title.
+- Remote navigation: when posters load and nothing holds focus, the first poster takes it. Arrows
+  move one poster and stop at the edges, a short last row is reachable from the row above, Up
+  from the top row goes to search, Down from the bottom row goes to the pager (Left/Right between
+  its buttons, Up or Escape back to the grid). Enter or Space opens a title, and Escape closes it
+  and restores focus. Escape (or a remote's Back key) on the grid returns to search. Escape in an
+  empty search leaves Discover. The key mapping is the pure `gridMove` in
+  `src/discover/gridMove.ts`, used by `useGridNavigation`.
+- The TMDB attribution is a fixed bar at the bottom of the screen whenever titles are shown,
+  using the response's attribution text. Nothing on the screen implies a title can be streamed.
+- Unchanged: the catalogue contract, the adapter, search, paging, and the loading, empty, error
+  and not-configured states (now in larger type).
+- Verified: `pnpm test` (155/155, including `tests/gridNavigation.test.ts` for arrow movement,
+  edges, row exits and Enter opening the focused title), `pnpm typecheck`, `pnpm build`. Checked
+  in a browser at 1920×1080 against the live catalogue: initial focus, arrows, Enter opening the
+  detail, Escape restoring focus, Down to the pager, Up back, Escape to search, the empty state,
+  and a 375px layout with no horizontal overflow. No console errors.
+- **Not covered by automated tests:** the DOM wiring (focus, scrolling, pager hand-off). The test
+  suite has no DOM, so `gridMove` is tested directly and the wiring was checked in the browser.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

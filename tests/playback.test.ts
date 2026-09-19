@@ -102,12 +102,12 @@ before(async () => {
 
 after(() => server.close());
 
-async function waitFor(predicate: () => boolean): Promise<void> {
+async function waitFor(predicate: () => boolean | Promise<boolean>): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    if (predicate()) return;
+    if (await predicate()) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  assert.ok(predicate(), "condition never became true");
+  assert.ok(await predicate(), "condition never became true");
 }
 
 test("playback start locks portion 0 and generation feeds the media store", async () => {
@@ -170,7 +170,7 @@ test("playback start locks portion 0 and generation feeds the media store", asyn
 test("portion video streams with Range support", async () => {
   const jam = buildJam();
   await store.createJam(jam);
-  media.put(jam.id, 0, Buffer.from("0123456789"), "video/mp4");
+  await media.put(jam.id, 0, Buffer.from("0123456789"), "video/mp4");
 
   const full = await fetch(`${baseUrl}/api/jams/${jam.id}/portions/0/video`);
   assert.equal(full.status, 200);

@@ -19,6 +19,10 @@ const STATUS_LABEL: Record<string, string> = {
  * The shared position. Everyone in the room reads the same server-anchored clock, so
  * two viewers should show the same counter. Only the host gets the controls; a member
  * sees the position and who is driving it.
+ *
+ * Not mounted in this build: the studio shows the film itself (`JamPlayer`) where this
+ * counter used to sit. The clock and its host-only RPCs are untouched — a room-wide
+ * position is a different thing from the portion cursor the player follows.
  */
 export function PlaybackBar({ state, isHost, onStart, onPause, onReset }: PlaybackBarProps) {
   const { clock, position, error, busy } = state;

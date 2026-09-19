@@ -41,6 +41,8 @@ export type PlaybackClockState = {
  *
  * `enabled` is false for a viewer who is not an active member, so a waiting participant
  * neither polls nor sees a position.
+ *
+ * No screen mounts this in the current build (see `PlaybackBar`).
  */
 export function usePlaybackClock(jamId: string | null, enabled: boolean) {
   const [clock, setClock] = useState<JamPlaybackClock | null>(null);

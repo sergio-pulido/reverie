@@ -147,9 +147,19 @@ export function createDirectorRouter(
   /**
    * Tears a session down and ends the room it belonged to.
    *
-   * The lifecycle transition lives HERE rather than in the end route, because
-   * a session also stops when its last viewer leaves. A room stopped that way
-   * would otherwise read `playing` for ever with nothing streaming.
+   * The lifecycle transition lives in the teardown rather than in the end
+   * route, because a session also stops when its last viewer leaves. A room
+   * stopped that way would otherwise read `playing` for ever with nothing
+   * streaming.
+   *
+   * INVARIANT, if this function is ever split: the transition must sit on the
+   * path that EVERY stop reaches, not on the one the end route happens to
+   * call. A ledger that reclaims abandoned sessions on its own, for instance,
+   * would bypass a settle-and-teardown wrapper and reach only the inner
+   * teardown — and a room whose viewers all went silent would be left reading
+   * `playing`. Resolve the jam from the stream or the ledger, not from any
+   * map the teardown itself clears, or the reclaim path will have nothing
+   * left to resolve it from.
    *
    * Only a room that actually held this stream is ended, so a teardown for an
    * unknown session id cannot end a room that is still playing.

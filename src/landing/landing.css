@@ -1,0 +1,278 @@
+/*
+ * The public landing page. Every rule is scoped under .landing except the font faces and the
+ * two document rules below, which match what the app's own stylesheet already sets.
+ *
+ * Fonts are self-hosted latin subsets: Instrument Serif (roman and italic 400), DM Sans (the
+ * 400–600 range of its variable font, optical size kept) and JetBrains Mono 400. Licences are
+ * beside the files.
+ */
+
+@font-face {
+  font-family: "Instrument Serif";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/instrument-serif-400-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Instrument Serif";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/instrument-serif-400-italic-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url("./fonts/dm-sans-400-600-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* Film titles come from the catalogue, so accented Latin beyond Latin-1 is covered too. */
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url("./fonts/dm-sans-400-600-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/jetbrains-mono-400-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* The app's stylesheet sets the same margin and a :root background that outranks this one. */
+html { background-color: #090c17; }
+body { margin: 0; }
+
+.landing {
+  --landing-bg: #090c17;
+  --landing-surface: #0f1328;
+  --landing-surface-hatch: #121631;
+  --landing-surface-poster: #141a33;
+  --landing-surface-hatch-light: #161b38;
+  --landing-surface-generated: #11162d;
+  --landing-surface-avatar: #1b2144;
+  --landing-accent: #bfb6f2;
+  --landing-text: #ece8f7;
+  --landing-heading-next: #d7d3ea;
+  --landing-muted-1: #c9c5dc;
+  --landing-muted-2: #a9a6c2;
+  --landing-muted-3: #8f8ca8;
+  --landing-muted-4: #5a5680;
+  --landing-line: rgba(191, 182, 242, .10);
+  --landing-line-card: rgba(191, 182, 242, .14);
+  --landing-line-strong: rgba(191, 182, 242, .45);
+  --landing-dashed: rgba(191, 182, 242, .32);
+  --landing-gutter: clamp(20px, 4vw, 48px);
+  --landing-serif: "Instrument Serif", Georgia, serif;
+  --landing-sans: "DM Sans", system-ui, sans-serif;
+  --landing-mono: "JetBrains Mono", monospace;
+
+  min-height: 100vh;
+  /* clip, not hidden: hidden would make this a scroll container and stop the header sticking. */
+  overflow-x: clip;
+  background: var(--landing-bg);
+  color: var(--landing-text);
+  font-family: var(--landing-sans);
+  font-size: 16px;
+  line-height: normal;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/*
+ * Resets weigh exactly one class, so they beat any bare element rule elsewhere in the app and
+ * lose to every rule below them in this file.
+ */
+.landing :where(*, *::before, *::after) { box-sizing: border-box; }
+.landing ::selection { background: var(--landing-accent); color: var(--landing-bg); }
+.landing :where(h1, h2, p, figure, ul, ol) { margin: 0; }
+.landing :where(a) { color: var(--landing-accent); text-decoration: none; }
+.landing :where(a:hover) { color: var(--landing-text); }
+.landing :where(a:focus-visible, .landing-shelf:focus-visible) { outline: 2px solid var(--landing-accent); outline-offset: 3px; }
+.landing :where(em) { font-style: italic; font-weight: inherit; color: var(--landing-accent); }
+
+.landing-wrap { max-width: 1180px; margin: 0 auto; padding: 0 var(--landing-gutter); }
+
+.landing-label {
+  font-family: var(--landing-mono);
+  font-size: 12px;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: var(--landing-muted-2);
+}
+
+.landing-live { display: flex; align-items: center; gap: 10px; }
+.landing-live::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--landing-accent); display: inline-block; }
+
+.landing-display { font-family: var(--landing-serif); font-weight: 400; text-wrap: pretty; }
+.landing-copy { font-size: 18px; line-height: 1.6; color: var(--landing-muted-1); max-width: 46ch; text-wrap: pretty; }
+
+/* Calls to action */
+
+.landing-cta { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; border-radius: 10px; }
+.landing .landing-cta-primary { background: var(--landing-accent); color: var(--landing-bg); }
+.landing .landing-cta-primary:hover { background: var(--landing-text); color: var(--landing-bg); }
+.landing .landing-cta-outline { border: 1px solid var(--landing-line-strong); color: var(--landing-text); }
+.landing .landing-cta-outline:hover { border-color: var(--landing-text); color: var(--landing-text); }
+.landing-cta-hero { font-size: 18px; padding: 18px 30px; min-height: 56px; }
+.landing-cta-hero.landing-cta-outline { padding: 18px 26px; }
+.landing-cta-section { font-size: 17px; padding: 15px 24px; min-height: 52px; }
+.landing-cta-close { font-size: 20px; padding: 20px 34px; min-height: 60px; }
+
+/* Header */
+
+.landing-header { position: sticky; top: 0; z-index: 20; background: rgba(9, 12, 23, .92); border-bottom: 1px solid var(--landing-line); }
+.landing-bar { max-width: 1180px; margin: 0 auto; padding: 14px var(--landing-gutter); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.landing-brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 15px; letter-spacing: .26em; }
+.landing .landing-brand { color: var(--landing-text); }
+.landing-brand-mark { color: var(--landing-accent); font-size: 20px; line-height: 1; }
+.landing-nav { display: flex; align-items: center; gap: 22px; }
+.landing .landing-nav-link { color: var(--landing-muted-2); }
+.landing .landing-nav-link:hover { color: var(--landing-text); }
+.landing-cta-header { gap: 8px; font-size: 15px; padding: 11px 18px; border-radius: 8px; min-height: 44px; white-space: nowrap; }
+
+/* Hero */
+
+.landing-hero { position: relative; padding: clamp(64px, 10vw, 128px) 0 0; }
+.landing-hero .landing-label { margin: 0 0 22px; }
+.landing-hero-title { font-size: clamp(52px, 9vw, 124px); line-height: .98; letter-spacing: -.02em; max-width: 14ch; }
+.landing-hero-lede { margin-top: 30px; font-size: clamp(18px, 2vw, 22px); line-height: 1.5; color: var(--landing-muted-1); max-width: 38ch; text-wrap: pretty; }
+.landing-hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 38px; }
+.landing-hero-note { margin-top: 18px; font-size: 14px; color: var(--landing-muted-3); }
+
+.landing-shelf-fade {
+  margin-top: clamp(56px, 8vw, 96px);
+  position: relative;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+}
+.landing-shelf { display: flex; gap: 14px; overflow-x: auto; scrollbar-width: none; padding: 6px var(--landing-gutter) 28px; }
+.landing-shelf::-webkit-scrollbar { display: none; }
+.landing-shelf-film { flex: 0 0 auto; width: clamp(128px, 13vw, 176px); }
+
+/* Posters: the frame is sized before the image arrives, so nothing moves when it does. */
+
+.landing-poster { position: relative; aspect-ratio: 2 / 3; border-radius: 6px; overflow: hidden; background: var(--landing-surface-poster); }
+.landing-shelf .landing-poster { box-shadow: 0 18px 40px rgba(0, 0, 0, .45); }
+.landing-poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.landing-film-title { margin-top: 10px; font-size: 15px; font-weight: 600; color: var(--landing-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.landing-film-meta { font-size: 13px; color: var(--landing-muted-3); margin-top: 2px; }
+.landing-shelf .landing-film-title { font-size: 14px; }
+.landing-shelf .landing-film-meta { font-size: 12px; }
+.landing-film-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 14px; }
+.landing-film-grid figure { min-width: 0; }
+
+/* "Next" sections: dashed, quieter, never a button. */
+
+.landing-next-card { border: 1px dashed var(--landing-dashed); border-radius: 14px; padding: clamp(24px, 4vw, 40px); }
+.landing-next-tags { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.landing-next-badge { border: 1px dashed rgba(191, 182, 242, .4); border-radius: 999px; padding: 6px 12px; }
+.landing-next-title { font-size: clamp(36px, 5vw, 64px); line-height: 1.02; letter-spacing: -.015em; color: var(--landing-heading-next); }
+.landing-next-copy { font-size: 17px; line-height: 1.6; color: var(--landing-muted-2); max-width: 46ch; text-wrap: pretty; }
+
+.landing-director { padding: clamp(40px, 6vw, 72px) 0 0; }
+.landing-director .landing-next-card { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: clamp(20px, 4vw, 48px); align-items: start; }
+.landing-director .landing-next-title { margin-top: 18px; }
+
+/* Live sections */
+
+.landing-live-section { padding: clamp(80px, 11vw, 150px) 0 0; }
+.landing-section-title { font-size: clamp(40px, 5.6vw, 76px); line-height: 1; letter-spacing: -.015em; }
+.landing-panel { background: var(--landing-surface); border: 1px solid var(--landing-line-card); border-radius: 14px; box-shadow: 0 30px 80px rgba(0, 0, 0, .5); }
+
+.landing-jam-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: clamp(28px, 5vw, 72px); align-items: center; margin-top: 22px; }
+.landing-jam-grid .landing-copy { margin-top: 26px; }
+.landing-jam-grid .landing-cta { margin-top: 32px; }
+
+.landing-room { overflow: hidden; }
+.landing-room-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; border-bottom: 1px solid rgba(191, 182, 242, .12); }
+.landing-room-count { font-family: var(--landing-mono); font-size: 12px; letter-spacing: .12em; color: var(--landing-accent); }
+.landing-turns { padding: 20px; display: grid; gap: 14px; list-style: none; margin: 0; }
+.landing-turn { display: grid; grid-template-columns: 36px 1fr; gap: 12px; align-items: start; }
+.landing-avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--landing-surface-avatar); display: grid; place-items: center; font-weight: 600; font-size: 14px; color: var(--landing-accent); }
+.landing-turn-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.landing-turn-name { font-weight: 600; font-size: 15px; }
+.landing-turn-kind { font-family: var(--landing-mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--landing-muted-3); }
+.landing-turn-text { margin-top: 6px; font-size: 15px; line-height: 1.5; color: var(--landing-muted-1); }
+.landing-wave { margin-top: 8px; display: flex; gap: 3px; align-items: end; height: 22px; }
+.landing-wave span { width: 3px; border-radius: 2px; }
+.landing-camera { margin-top: 8px; width: 120px; aspect-ratio: 16 / 9; border-radius: 6px; border: 1px solid var(--landing-line-card); background: repeating-linear-gradient(135deg, var(--landing-surface-hatch-light) 0 6px, var(--landing-surface-hatch) 6px 12px); }
+.landing-scene { margin: 0 20px 20px; padding: 18px 20px; background: var(--landing-bg); border-radius: 10px; border: 1px solid var(--landing-line); }
+.landing-scene .landing-turn-kind { letter-spacing: .18em; }
+.landing-scene-text { margin-top: 12px; font-family: var(--landing-serif); font-size: 22px; line-height: 1.3; color: var(--landing-text); text-wrap: pretty; }
+
+.landing-discover-title { margin-top: 22px; max-width: 16ch; }
+.landing-discover-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: clamp(24px, 4vw, 56px); margin-top: 28px; align-items: start; }
+.landing-trust-label { color: var(--landing-accent); }
+.landing-trust-copy { margin-top: 10px; font-size: 17px; }
+.landing-talk { margin-top: clamp(40px, 6vw, 64px); padding: clamp(20px, 3vw, 32px); }
+.landing-bubbles { display: grid; gap: 14px; max-width: 720px; list-style: none; margin: 0; padding: 0; }
+.landing-bubble { max-width: 85%; padding: 12px 16px; font-size: 16px; line-height: 1.45; }
+.landing-bubble-viewer { justify-self: end; background: var(--landing-accent); color: var(--landing-bg); border-radius: 14px 14px 4px 14px; }
+.landing-bubble-reverie { justify-self: start; background: var(--landing-surface-hatch-light); color: var(--landing-text); border-radius: 14px 14px 14px 4px; }
+.landing-chips { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 26px; }
+.landing-chip { border: 1px solid var(--landing-line-strong); border-radius: 999px; padding: 7px 14px; font-size: 14px; font-weight: 600; }
+.landing-chip-quiet { border: 1px dashed rgba(191, 182, 242, .35); font-weight: 400; color: var(--landing-muted-2); }
+.landing-talk .landing-film-grid { margin-top: 22px; }
+.landing-top-pick { position: absolute; top: 10px; left: 10px; background: var(--landing-text); color: var(--landing-bg); font-size: 12px; font-weight: 600; padding: 4px 8px; border-radius: 4px; }
+.landing-discover-cta { margin-top: 28px; }
+
+/* Community (next): the generated shorts are illustrations and say so. */
+
+.landing-community { padding: clamp(80px, 11vw, 150px) 0 0; }
+.landing-community-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: clamp(24px, 4vw, 56px); margin-top: 18px; align-items: start; }
+.landing-community .landing-film-grid { margin-top: 32px; }
+.landing-generated { background: var(--landing-surface-generated); border: 1px dashed rgba(191, 182, 242, .35); display: flex; flex-direction: column; justify-content: flex-end; padding: 14px; }
+.landing-generated-tag { position: absolute; top: 10px; left: 10px; font-family: var(--landing-mono); font-size: 10px; letter-spacing: .16em; text-transform: uppercase; background: var(--landing-accent); color: var(--landing-bg); padding: 4px 7px; border-radius: 4px; }
+.landing-generated-name { font-family: var(--landing-serif); font-size: 22px; line-height: 1.1; color: var(--landing-text); }
+
+/* The loop */
+
+.landing-loop { padding: clamp(96px, 13vw, 180px) 0 0; }
+.landing-loop-title { font-size: clamp(40px, 6vw, 88px); line-height: 1; letter-spacing: -.02em; max-width: 20ch; }
+.landing-loop-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1px; background: var(--landing-line-card); border: 1px solid var(--landing-line-card); border-radius: 14px; overflow: hidden; margin: clamp(36px, 5vw, 64px) 0 0; padding: 0; list-style: none; }
+.landing-loop-step { background: var(--landing-bg); padding: 24px 22px; display: flex; flex-direction: column; gap: 10px; min-height: 150px; }
+.landing-loop-step .landing-label-live { color: var(--landing-accent); }
+.landing-loop-name { font-family: var(--landing-serif); font-size: 32px; line-height: 1; }
+.landing-loop-line { font-size: 15px; color: var(--landing-muted-2); line-height: 1.5; }
+
+/* Close */
+
+.landing-close { padding: clamp(96px, 13vw, 180px) 0 clamp(72px, 10vw, 120px); }
+.landing-close .landing-wrap { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: clamp(28px, 5vw, 72px); align-items: end; }
+.landing-close .landing-label { margin: 0 0 20px; }
+.landing-close-title { font-size: clamp(48px, 7vw, 104px); line-height: .98; letter-spacing: -.02em; }
+.landing-close-note { margin-top: 18px; font-size: 15px; line-height: 1.55; color: var(--landing-muted-3); max-width: 38ch; text-wrap: pretty; }
+
+/* Footer. The TMDB attribution is a licence requirement. */
+
+.landing-footer { border-top: 1px solid var(--landing-line); max-width: none; margin: 0; padding: 0; display: block; font: inherit; letter-spacing: normal; color: inherit; }
+.landing-footer-bar { max-width: 1180px; margin: 0 auto; padding: 22px var(--landing-gutter); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
+.landing-footer-brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 13px; letter-spacing: .26em; }
+.landing-footer-brand .landing-brand-mark { font-size: 18px; }
+.landing-attribution { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.landing-tmdb { background: #0d253f; color: #90cea1; font-weight: 600; font-size: 12px; letter-spacing: .06em; padding: 5px 9px; border-radius: 4px; }
+.landing-attribution p { font-size: 13px; line-height: 1.5; color: var(--landing-muted-2); max-width: 70ch; }
+
+/*
+ * Below 440px the header's three items do not fit on one line: the brand, the in-page
+ * Discover link and the call to action need about 390px. The in-page link goes; the page
+ * still reaches Discover by scrolling, and the call to action keeps its size.
+ */
+@media (max-width: 439px) {
+  .landing .landing-nav-link { display: none; }
+}

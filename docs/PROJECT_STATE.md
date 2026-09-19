@@ -635,6 +635,62 @@ project (it was applied by hand, so no tracking table records it). Each run of
   their decisions are pure functions that are tested, and the browser tool again could not submit with Enter, so the Ask button was clicked. A
   chip shows as pressed when the assistant inferred the same genre.
 
+## 2026-09-19 — A public landing page at `/`
+
+- `/` is the public landing: Hero, Director (next), Movie Jam, Discover, Community (next), the
+  loop and a closing call to action, in that order. The app's own home moved to `/home`
+  (`HOME_PATH`); Discover, film pages, the conversation and Movie Jam are unchanged, and their
+  "back" actions now land on `/home`. Every "Open Reverie" and "Ask it what to watch" opens
+  `/discover`; "Start a Movie Jam" opens `/jams`. Director and Community say "Next · not yet
+  available" and have no button. Community's two shorts are invented illustrations, drawn as
+  "Generated" tiles and never with a poster. The TMDB attribution is in the footer. The only
+  figures are 27,839 films and "built over one weekend", plus the illustrations' own counts.
+- The posters are real catalogue titles, chosen when the app is built. A landing visitor has no
+  session and `catalogue_titles` is readable only by signed-in viewers, so the build signs in
+  anonymously with the public anon key, as any browser opening Discover does, and reads through
+  `fetchCatalogue`, the adapter behind `/api/catalogue`, under unchanged RLS. No key is exposed and
+  no policy changed; each build creates one anonymous user. The shelf is the twelve most popular
+  titles without horror or thriller, the Community pair the next two, and the Discover
+  illustration's four picks the "gentle" shortlist (drama or family, without horror, thriller,
+  crime, war, action, science fiction or mystery). Only genres are filtered; no film is chosen or
+  refused by name.
+- `/` is static HTML. The build renders `LandingPage` to markup and writes it as `dist/index.html`
+  with one 3.4 KB stylesheet and no script, and moves the app's shell to `dist/app.html`, which
+  `vercel.json` and the production Express server serve for every other path. In development, and if
+  the app itself ever reaches `/`, `main.tsx` renders the same component, loaded lazily so no other
+  screen downloads it. Posters sit in 2:3 frames with their size stated, so nothing moves when they
+  arrive.
+- Fonts are self-hosted latin subsets of exactly the faces the page uses: Instrument Serif 400
+  roman and italic, DM Sans limited to weights 400–600 with its optical size kept (62 KB to 34 KB),
+  and JetBrains Mono 400. 85 KB from the page's own origin instead of 114 KB from Google's two.
+  Their OFL licences sit beside them in `src/landing/fonts/`.
+- Without a readable catalogue the build warns and the page renders without its poster rows. On
+  Vercel (`VERCEL=1`) the build fails instead: a deployed landing must show real films.
+- Code: `src/landing/` (the page, its sections, `films.ts`, `landing.css`, `prerender.tsx`,
+  `LandingRoute.tsx`), `scripts/landing-films.ts` (the build-time read), `scripts/landing-plugin.ts`
+  (the virtual module and the static page), `landing` and `/home` in `src/lib/routes.ts`.
+- Verified: `pnpm test` (432/432, including `tests/landingFilms.test.ts`,
+  `tests/landingBuildFilms.test.ts`, `tests/landingPage.test.ts` and `tests/routes.test.ts`),
+  `pnpm typecheck`, `pnpm build`; the build read the live catalogue in about a second. Measured in
+  Chrome, element by element: at 1920×1080 the page is 5,458 px tall; at 375 px nothing overflows,
+  the header stays one line and stays stuck while scrolling, and all 18 posters load at 342×513 into
+  frames already that shape. On a throttled phone profile (150 ms RTT, 1.6 Mbps, 4× CPU, 375×812,
+  cold cache, median of seven): first and largest contentful paint 744 ms, and layout shift 0.013;
+  the same layout with its fonts loaded from Google painted at 960 ms with a shift of 0.024.
+  "Open Reverie" reaches Discover; Discover's Movie Jam button reaches `/home`; a build without
+  Supabase warns and one with `VERCEL=1` fails.
+- Two layout choices worth knowing: below 440 px the header's in-page "Discover" link is hidden,
+  because brand, link and button need about 390 px and the button would otherwise wrap onto two
+  lines; and the page clips horizontal overflow with `overflow-x: clip`, because `hidden` would
+  stop the sticky header from sticking.
+- **To confirm (page copy):** the Discover illustration shows a "Gentle ×" chip,
+  but Discover has no mood chips (it filters by genre, runtime and era); and the Movie Jam copy
+  lists voice-note, image and clip turns, while a turn today is a text proposal or the live camera
+  stage. **Known gaps:** the catalogue's popularity order surfaces softcore titles in several
+  decades, which is why the shelf filters by genre; the posters change only when the app is
+  rebuilt; the remaining layout shift is the web-font swap (preloading the fonts removed it but
+  delayed the first paint by about 250 ms); not yet deployed to Vercel from here.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

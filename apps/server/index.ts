@@ -27,9 +27,10 @@ async function start() {
     });
     app.use(vite.middlewares);
   } else {
+    // `/` is the static landing (dist/index.html); every other path is the app's shell.
     app.use(express.static(path.join(rootDirectory, "dist")));
     app.get("*", (_request, response) => {
-      response.sendFile(path.join(rootDirectory, "dist", "index.html"));
+      response.sendFile(path.join(rootDirectory, "dist", "app.html"));
     });
   }
 

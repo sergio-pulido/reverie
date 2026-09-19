@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, lazy, Suspense, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Footer, Header, LiveScene, Notice } from "./chrome";
 import type { Jam as GeneratedJam, JamSource } from "./core/jam";
@@ -10,10 +10,13 @@ import { ScriptScreen } from "./ScriptScreen";
 import { JoinRoom } from "./screens/JoinRoom";
 import { Studio } from "./screens/Studio";
 import { JamRegistry } from "./screens/JamRegistry";
-import { DISCOVER_PATH, filmFromPath, filmPath, jamSlugFromPath, screenFromPath, type Screen } from "./lib/routes";
+import { DISCOVER_PATH, HOME_PATH, filmFromPath, filmPath, jamSlugFromPath, screenFromPath, type Screen } from "./lib/routes";
 import "./styles.css";
 
 type SourceKind = "from-scratch" | "import-script";
+
+/** Loaded only if the app itself renders `/`; a production build serves `/` as static HTML. */
+const LandingRoute = lazy(() => import("./landing/LandingRoute"));
 
 /** Marks a history entry pushed by opening a film from the grid, so closing it can go back. */
 const FILM_FROM_GRID = "reverie:film-from-grid";
@@ -115,6 +118,7 @@ function App() {
     }
   }
 
+  if (screen === "landing") return <Suspense fallback={null}><LandingRoute /></Suspense>;
   if (screen === "discover") {
     return <DiscoverScreen
       film={film}
@@ -125,10 +129,10 @@ function App() {
         if (window.history.state?.[FILM_FROM_GRID]) window.history.back();
         else navigate("discover", DISCOVER_PATH, { replace: true });
       }}
-      onExit={() => navigate("home", "/")}
+      onExit={() => navigate("home", HOME_PATH)}
     />;
   }
-  if (screen === "jams") return <JamRegistry onBack={() => navigate("home", "/")} onNew={() => { setRegisteredRoom(null); setGeneratedJam(null); navigate("create", "/jams/new"); }} onOpen={(jam, mode) => { applyJam(jam, mode); navigate("studio", `/jams/${jam.slug}`); }} />;
+  if (screen === "jams") return <JamRegistry onBack={() => navigate("home", HOME_PATH)} onNew={() => { setRegisteredRoom(null); setGeneratedJam(null); navigate("create", "/jams/new"); }} onOpen={(jam, mode) => { applyJam(jam, mode); navigate("studio", `/jams/${jam.slug}`); }} />;
   if (screen === "create") {
     return <CreateRoom title={roomTitle} premise={premise} visibility={visibility} sourceKind={sourceKind} importedScript={importedScript} totalMinutes={totalMinutes} portionMinSeconds={portionMinSeconds} portionMaxSeconds={portionMaxSeconds} onTitle={setRoomTitle} onPremise={setPremise} onVisibility={setVisibility} onSourceKind={setSourceKind} onImportedScript={setImportedScript} onTotalMinutes={setTotalMinutes} onPortionMinSeconds={setPortionMinSeconds} onPortionMaxSeconds={setPortionMaxSeconds} onBack={() => navigate("jams", "/jams")} onSubmit={createRoom} isCreating={isCreating} notice={notice} />;
   }
@@ -136,14 +140,14 @@ function App() {
     return <ScriptScreen jam={generatedJam} roomTitle={roomTitle} onStudio={() => setScreen("studio")} onBack={() => navigate("create", "/jams/new")} />;
   }
   if (screen === "join") {
-    return <JoinRoom initialCode={inviteCode} onBack={() => navigate("home", "/")} onAdmitted={(result) => navigate("studio", `/jams/${result.slug}`)} />;
+    return <JoinRoom initialCode={inviteCode} onBack={() => navigate("home", HOME_PATH)} onAdmitted={(result) => navigate("studio", `/jams/${result.slug}`)} />;
   }
   if (screen === "studio") {
     // A build without Supabase can only show the clearly labelled local preview. A
     // configured build that fails reports the failure inside Studio instead.
     return slug && hasSupabaseConfiguration() && !slug.startsWith("preview-")
-      ? <Studio slug={slug} onExit={() => navigate("home", "/")} />
-      : <PreviewStudio slug={slug ?? roomTitle} persistence={persistence} onExit={() => navigate("home", "/")} />;
+      ? <Studio slug={slug} onExit={() => navigate("home", HOME_PATH)} />
+      : <PreviewStudio slug={slug ?? roomTitle} persistence={persistence} onExit={() => navigate("home", HOME_PATH)} />;
   }
   return <Home onCreate={() => navigate("jams", "/jams")} onJoin={() => navigate("join", "/join")} />;
 }

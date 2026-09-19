@@ -4,11 +4,11 @@
 
 Import this public repository into Vercel with root directory `.` and production branch `main`. Select Node.js 22.x. `vercel.json` selects Vite, `pnpm install --frozen-lockfile`, `pnpm build`, and output directory `dist`. The package manager version is pinned in `package.json`.
 
-`api/health.ts` and `api/catalogue.ts` deploy as Node functions. SPA rewrites exclude `/api` so direct Jam links load the client and unknown API routes do not return HTML. Express is for local development/build preview, not the Vercel entrypoint. Future privileged endpoints belong under `api/`.
+`api/health.ts` and `api/catalogue.ts` deploy as Node functions. `/` is the static landing page, `dist/index.html`, which the build renders with no script. Every other path except `/api` is rewritten to the app's shell, `dist/app.html`, so direct Jam links load the client and unknown API routes do not return HTML. Vercel serves a file before applying rewrites, which is what keeps `/` static. Express is for local development/build preview, not the Vercel entrypoint. Future privileged endpoints belong under `api/`.
 
 ## Environment
 
-`/api/catalogue` reads the TMDB snapshot in Supabase as the caller. It needs `SUPABASE_URL` and `SUPABASE_ANON_KEY` at runtime (it falls back to the `VITE_` pair) and reports `catalogue_not_configured` without them. There is no Titan variable. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` for Production and Preview. They are public values embedded at build time; redeploy after changing them. Prefer a separate Supabase project for previews to avoid modifying production rooms.
+`/api/catalogue` reads the TMDB snapshot in Supabase as the caller. It needs `SUPABASE_URL` and `SUPABASE_ANON_KEY` at runtime (it falls back to the `VITE_` pair) and reports `catalogue_not_configured` without them. There is no Titan variable. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` for Production and Preview. They are public values embedded at build time; redeploy after changing them. The build also uses them to read the landing page's films: it signs in anonymously and reads the catalogue as that viewer. On Vercel a build that cannot read them fails rather than deploy a landing without real posters, so anonymous sign-ins must be enabled in the Supabase project. Prefer a separate Supabase project for previews to avoid modifying production rooms.
 
 Follow [Supabase setup](SUPABASE_SETUP.md) before testing persistent rooms. Anonymous identity belongs to the browser profile and origin: localhost, preview and production do not share host sessions. Clearing browser data may lose host access until account recovery is implemented.
 
@@ -31,7 +31,7 @@ In another terminal:
 node scripts/smoke.mjs
 ```
 
-After deployment, run `SMOKE_BASE_URL=https://YOUR-DEPLOYMENT node scripts/smoke.mjs` against the assigned HTTPS domain. Check `/api/missing` returns 404, confirm `/api/catalogue` answers `ok` or `catalogue_not_configured` and never invented titles, open `/discover` and `/jams/new` directly, create a room, reload its URL in the same browser, and verify the record in Supabase. A second browser must not read an invite-only room from its URL alone; it needs the invite code and waits until the host admits it. Do not weaken RLS policies to bypass that flow.
+After deployment, run `SMOKE_BASE_URL=https://YOUR-DEPLOYMENT node scripts/smoke.mjs` against the assigned HTTPS domain. Check `/api/missing` returns 404, confirm `/api/catalogue` answers `ok` or `catalogue_not_configured` and never invented titles, open `/` and confirm its posters are catalogue films and its page source has no script, open `/discover`, `/home` and `/jams/new` directly, create a room, reload its URL in the same browser, and verify the record in Supabase. A second browser must not read an invite-only room from its URL alone; it needs the invite code and waits until the host admits it. Do not weaken RLS policies to bypass that flow.
 
 A healthy endpoint proves only the function is reachable. It does not prove Supabase, Realtime, the catalogue or providers work. Deployment/account configuration and the live database migration have not been performed by this foundation change.
 

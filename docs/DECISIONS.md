@@ -420,3 +420,32 @@ one retry (never after a provider timeout), the engine's 12-turn session cap enf
 call, per-instance rate limits and a concurrency cap of 6, a signed-in viewer verified by Supabase
 Auth, and an abort when the client disconnects. Temperature is 0.2.
 
+
+## 2026-09-19 — The public landing is static HTML built from real catalogue films
+
+The landing at `/` shows real posters from `public.catalogue_titles`, and a visitor to it has no
+session. The catalogue is readable only by signed-in viewers, and that stays true: the page does
+not read the catalogue at all. The build does, once, as an ordinary viewer. It signs in
+anonymously with the public anon key, exactly as a browser opening Discover does, and reads through
+`fetchCatalogue`, the adapter behind `/api/catalogue`, under the same RLS. No service key, no new
+database function, no policy change, and no public endpoint that would read the catalogue for
+anyone who asks. The cost is one anonymous user per build and posters that change only on a
+rebuild. A runtime endpoint was rejected: it would need its own sign-in per cold start and would
+make the page wait for a request before showing its films.
+
+The selection filters only by genre, in Discover's own vocabulary: the most popular titles without
+horror or thriller for the shelf, and drama or family without the tense genres for the "gentle"
+picks. The catalogue function exposes no quality signal, and its popularity order surfaces softcore
+titles in several decades, so a genre filter is the smallest honest rule; no film is chosen or
+refused by name.
+
+Because the films are fixed at build time the whole page is too, so the build renders it to static
+HTML with no script, and the app's shell moves to `app.html`. Measured on a throttled phone profile,
+a client-rendered landing painted first at 1.7–2.5 s against 0.75 s for the static page. The route
+still exists in the app: `main.tsx` renders the same component at `/` in development and if the app
+ever reaches it.
+
+Fonts are self-hosted latin subsets of only the faces the page uses. With the same fonts loaded
+from Google, the same layout painted about 190 ms later on that profile (a render-blocking
+stylesheet from a second origin, then files from a third). Preloading them was measured too and rejected: it removed a
+few pixels of swap shift but delayed the first paint by about 250 ms.

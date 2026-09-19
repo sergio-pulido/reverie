@@ -38,6 +38,32 @@ Potential capabilities include:
 
 The exact provider stack will follow the official HackBarna 2027 sponsor list and available APIs. No provider is assumed to be enabled until it has been confirmed for the event.
 
+## Technology stack
+
+Reverie uses the same deliberately small, real-time architecture validated in the rehearsal project. It is a single TypeScript application for the first public build: a React TV/web client, one Node server, and provider adapters that keep sponsor integrations replaceable.
+
+| Layer | Technology | Responsibility |
+| --- | --- | --- |
+| Client | React, TypeScript, Vite | Jam hub, host and participant rooms, responsive audience UI, accessible focus states |
+| Real-time | WebSocket (`ws`) | Room presence, proposal queue, chat, votes, scene state and reconnect snapshots |
+| Server | Node.js, Express, TypeScript | Session authorization, orchestration, rate/budget limits, provider credentials and safe errors |
+| Validation | Zod | Validate browser commands, provider output and state transitions at every boundary |
+| Creative reasoning | Nebius Token Factory adapter | Convert user turns into a structured story, script and production-direction bundle |
+| Speech | SLNG adapter | Real-time speech-to-text, partial/final transcripts and optional voice responses |
+| Generative media | fal.ai adapter | Generate and direct stills, video, scene updates and other synthetic film assets |
+| QR invites | `qrcode.react` | Invite an audience into a specific Jam through a shareable room link |
+| Core domain | Provider-free TypeScript modules | Versioned story state, queue/vote rules, validation, deterministic ordering and forks |
+
+Keys always remain server-side in a local `.env.local` file. Browser clients never choose arbitrary model IDs, provider URLs or budget limits. The initial deployment target is one instance with in-memory rooms; persistence and multi-instance infrastructure come only when the public product needs them.
+
+Technical design documents:
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Technology stack and provider strategy](docs/TECHNOLOGY_STACK.md)
+- [Internal API contracts](docs/API_CONTRACTS.md)
+- [State machines](docs/STATE_MACHINE.md)
+- [Contributor instructions](AGENTS.md)
+
 ## Core product principles
 
 - **The audience remains in control.** AI is the production partner, not the sole author.

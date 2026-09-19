@@ -177,6 +177,45 @@ happened, about code that no longer exists.
 is one session's stream, kept under `director/<jamId>/<sessionId>.webm`, and the durable
 reproduction of a jam is RV-18's work. Until then, stopping a stream is the only way to keep it,
 and a server without a service-role key keeps it only in memory.
+## 2026-09-19 — The local stack runs Storage, and it found two broken paths (RV-18)
+
+`docker/compose.yaml` had no Storage service. Postgres, Auth, PostgREST and Realtime
+ran; nothing served `/storage/v1`. Every media store therefore fell back to memory
+locally and reported success, and the guarded bucket migrations skipped, so
+`SupabasePortionMediaStore` and `SupabaseDirectorRecordingStore` had never once
+addressed a real bucket. A storage path that is never exercised is not a storage path.
+
+The stack now runs `supabase/storage-api:v1.19.3`, ordered **before** `migrate` so
+`to_regclass('storage.buckets')` finds a real schema and the guards actually fire.
+Three things had to be true that were not obvious:
+
+- Storage connects as `supabase_admin` and creates the `storage` schema itself, so
+  an existing `reverie-db` volume needs no recreation.
+- It grants nothing to the API roles. `service_role` had no `usage` on the schema, and
+  an unqualified lookup then reports `relation "buckets" does not exist` rather than a
+  permission error. `apply-migrations.sh` grants it, and only it: the buckets are
+  private and no browser identity reads them.
+- Its healthcheck must use `127.0.0.1`. The server binds IPv4 only and the image's
+  `wget` resolves `localhost` to `::1`.
+
+**Two real defects surfaced the moment a real bucket existed**, both in
+`SupabaseDirectorRecordingStore`, both previously invisible:
+
+1. **Every director upload would have been rejected.** It wrote `video/webm` into
+   `jam-portions`, a bucket whose `allowed_mime_types` is `{video/mp4}` and whose size
+   limit is 64MB against the store's own 512MB cap. Verified by upload: `video/webm`
+   refused, `video/mp4` accepted. `persistRecording()` swallows storage errors so the
+   session can still close, so this would have lost every archive in silence. The
+   archive now has its own bucket (`jam-director`, WebM + fMP4 + HLS playlist, 512MB)
+   created by `20260919234000_jam_director_archive.sql`.
+2. **A missing recording was reported as a store outage.** Storage answers a missing
+   object with **HTTP 400** and a body whose `statusCode` is `"404"`, so the
+   `status === 404` check never matched and the route returned 503 instead of 404.
+   `SupabasePortionMediaStore` already handled 400; the director store did not.
+
+Observed on the local stack on 2026-09-19 against `storage-api` v1.19.3, not against
+hosted Supabase. The object key now follows the negotiated container (`.webm` or
+`.mp4`) and a read tries each, because the codec fal answers is still unprobed.
 
 ## 2026-09-19 — Probe receipt: the director handshake works, and it speaks SSE (RV-16)
 

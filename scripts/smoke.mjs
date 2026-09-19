@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 
 const baseUrl = process.env.SMOKE_BASE_URL ?? 'http://127.0.0.1:4317';
-for (const path of ['/api/health', '/jams', '/jams/new', '/jams/test-room', '/join', '/discover', '/api/missing']) {
+// `/` is the static landing: real markup, and no script at all.
+const landing = await fetch(new URL('/', baseUrl));
+assert.equal(landing.status, 200, '/');
+const landingHtml = await landing.text();
+assert.match(landingHtml, /data-screen-label="Hero"/, '/');
+assert.doesNotMatch(landingHtml, /<script/, '/');
+console.log('PASS / (static landing)');
+
+for (const path of ['/api/health', '/home', '/jams', '/jams/new', '/jams/test-room', '/join', '/discover', '/api/missing']) {
   const response = await fetch(new URL(path, baseUrl));
   assert.equal(response.status, path === '/api/missing' ? 404 : 200, path);
   if (path === '/api/health') {

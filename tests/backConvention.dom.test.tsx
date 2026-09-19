@@ -66,12 +66,12 @@ describe("Discover", () => {
   });
 
   it("leaves for the home when Back is pressed on the bar", async () => {
-    await render(<App />, [{ path: "/" }, { path: "/discover", state: { [FROM]: "/" } }]);
+    await render(<App />, [{ path: "/home" }, { path: "/discover", state: { [FROM]: "/home" } }]);
     await focusOn(document.querySelector('input[type="search"]'));
     await press("Escape");
     assert.equal(await press("Escape"), true);
     await settle();
-    assert.equal(window.location.pathname, "/");
+    assert.equal(window.location.pathname, "/home");
     assert.ok(document.querySelector(".home-shell"));
   });
 
@@ -80,7 +80,7 @@ describe("Discover", () => {
     await focusOn(document.querySelector('input[type="search"]'));
     await press("Escape");
     await press("Escape");
-    assert.equal(window.location.pathname, "/");
+    assert.equal(window.location.pathname, "/home");
   });
 });
 
@@ -97,11 +97,11 @@ describe("a film page", () => {
   });
 
   it("closes the same way when its current destination is chosen, without adding history", async () => {
-    await render(<App />, [{ path: "/" }, { path: "/discover/603", state: { [FROM]: "/" } }]);
+    await render(<App />, [{ path: "/home" }, { path: "/discover/603", state: { [FROM]: "/home" } }]);
     assert.equal(current(), "Home", "opened from the home, the home is where it returns");
     const entries = window.history.length;
     await click(focused());
-    assert.equal(window.location.pathname, "/");
+    assert.equal(window.location.pathname, "/home");
     assert.equal(window.history.length, entries, "no entry was added");
     assert.equal(window.history.state?.[FROM], undefined, "this is the entry the film was opened from");
     assert.equal(document.querySelector(".film-page"), null);
@@ -184,7 +184,7 @@ describe("the Movie Jam screens", () => {
   });
 
   it("climb to their parents with repeated Back, never replaying screens already left", async () => {
-    await render(<App />, [{ path: "/" }, { path: "/jams", state: { [FROM]: "/" } }, { path: "/jams/new", state: { [FROM]: "/jams" } }]);
+    await render(<App />, [{ path: "/home" }, { path: "/jams", state: { [FROM]: "/home" } }, { path: "/jams/new", state: { [FROM]: "/jams" } }]);
     assert.equal(current(), "Movie Jam");
     await press("Escape");
     await settle();
@@ -192,11 +192,11 @@ describe("the Movie Jam screens", () => {
     assert.equal(current(), "Movie Jam", "the registry lands on its bar");
     await press("Escape");
     await settle();
-    assert.equal(window.location.pathname, "/");
+    assert.equal(window.location.pathname, "/home");
   });
 
   it("never leave on a held Back", async () => {
-    await render(<App />, [{ path: "/" }, { path: "/jams", state: { [FROM]: "/" } }]);
+    await render(<App />, [{ path: "/home" }, { path: "/jams", state: { [FROM]: "/home" } }]);
     assert.equal(current(), "Movie Jam");
     await press("Escape", { repeat: true });
     await settle();

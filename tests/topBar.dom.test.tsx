@@ -39,10 +39,10 @@ function backButtons() {
 }
 
 const screens: { name: string; at: string | { path: string; state?: unknown }[]; current: string }[] = [
-  { name: "the home", at: "/", current: "Home" },
+  { name: "the home", at: "/home", current: "Home" },
   { name: "Discover", at: "/discover", current: "Discover" },
   { name: "a film page opened from Discover", at: [{ path: "/discover" }, { path: "/discover/603", state: { [FROM]: "/discover" } }], current: "Discover" },
-  { name: "a film page opened from the home", at: [{ path: "/" }, { path: "/discover/603", state: { [FROM]: "/" } }], current: "Home" },
+  { name: "a film page opened from the home", at: [{ path: "/home" }, { path: "/discover/603", state: { [FROM]: "/home" } }], current: "Home" },
   { name: "a film page reached by URL", at: "/discover/603", current: "Discover" },
   { name: "the jam registry", at: "/jams", current: "Movie Jam" },
   { name: "the Movie Jam screen", at: "/jams/new", current: "Movie Jam" },
@@ -85,7 +85,7 @@ describe("the top bar", () => {
 
 describe("the search icon", () => {
   it("opens Discover with its search field focused", async () => {
-    await render(<App />, "/");
+    await render(<App />, "/home");
     await click(document.querySelector('[data-top-bar] a[aria-label="Search"]'));
     assert.equal(window.location.pathname, "/discover");
     assert.equal(focused().getAttribute("type"), "search");

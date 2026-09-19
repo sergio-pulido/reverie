@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { providerIdOf, type CatalogueTitle } from "./catalogue/contract";
 import type { Jam as GeneratedJam, JamSource } from "./core/jam";
 import { DiscoverScreen } from "./discover/DiscoverScreen";
@@ -32,6 +32,9 @@ import { leaveAction } from "./shell/keys";
 import { ShellProvider, type Shell } from "./shell/ShellContext";
 import { focusIsLost, focusTopBar } from "./shell/topBarFocus";
 import { useRemoteConventions } from "./shell/useRemoteConventions";
+
+/** Loaded only if the app itself renders `/`; a production build serves `/` as static HTML. */
+const LandingRoute = lazy(() => import("./landing/LandingRoute"));
 
 /** Screens with no rows of their own to land in: a remote arrives on their top bar. */
 const LANDS_ON_TOP_BAR: ReadonlySet<Screen> = new Set(["jams", "create", "join", "script", "studio"]);
@@ -211,6 +214,7 @@ export function App() {
   }
 
   function renderScreen() {
+    if (screen === "landing") return <Suspense fallback={null}><LandingRoute /></Suspense>;
     const filmOverHome = filmOpen && filmOrigin === "home";
     if (screen === "home" || filmOverHome) {
       // One tree for both, so the home stays mounted (shelves, scroll, focus) under a film.

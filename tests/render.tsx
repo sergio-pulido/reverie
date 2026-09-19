@@ -21,7 +21,7 @@ export type Entry = { path: string; state?: unknown };
  * Renders `ui` into a fresh container, replacing whatever the last test rendered. `at` is where
  * the viewer is: a path, or the entries they went through, the current one last.
  */
-export async function render(ui: ReactElement, at: string | Entry[] = "/") {
+export async function render(ui: ReactElement, at: string | Entry[] = "/home") {
   await cleanup();
   const entries = typeof at === "string" ? [{ path: at }] : at;
   window.history.replaceState(entries[0].state ?? null, "", entries[0].path);

@@ -2,9 +2,11 @@
  * Pathname matching for the app. There is no router: each screen is an exact path, and a few
  * carry one parameter segment (`/jams/:slug`, `/discover/:id`). Pure, so it is testable without
  * a browser.
+ *
+ * `/` is the public landing page; the app's own home is `/home`.
  */
 
-export type Screen = "home" | "discover" | "jams" | "create" | "join" | "script" | "studio";
+export type Screen = "landing" | "home" | "discover" | "jams" | "create" | "join" | "script" | "studio";
 
 const DISCOVER_FILM = /^\/discover\/([^/]+)\/?$/;
 const JAM_SLUG = /^\/jams\/([a-z0-9-]+)$/;
@@ -12,6 +14,7 @@ const JAM_SLUG = /^\/jams\/([a-z0-9-]+)$/;
 const FILM_ID = /^[1-9]\d{0,11}$/;
 
 export function screenFromPath(pathname: string): Screen {
+  if (pathname === LANDING_PATH) return "landing";
   if (pathname === "/discover" || pathname === "/discover/" || DISCOVER_FILM.test(pathname)) return "discover";
   if (pathname === "/jams") return "jams";
   if (pathname === "/jams/new") return "create";
@@ -43,7 +46,8 @@ export function filmPath(providerId: string) {
   return `/discover/${providerId}`;
 }
 
-export const HOME_PATH = "/";
+export const LANDING_PATH = "/";
+export const HOME_PATH = "/home";
 export const DISCOVER_PATH = "/discover";
 export const JAMS_PATH = "/jams";
 export const NEW_JAM_PATH = "/jams/new";
@@ -53,7 +57,8 @@ export const JOIN_PATH = "/join";
 export type Destination = "home" | "discover" | "jam";
 
 export function destinationOf(screen: Screen): Destination {
-  if (screen === "home") return "home";
+  // The landing carries no top bar; it answers "home" so the type stays total.
+  if (screen === "home" || screen === "landing") return "home";
   if (screen === "discover") return "discover";
   return "jam";
 }

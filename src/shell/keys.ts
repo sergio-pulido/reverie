@@ -39,6 +39,9 @@ export function backAction({ key, keyCode = 0, editable, handled, inTopBar, repe
 export function parentPath(screen: Screen, filmOpen: boolean, from: string | null): string | null {
   if (filmOpen) return from ?? DISCOVER_PATH;
   switch (screen) {
+    // Neither is inside the app's back stack: Back on both belongs to the platform, and the
+    // home never falls back to the landing.
+    case "landing":
     case "home":
       return null;
     case "discover":

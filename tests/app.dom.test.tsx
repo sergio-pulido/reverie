@@ -17,7 +17,7 @@ const current = () => (focused().closest("[data-top-bar]") === liveTopBar() ? fo
 const rowOf = (element: Element) => `${element.getAttribute("data-row")}:${element.getAttribute("data-index")}`;
 
 /** The whole app over a catalogue that always has films. */
-async function openApp(at: string | { path: string; state?: unknown }[] = "/") {
+async function openApp(at: string | { path: string; state?: unknown }[] = "/home") {
   const catalogue = fakeCatalogue();
   await render(
     <CatalogueReadProvider read={catalogue.read}>
@@ -35,14 +35,14 @@ async function historyStep(step: () => void) {
 
 describe("the app's home", () => {
   it("reads two shelves on opening and lands on the hero", async () => {
-    const catalogue = await openApp("/");
+    const catalogue = await openApp("/home");
     assert.equal(catalogue.requests.length, 2);
     assert.deepEqual(catalogue.requests.map(({ pageSize, query }) => [pageSize, query]), [[12, ""], [12, ""]]);
     assert.equal(rowOf(focused()), "hero:0");
   });
 
   it("keeps the home mounted under a film opened from it, and returns focus to its card", async () => {
-    await openApp("/");
+    await openApp("/home");
     const home = document.querySelector(".home-shell");
     await press("ArrowDown");
     await press("ArrowDown");
@@ -60,7 +60,7 @@ describe("the app's home", () => {
 
     await press("Escape");
     await settle();
-    assert.equal(window.location.pathname, "/");
+    assert.equal(window.location.pathname, "/home");
     assert.equal(document.querySelector(".home-shell"), home);
     assert.equal(home!.hasAttribute("inert"), false);
     assert.equal(focused(), opener, "focus is back on the card that opened the film");
@@ -76,7 +76,7 @@ describe("the app's home", () => {
   });
 
   it("never shows one film's details under another film's address", async () => {
-    await openApp("/");
+    await openApp("/home");
     await press("ArrowDown");
     await press("Enter");
     const first = window.location.pathname;
@@ -87,7 +87,7 @@ describe("the app's home", () => {
     await press("Enter");
     assert.equal(window.location.pathname, "/jams");
     await press("Escape");
-    assert.equal(window.location.pathname, "/");
+    assert.equal(window.location.pathname, "/home");
     await press("ArrowDown");
     await press("ArrowDown");
     await press("Enter");
@@ -132,7 +132,7 @@ describe("the app's Discover grid", () => {
     // Back twice from the grid leaves Discover: its entry is replaced by the home.
     await press("Escape");
     await press("Escape");
-    assert.equal(window.location.pathname, "/");
+    assert.equal(window.location.pathname, "/home");
 
     await historyStep(() => window.history.forward());
     assert.equal(window.location.pathname, film);
@@ -154,7 +154,7 @@ describe("a film page with nothing to act on", () => {
       <Page>
         <FilmPage providerId="603" seed={{ id: "cat:603", title: "Plain", genres: [], availability: [] }} origin="home" attributionFallback="TMDB" />
       </Page>,
-      [{ path: "/" }, { path: "/discover/603", state: { [FROM]: "/" } }],
+      [{ path: "/home" }, { path: "/discover/603", state: { [FROM]: "/home" } }],
     );
     const layer = document.querySelector<HTMLElement>(".film-page")!;
     Object.defineProperty(layer, "clientHeight", { configurable: true, value: 1000 });

@@ -121,6 +121,15 @@ Design documents:
 
 The HackBarna demo will start with a host-led story, then reveal a QR code so audience members can join. The host admits participants, who submit and vote on twists. The winning direction becomes the next scene while the audience watches the movie take shape in real time.
 
+## Status
+
+Implemented: the public landing page at `/` (static HTML with real catalogue posters chosen at build time), the Movie Jam home at `/home`, create/join/studio routes, the TV-first `/discover` route with keyboard traversal and search, the privileged `GET /api/catalogue` adapter, local preview, Supabase-backed room creation, the `/jams` registry that lists the rooms you host or have joined, script generation from a prompt, script import that keeps the pasted markdown, invite-code entitlement, display names, the waiting lobby, host admission and removal, append-only chat and proposals synchronized through Supabase Realtime with reconnect snapshots, plus local and Vercel health handlers. Opt-in live media (camera, microphone, screen) is implemented behind `POST /api/live/token`
+with a consent register that records owner, purpose, expiry and a server-issued asset
+reference, and withdrawing consent stops the track; nothing is recorded, exported or
+transformed. The Vonage credentials in this repository are account-level, not a video-capable
+application, so a session has never been opened from here and the route reports
+`live_not_configured` — see `docs/PROJECT_STATE.md` for the dated probe receipts. Voting,
+scene acceptance and generation remain unimplemented; scene acceptance is deliberately blocked on a versioned transactional contract. No catalogue contract has been supplied, so Discover reports an unconfigured catalogue rather than showing titles. No hosted Supabase project has been migrated from this repository; the collaborative behaviour and RLS are verified against the local Docker stack (`pnpm verify:realtime`, 27/27) but not against a hosted database — run it against a configured project to produce that evidence. Hosted deployment also remains pending.
 ## Contributing
 
 The primary agent ships small verified commits to `main`. The collaborating developer works on branches, opens PRs and uses auto-merge after checks. Read [the collaboration workflow](docs/CONTRIBUTING.md) before editing shared files.

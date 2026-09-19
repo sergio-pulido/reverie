@@ -42,10 +42,11 @@ describe("backAction", () => {
 describe("leaving a screen", () => {
   it("climbs to each screen's parent and stops at the home", () => {
     const parents: [Screen, string | null][] = [
+      ["landing", null],
       ["home", null],
-      ["discover", "/"],
-      ["jams", "/"],
-      ["join", "/"],
+      ["discover", "/home"],
+      ["jams", "/home"],
+      ["join", "/home"],
       ["create", "/jams"],
       ["studio", "/jams"],
       ["script", "/jams/new"],
@@ -54,27 +55,27 @@ describe("leaving a screen", () => {
   });
 
   it("closes a film page to wherever it was opened from, or to the grid when reached by URL", () => {
-    assert.equal(parentPath("discover", true, "/"), "/");
+    assert.equal(parentPath("discover", true, "/home"), "/home");
     assert.equal(parentPath("discover", true, "/discover"), "/discover");
     assert.equal(parentPath("discover", true, null), "/discover");
   });
 
   it("steps back through history only when the entry behind is the parent", () => {
-    assert.deepEqual(leaveAction({ screen: "discover", filmOpen: false, from: "/" }), { kind: "history-back" });
-    assert.deepEqual(leaveAction({ screen: "discover", filmOpen: true, from: "/" }), { kind: "history-back" });
+    assert.deepEqual(leaveAction({ screen: "discover", filmOpen: false, from: "/home" }), { kind: "history-back" });
+    assert.deepEqual(leaveAction({ screen: "discover", filmOpen: true, from: "/home" }), { kind: "history-back" });
     assert.deepEqual(leaveAction({ screen: "create", filmOpen: false, from: "/jams" }), { kind: "history-back" });
   });
 
   it("replaces the entry instead of replaying screens the viewer has left", () => {
     // Discover, then Movie Jam, then Discover again: Back goes home, not through Movie Jam.
-    assert.deepEqual(leaveAction({ screen: "discover", filmOpen: false, from: "/jams" }), { kind: "replace", path: "/" });
-    assert.deepEqual(leaveAction({ screen: "create", filmOpen: false, from: "/" }), { kind: "replace", path: "/jams" });
+    assert.deepEqual(leaveAction({ screen: "discover", filmOpen: false, from: "/jams" }), { kind: "replace", path: "/home" });
+    assert.deepEqual(leaveAction({ screen: "create", filmOpen: false, from: "/home" }), { kind: "replace", path: "/jams" });
     assert.deepEqual(leaveAction({ screen: "discover", filmOpen: true, from: null }), { kind: "replace", path: "/discover" });
   });
 
   it("replaces instead of stepping back once the entry behind has itself been replaced", () => {
     assert.deepEqual(leaveAction({ screen: "discover", filmOpen: true, from: "/discover", behindIntact: false }), { kind: "replace", path: "/discover" });
-    assert.deepEqual(leaveAction({ screen: "jams", filmOpen: false, from: "/", behindIntact: false }), { kind: "replace", path: "/" });
+    assert.deepEqual(leaveAction({ screen: "jams", filmOpen: false, from: "/home", behindIntact: false }), { kind: "replace", path: "/home" });
   });
 
   it("leaves Back on the home to the platform", () => {

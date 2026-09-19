@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { filmFromPath, filmPath, jamSlugFromPath, screenFromPath } from "../src/lib/routes";
+import { HOME_PATH, LANDING_PATH, filmFromPath, filmPath, jamSlugFromPath, screenFromPath } from "../src/lib/routes";
 
 test("a film path opens Discover on that film", () => {
   assert.equal(screenFromPath("/discover/27205"), "discover");
@@ -35,8 +35,20 @@ test("a film path round-trips through filmPath", () => {
   assert.throws(() => filmPath("../jams"), RangeError);
 });
 
+test("the root is the public landing page and the app's home moves to /home", () => {
+  assert.equal(LANDING_PATH, "/");
+  assert.equal(HOME_PATH, "/home");
+  assert.equal(screenFromPath(LANDING_PATH), "landing");
+  assert.equal(screenFromPath(HOME_PATH), "home");
+  assert.equal(filmFromPath(LANDING_PATH), null);
+  assert.equal(jamSlugFromPath(LANDING_PATH), null);
+});
+
+test("only the exact root is the landing page", () => {
+  for (const path of ["//", "/?", "/index.html", "/landing"]) assert.notEqual(screenFromPath(path), "landing", path);
+});
+
 test("the existing screens still resolve as before", () => {
-  assert.equal(screenFromPath("/"), "home");
   assert.equal(screenFromPath("/jams"), "jams");
   assert.equal(screenFromPath("/jams/new"), "create");
   assert.equal(screenFromPath("/join"), "join");

@@ -82,7 +82,7 @@ before(async () => {
         if (nextResult === "unavailable") {
           throw new DirectorError("The director stream did not respond.", true);
         }
-        return { type: "answer", sdp: "v=0\r\nanswer\r\n" };
+        return "v=0\r\nanswer\r\n";
       },
     }),
   );

@@ -1,5 +1,34 @@
 # Decisions
 
+## 2026-09-19 — Probe receipt: the director handshake works, and it speaks SSE (RV-16)
+
+First live run of `minimax/h3-max/director` with a valid key, via
+`scripts/probe-director.mts`, on 2026-09-19. Two sessions were opened and stopped
+immediately; each bills fal's 60-second minimum.
+
+Result: **the handshake completes and the control channel opens.** A 2095-character
+offer with three media sections was answered in ~2.5s with a 3313-character answer,
+also three media sections; the remote description applied, the data channel reached
+`open`, `stop` was sent and the peer closed cleanly. Our server, as the WebRTC peer,
+can hold a director session.
+
+**`/start-session` answers `text/event-stream`, not JSON.** The answer arrives as the
+first `data:` frame carrying `{"sdp": ...}`. The adapter had parsed the body as JSON
+and reported "the director stream returned an unexpected shape" on every real
+session — the endpoint's own OpenAPI declares a JSON response, so the mistake was
+reading the contract rather than the wire. It now reads the event stream
+incrementally and stops at the answer, because the stream may stay open for the
+session and waiting for it to end would hang the handshake it completes. The JSON
+branch is kept, since the published contract still says JSON.
+
+`POST /info` also answered and confirms every constant hard-coded from the published
+schema: `min_chunk_duration` 5, `max_chunk_duration` 15, `fps` 24, resolutions
+480p/768p/1080p, aspect ratios 16:9/9:16/1:1. It adds two facts worth recording:
+`max_session_seconds` is **900**, and `one_session_per_machine` is **true**.
+
+**Still not probed:** no video has been received or watched. The handshake and the
+control channel are proven; the media track is not.
+
 ## 2026-09-19 — MiniMax H3 Max is the video model, and its limits are the product's limits (RV-16)
 
 Reverie generates video on **`minimax/h3-max/text-to-video`**. It is entry `[0]` of the

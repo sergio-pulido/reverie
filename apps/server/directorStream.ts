@@ -156,9 +156,9 @@ export class DirectorStream {
     await this.waitForIceGathering(connection);
 
     const start = this.options.startSession ?? startDirectorSession;
-    let answer: unknown;
+    let answerSdp: string;
     try {
-      answer = await start(this.options.config, {
+      answerSdp = await start(this.options.config, {
         type: "offer",
         sdp: connection.localDescription?.sdp ?? offer.sdp,
       });
@@ -166,12 +166,11 @@ export class DirectorStream {
       await this.teardown();
       throw error;
     }
-    const sdp = (answer as { sdp?: unknown })?.sdp;
-    if (typeof sdp !== "string") {
+    if (!answerSdp) {
       await this.teardown();
       throw new DirectorError("The director stream returned no answer.", true);
     }
-    await connection.setRemoteDescription({ type: "answer", sdp });
+    await connection.setRemoteDescription({ type: "answer", sdp: answerSdp });
     this.audit.record({ kind: "session_opened" });
   }
 

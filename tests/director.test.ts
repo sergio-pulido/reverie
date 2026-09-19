@@ -7,7 +7,9 @@ import {
   DIRECTOR_MAX_SCRIPT_BEATS,
   DIRECTOR_MIN_CHUNK_SECONDS,
   directorOfferSchema,
+  DirectorError,
   resolveDirectorConfig,
+  startDirectorSession,
 } from "../apps/server/providers/falDirector";
 import {
   PORTION_ABSOLUTE_MAX_SECONDS,
@@ -110,4 +112,91 @@ test("the offer schema accepts an SDP and refuses anything else", () => {
     directorOfferSchema.safeParse({ sdp: "x".repeat(64_001) }).success,
     false,
   );
+});
+
+/** A Response carrying an SSE body, as fal's /start-session actually answers. */
+function eventStream(frames: string[], contentType = "text/event-stream; charset=utf-8") {
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const encoder = new TextEncoder();
+      for (const frame of frames) controller.enqueue(encoder.encode(frame));
+      controller.close();
+    },
+  });
+  return new Response(body, { status: 200, headers: { "content-type": contentType } });
+}
+
+const CONFIG = { apiKey: "k", resolution: "768p", aspectRatio: "16:9" } as const;
+
+test("the answer is read from the event stream fal actually returns", async () => {
+  // This is the bug that made a real session fail: the endpoint answers
+  // text/event-stream, and parsing it as JSON yields nothing.
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    eventStream([`data: ${JSON.stringify({ sdp: "v=0\r\nanswer\r\n" })}\n\n`])) as typeof fetch;
+  try {
+    const sdp = await startDirectorSession(CONFIG, { type: "offer", sdp: "v=0\r\n" });
+    assert.match(sdp, /^v=0/);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("frames split across chunks are reassembled", async () => {
+  const payload = `data: ${JSON.stringify({ sdp: "v=0\r\nsplit\r\n" })}\n\n`;
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    eventStream([payload.slice(0, 12), payload.slice(12)])) as typeof fetch;
+  try {
+    const sdp = await startDirectorSession(CONFIG, { type: "offer", sdp: "v=0\r\n" });
+    assert.match(sdp, /split/);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("frames before the answer are skipped, not treated as failure", async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    eventStream([
+      ": keep-alive comment\n\n",
+      `data: ${JSON.stringify({ status: "starting" })}\n\n`,
+      `data: ${JSON.stringify({ sdp: "v=0\r\nlater\r\n" })}\n\n`,
+    ])) as typeof fetch;
+  try {
+    const sdp = await startDirectorSession(CONFIG, { type: "offer", sdp: "v=0\r\n" });
+    assert.match(sdp, /later/);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("a plain JSON answer still works", async () => {
+  // The endpoint's OpenAPI declares a JSON response, so both are accepted.
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ answer: { sdp: "v=0\r\njson\r\n" } }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    })) as typeof fetch;
+  try {
+    const sdp = await startDirectorSession(CONFIG, { type: "offer", sdp: "v=0\r\n" });
+    assert.match(sdp, /json/);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("a stream that never carries an answer fails as retryable", async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    eventStream([`data: ${JSON.stringify({ status: "starting" })}\n\n`])) as typeof fetch;
+  try {
+    await assert.rejects(
+      () => startDirectorSession(CONFIG, { type: "offer", sdp: "v=0\r\n" }),
+      (error: unknown) => error instanceof DirectorError && error.retryable,
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
 });

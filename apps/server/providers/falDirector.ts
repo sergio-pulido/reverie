@@ -22,6 +22,8 @@ import { flattenPortions } from "../../../src/core/playback";
 
 const DIRECTOR_BASE_URL = "https://fal.run/minimax/h3-max/director";
 const START_SESSION_TIMEOUT_MS = 30_000;
+/** Bounds the handshake stream; the answer arrives in its first frames. */
+const MAX_EVENT_STREAM_BYTES = 256 * 1024;
 
 export const DIRECTOR_MODEL_SLUG = "minimax/h3-max/director";
 
@@ -166,14 +168,20 @@ export const directorOfferSchema = z.object({
 export type DirectorOffer = z.infer<typeof directorOfferSchema>;
 
 /**
- * Exchanges the browser's SDP offer for fal's answer, spending the API key
- * here so it never reaches the client. The answer is opaque transport data:
- * it is returned as received, and it carries no credential.
+ * Exchanges our SDP offer for fal's answer, spending the API key here so it
+ * never reaches a client. Returns the answer SDP.
+ *
+ * `/start-session` answers with **Server-Sent Events**, not JSON: a
+ * `text/event-stream` whose first `data:` frame carries `{"sdp": "..."}`.
+ * Parsing it as JSON is what produced "the director stream returned an
+ * unexpected shape" — the body is valid, it is simply framed. The JSON branch
+ * below stays because the endpoint's OpenAPI declares a plain JSON response
+ * and may serve one.
  */
 export async function startDirectorSession(
   config: DirectorConfig,
   offer: DirectorOffer,
-): Promise<unknown> {
+): Promise<string> {
   let response: Response;
   try {
     response = await fetch(`${DIRECTOR_BASE_URL}/start-session`, {
@@ -181,6 +189,7 @@ export async function startDirectorSession(
       headers: {
         authorization: `Key ${config.apiKey}`,
         "content-type": "application/json",
+        accept: "text/event-stream, application/json",
       },
       body: JSON.stringify({ type: "offer", sdp: offer.sdp }),
       signal: AbortSignal.timeout(START_SESSION_TIMEOUT_MS),
@@ -196,9 +205,74 @@ export async function startDirectorSession(
       response.status === 429 || response.status >= 500,
     );
   }
-  const answer = await response.json().catch(() => null);
-  if (!answer || typeof answer !== "object") {
-    throw new DirectorError("The director stream returned an unexpected shape.", true);
+  const answer = (response.headers.get("content-type") ?? "").includes(
+    "text/event-stream",
+  )
+    ? await readAnswerFromEventStream(response)
+    : findSdp(await response.json().catch(() => null));
+  if (!answer) {
+    throw new DirectorError("The director stream returned no answer.", true);
   }
   return answer;
+}
+
+/**
+ * Reads `data:` frames until one carries an SDP.
+ *
+ * Read incrementally and abandoned at the answer rather than buffered whole:
+ * the stream may stay open for the session, and waiting for it to end would
+ * hang the handshake it is supposed to complete.
+ */
+async function readAnswerFromEventStream(response: Response): Promise<string | null> {
+  const body = response.body;
+  if (!body) return null;
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffered = "";
+  try {
+    while (buffered.length < MAX_EVENT_STREAM_BYTES) {
+      const { done, value } = await reader.read();
+      if (value) buffered += decoder.decode(value, { stream: true });
+      // Frames are separated by a blank line; the tail may be incomplete.
+      const frames = buffered.split(/\r?\n\r?\n/);
+      buffered = done ? "" : (frames.pop() ?? "");
+      for (const frame of frames) {
+        const sdp = findSdp(parseEventData(frame));
+        if (sdp) return sdp;
+      }
+      if (done) return null;
+    }
+    return null;
+  } finally {
+    // The handshake has what it needs; the rest of the stream is not ours to
+    // hold open.
+    await reader.cancel().catch(() => undefined);
+  }
+}
+
+/** The JSON payload of one SSE frame, ignoring comments and other fields. */
+function parseEventData(frame: string): unknown {
+  const data = frame
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trim())
+    .join("");
+  if (!data) return null;
+  try {
+    return JSON.parse(data);
+  } catch {
+    return null;
+  }
+}
+
+/** Finds an `sdp` string anywhere in a parsed payload. */
+function findSdp(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.sdp === "string" && record.sdp.length > 0) return record.sdp;
+  for (const inner of Object.values(record)) {
+    const found = findSdp(inner);
+    if (found) return found;
+  }
+  return null;
 }

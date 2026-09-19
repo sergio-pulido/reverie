@@ -175,6 +175,22 @@ The host's explicit **Stop** ends the stream for the room and names no viewer; t
 closing the screen only detaches them, so the film survives the person paying for it stepping
 away and ends when the last viewer leaves.
 
+**Reviewing the branch after the rebase found a regression the tests could not see.** The rebase
+kept the rule that capture is opt-in behind `REVERIE_DIRECTOR_RECORD`, but expressed it as a
+default inside `DirectorStream` — and the router passes an explicit consumer list, so the default
+never applied and the WebM recorder was built for every session. That is the exact main-thread
+muxing that pinned a real session at 99% CPU. The flag now decides whether the recorder exists
+at all, where the router builds the list, which is the only place such a rule can be checked. The
+same review made the segmenter coherent with the archive being built on it: it used to exist
+only when HLS delivery was on, so a server that archives without delivering live would have wired
+a sink that never received a byte. **Segments are muxed whenever any sink wants them**, and
+`createSegmentSinks` on the router is the per-session seam an archive plugs into; no sinks, no
+muxer. A muxer thread dying is reported as `worker_failed`, distinct from `unsupported_codec`,
+because those are different facts and conflating them sends someone to codec negotiation for a
+bug in the worker. And the delivery routes are now exercised with bytes through a test-injected
+live sink — until then every segment request in the suite answered 404 for a reason unrelated to
+the route, so `segment/:sequence.m4s` had never been shown to parse.
+
 **Live delivery is off by default** (`REVERIE_DIRECTOR_HLS`), alongside recording's own
 `REVERIE_DIRECTOR_RECORD`. It stays off until a real session demonstrates that `/end` answers
 while the worker is mid-segment.

@@ -1344,10 +1344,18 @@ open a PR, merge the PR. The previous split between a "primary agent" pushing di
 - Live delivery is off unless `REVERIE_DIRECTOR_HLS=true`, alongside recording's own
   `REVERIE_DIRECTOR_RECORD`, and stays off until a real session shows `/end` answering while the
   worker is mid-segment.
-- Verified: `pnpm typecheck`, `pnpm test` (526 passing, 26 covering this slice: playlist shape and
+- **A post-rebase review caught the main-thread recorder switched back on.** The explicit consumer
+  list the router builds bypassed the `config.record` default, so every session muxed WebM on
+  the server thread again. The flag now gates whether the recorder exists at all. The same pass
+  decoupled the segmenter from the HLS flag — segments are muxed whenever any sink wants them, and
+  `createSegmentSinks` is the per-session seam the durable archive (RV-18) plugs into — and made a
+  dead muxer thread report `worker_failed` rather than masquerade as a codec problem.
+- Verified: `pnpm typecheck`, `pnpm test` (668 passing, 31 covering this slice: playlist shape and
   target-duration rounding, the sliding window and its refusal to reuse an evicted address, viewer
-  attach/detach/renew and reclaim, the delivery routes' served and refused states, and the real
-  worker thread starting, returning a codec verdict and stopping within bounds), `pnpm build`.
+  attach/detach/renew and reclaim, the delivery routes served real bytes through an injected live
+  sink — which is what proves `segment/:sequence.m4s` parses — and refused honestly, the archive
+  seam receiving a segmenter with live delivery off, and the real worker thread starting,
+  returning a codec verdict and stopping within bounds), `pnpm build`.
 - **Not probed, and not claimed.** No Director session has been opened with a valid key on this
   branch. Which codec fal answers now that H.264 is offered, its keyframe cadence — which sets
   segment length and therefore live latency — and whether segment starts correspond to the `chunk`

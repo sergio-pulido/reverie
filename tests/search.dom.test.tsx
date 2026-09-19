@@ -77,7 +77,7 @@ describe("a turn", () => {
   });
 
   it("sends a name that finds nothing to the assistant instead of stopping there", async () => {
-    const { assistant } = await openSearch("/search", { unknown: ["Nothing Like It"] });
+    const { assistant } = await openSearch("/discover", { unknown: ["Nothing Like It"] });
     await say("Nothing Like It");
     assert.deepEqual(assistant.turns, ["Nothing Like It"]);
     assert.deepEqual(turns()[0].lines, ["Nothing Like It", "Tell me a little more.", "Something funny, or something tense?"]);
@@ -114,7 +114,7 @@ describe("a turn", () => {
 
   it("keeps a turn's films for the state its reply left, even if a filter comes off while they load", async () => {
     const gate = rankingGate();
-    const { catalogue } = await openSearch("/search", { gate });
+    const { catalogue } = await openSearch("/discover", { gate });
     await say("something funny");
     assert.ok(document.querySelector(".search-results-waiting"), "the turn is waiting for its ranking");
     await click(document.querySelector('.search-strip [aria-label="Remove Comedy"]'));
@@ -129,7 +129,7 @@ describe("a turn", () => {
 
   it("gives each turn its own films when the next message goes before the first's are ready", async () => {
     const gate = rankingGate();
-    await openSearch("/search", { gate });
+    await openSearch("/discover", { gate });
     await say("something funny");
     await say("from the nineties");
     assert.equal(document.querySelectorAll(".search-results-waiting").length, 2, "both turns wait for their own films");
@@ -273,7 +273,7 @@ describe("a film's preview", () => {
     assert.equal(dialog(), null);
     assert.equal(page().hasAttribute("inert"), false);
     same(focused(), card);
-    assert.equal(window.location.pathname, "/search", "Back closed the preview, and went nowhere else");
+    assert.equal(window.location.pathname, "/discover", "Back closed the preview, and went nowhere else");
   });
 
   it("closes on a remote's Back key code too", async () => {
@@ -291,7 +291,7 @@ describe("a film's preview", () => {
     assert.equal(dialog(), null, "the preview gave way to the page");
     await press("Escape");
     await settle();
-    assert.equal(window.location.pathname, "/search");
+    assert.equal(window.location.pathname, "/discover");
     assert.equal(document.querySelector(".film-page"), null);
     same(focused(), card, "focus is back on the card");
     assert.equal(turns()[0].posters.length, 12, "the conversation was kept underneath");
@@ -343,7 +343,7 @@ describe("the filter panel", () => {
 describe("the old browsing path", () => {
   it("leads to search, keeping the entry's place in history", async () => {
     await openSearch("/discover");
-    assert.equal(window.location.pathname, "/search");
+    assert.equal(window.location.pathname, "/discover");
     assert.equal(document.querySelector("h1")?.textContent, INVITATION);
   });
 });

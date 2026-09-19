@@ -214,7 +214,7 @@ export function SearchScreen({ film, searchRequest, onOpenFilm, onCloseFilm, onS
         <FilmPage
           providerId={openFilmId}
           seed={filmSeed && openFilmId && providerIdOf(filmSeed.id) === openFilmId ? filmSeed : undefined}
-          origin="search"
+          origin="discover"
           attributionFallback={TMDB_ATTRIBUTION_FALLBACK}
           onReject={rejectFilm}
         />
@@ -226,7 +226,7 @@ export function SearchScreen({ film, searchRequest, onOpenFilm, onCloseFilm, onS
         onKeyDown={nav.onKeyDown}
         onFocus={nav.onFocus}
       >
-        <TopBar current="search" onEnterPage={focusInput} />
+        <TopBar current="discover" onEnterPage={focusInput} />
         <div className="search-stage">
           {!started && <h1 className="search-invitation">{INVITATION}</h1>}
           {(started || pendingShown) && (

@@ -81,7 +81,7 @@ export function fakeAssistant(gate?: ReturnType<typeof rankingGate>) {
   return { client, turns, rankings };
 }
 
-export async function openSearch(at: string | Entry[] = "/search", { unknown = [] as readonly string[], gate }: { unknown?: readonly string[]; gate?: ReturnType<typeof rankingGate> } = {}) {
+export async function openSearch(at: string | Entry[] = "/discover", { unknown = [] as readonly string[], gate }: { unknown?: readonly string[]; gate?: ReturnType<typeof rankingGate> } = {}) {
   const catalogue = fakeCatalogue({ unknown });
   const assistant = fakeAssistant(gate);
   await render(

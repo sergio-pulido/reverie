@@ -104,7 +104,7 @@ describe("the app's home", () => {
 
 describe("the app's search", () => {
   it("closes a film reopened with Forward to search, even after search's entry was replaced", async () => {
-    await openSearch("/search");
+    await openSearch("/discover");
     await say("Inception");
     await press("ArrowUp");
     await press("ArrowUp");
@@ -113,7 +113,7 @@ describe("the app's search", () => {
     const film = window.location.pathname;
     assert.match(film, /^\/discover\/\d+$/);
     await historyStep(() => window.history.back());
-    assert.equal(window.location.pathname, "/search");
+    assert.equal(window.location.pathname, "/discover");
 
     // Back twice from search leaves it: its entry is replaced by the home.
     await press("Escape");
@@ -122,21 +122,21 @@ describe("the app's search", () => {
 
     await historyStep(() => window.history.forward());
     assert.equal(window.location.pathname, film);
-    assert.equal(current(), "Search");
+    assert.equal(current(), "Discover");
     await press("Escape");
     await settle();
-    assert.equal(window.location.pathname, "/search", "search, not the entry that replaced it");
+    assert.equal(window.location.pathname, "/discover", "search, not the entry that replaced it");
   });
 
   it("opens a film from the home over the home, and search from the bar replaces it", async () => {
-    await openApp("/");
+    await openApp("/home");
     await press("ArrowDown");
     await press("Enter");
     assert.match(window.location.pathname, /^\/discover\/\d+$/);
-    const search = Array.from(liveTopBar()!.querySelectorAll<HTMLElement>("[data-top-bar-item]")).find((item) => item.textContent === "Search")!;
+    const search = Array.from(liveTopBar()!.querySelectorAll<HTMLElement>("[data-top-bar-item]")).find((item) => item.textContent === "Discover")!;
     await focusOn(search);
     await press("Enter");
-    assert.equal(window.location.pathname, "/search");
+    assert.equal(window.location.pathname, "/discover");
     assert.equal(document.querySelector(".film-page"), null);
     assert.equal(focused().getAttribute("type"), "search");
   });

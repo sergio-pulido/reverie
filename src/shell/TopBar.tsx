@@ -5,7 +5,7 @@ import { focusFirstContent, scrollPageBelow, topBarItems } from "./topBarFocus";
 
 const DESTINATIONS: readonly { id: Destination; label: string }[] = [
   { id: "home", label: "Home" },
-  { id: "search", label: "Search" },
+  { id: "discover", label: "Discover" },
   { id: "jam", label: "Movie Jam" },
 ];
 
@@ -45,7 +45,7 @@ export function TopBar({ current, onEnterPage }: { current: Destination; onEnter
               aria-current={id === current ? "page" : undefined}
               onClick={(event) => follow(event, () => shell.go(id))}
             >
-              {id === "search" && <SearchIcon />}
+              {id === "discover" && <SearchIcon />}
               {label}
             </a>
           </li>

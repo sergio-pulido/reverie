@@ -658,3 +658,13 @@ which opens the Movie Jam form seeded with a title and premise *inspired by* the
 makes an original film; the seed names the catalogue film as its inspiration and never as its
 content. Availability stays empty and unrendered, and the TMDB attribution stays wherever films
 are shown, the preview included.
+
+## 2026-09-19 — The conversation keeps the path its film pages already use
+
+A film's page has always lived at `/discover/:id`. Giving the screen above it a different
+address meant a parent and a child with unrelated names, and a redirect to hide the seam.
+
+The conversation is served at `/discover`, and `/discover/:id` sits beneath it. There is no
+moved path and nothing redirects: one screen, one address, and a film page whose URL says
+which screen it belongs to. The top bar shows it as Discover, with the search icon beside it,
+so the label, the route and the screen's own name all agree.

@@ -1,4 +1,4 @@
-import { HOME_PATH, JAMS_PATH, NEW_JAM_PATH, SEARCH_PATH, type Screen } from "../lib/routes";
+import { HOME_PATH, JAMS_PATH, NEW_JAM_PATH, DISCOVER_PATH, type Screen } from "../lib/routes";
 
 /**
  * Remote and keyboard conventions the whole app agrees on. Pure, so they are testable without a
@@ -37,14 +37,14 @@ export function backAction({ key, keyCode = 0, editable, handled, inTopBar, repe
  * parent: Back there belongs to the platform.
  */
 export function parentPath(screen: Screen, filmOpen: boolean, from: string | null): string | null {
-  if (filmOpen) return from ?? SEARCH_PATH;
+  if (filmOpen) return from ?? DISCOVER_PATH;
   switch (screen) {
     // Neither is inside the app's back stack: Back on both belongs to the platform, and the
     // home never falls back to the landing.
     case "landing":
     case "home":
       return null;
-    case "search":
+    case "discover":
     case "jams":
     case "join":
       return HOME_PATH;

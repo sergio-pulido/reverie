@@ -23,7 +23,7 @@ move, a connection badge, a network response, or a playable clip.
 
 | ID | Journey | Surfaces | Needs Supabase | Needs live providers |
 | --- | --- | --- | --- | --- |
-| [UJ-01](01-discover-and-navigation.md) | Discover, jam registry and navigation (sections B–C describe the former grid; `/search` replaced it) | `/`, `/jams`, `/search`, `/discover/:id`, `/join`, `/api/catalogue` | no | no |
+| [UJ-01](01-discover-and-navigation.md) | Discover, jam registry and navigation (sections B–C describe the former grid; the conversation replaced it) | `/`, `/jams`, `/discover`, `/discover/:id`, `/join`, `/api/catalogue` | no | no |
 | [UJ-02](02-reproduce-the-video.md) | Reproduce the video | `/jams/new`, script screen, playback routes, Studio `SHARED PLAYBACK` | yes | generated script: Nebius + fal; imported script: fal |
 | [UJ-03](03-session-configuration-cap.md) | Session configuration cap | session routes, configuration streams | yes | none for the cap — **BLOCKED: intended, not implemented** |
 | [UJ-04](04-live-room-collaboration.md) | Live room: join, collaborate, moderate | `/join`, `/jams/<slug>`, Supabase RPCs and Realtime | yes | only to create via the UI; a fixture needs none |

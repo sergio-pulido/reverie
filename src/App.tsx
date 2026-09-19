@@ -9,13 +9,12 @@ import { createJam as createJamRoom, type JamPersistence, type JamRoom, type Jam
 import {
   DESTINATION_PATH,
   JAMS_PATH,
+  DISCOVER_PATH,
   JOIN_PATH,
   NEW_JAM_PATH,
-  SEARCH_PATH,
   filmFromPath,
   filmPath,
   jamSlugFromPath,
-  movedPath,
   screenFromPath,
   type Destination,
   type Screen,
@@ -52,13 +51,8 @@ let searchRequests = 0;
 
 type Location = { screen: Screen; slug: string | null; film: ReturnType<typeof filmFromPath>; from: string | null; inviteCode: string };
 
-/**
- * Where the viewer is. A path that has moved is replaced by its new one first, keeping the
- * entry's history record, so an old link or bookmark lands on the screen that replaced it.
- */
+/** Where the viewer is. */
 function readLocation(): Location {
-  const moved = movedPath(window.location.pathname);
-  if (moved) window.history.replaceState(window.history.state, "", `${moved}${window.location.search}${window.location.hash}`);
   const { pathname } = window.location;
   return { screen: screenFromPath(pathname), slug: jamSlugFromPath(pathname), film: filmFromPath(pathname), from: entryFrom(), inviteCode: inviteCodeFromLocation() };
 }
@@ -114,9 +108,9 @@ export function App() {
     if (LANDS_ON_TOP_BAR.has(screen) && focusIsLost()) focusTopBar({ scroll: false });
   }, [screen, slug]);
 
-  const filmOpen = screen === "search" && film !== null;
+  const filmOpen = screen === "discover" && film !== null;
   /** A film opened from the home (at whatever path it was served) is a layer over the home. */
-  const filmOrigin: Destination = filmOpen && from !== null && screenFromPath(from) === "home" ? "home" : "search";
+  const filmOrigin: Destination = filmOpen && from !== null && screenFromPath(from) === "home" ? "home" : "discover";
 
   /** Back from the top bar. Answers false on the home, whose Back belongs to the platform. */
   function leave() {
@@ -141,7 +135,7 @@ export function App() {
 
   function openFilm(title: CatalogueTitle | undefined, providerId: string) {
     setFilmSeed(title ? { providerId, title } : null);
-    navigate("search", filmPath(providerId));
+    navigate("discover", filmPath(providerId));
   }
 
   /** "Start a Jam from this": the Movie Jam form, filled with a title and premise drawn from the film. */
@@ -161,20 +155,20 @@ export function App() {
     function search() {
       searchRequests += 1;
       const request = { id: searchRequests };
-      if (filmOpen && filmOrigin === "search" && from && behindIntact()) {
+      if (filmOpen && filmOrigin === "discover" && from && behindIntact()) {
         // Close the film the way Back would, and focus the field once the conversation is back.
         pendingSearch.current = request;
         window.history.back();
         return;
       }
       // From anywhere else search opens fresh; a film page it replaces is not returned to.
-      if (screen !== "search" || filmOpen) navigate("search", SEARCH_PATH, { replace: filmOpen });
+      if (screen !== "discover" || filmOpen) navigate("discover", DISCOVER_PATH, { replace: filmOpen });
       setSearchRequest(request);
     }
     return {
       go(destination: Destination) {
-        // Search is where its field is: choosing it always lands there.
-        if (destination === "search") return search();
+        // Discover is where its field is: choosing it always lands there.
+        if (destination === "discover") return search();
         if (filmOpen && destination === filmOrigin) return closeFilm();
         if (!filmOpen && isAt(destination, screen)) {
           window.scrollTo({ top: 0 });
@@ -259,7 +253,7 @@ export function App() {
         />
       </>;
     }
-    if (screen === "search") {
+    if (screen === "discover") {
       return <SearchScreen
         film={film}
         searchRequest={searchRequest}
@@ -291,6 +285,6 @@ export function App() {
 /** Whether choosing `destination` would land where the viewer already is. */
 function isAt(destination: Destination, screen: Screen) {
   if (destination === "home") return screen === "home";
-  if (destination === "search") return screen === "search";
+  if (destination === "discover") return screen === "discover";
   return screen === "jams";
 }

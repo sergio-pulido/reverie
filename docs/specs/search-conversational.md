@@ -1,9 +1,9 @@
-# Conversational search at `/search`
+# Conversational search at `/discover`
 
 **Status: implemented** (2026-09-19, branch `claude/search`; see `docs/PROJECT_STATE.md`).
-`/search` exists with the empty resting state, turns that carry their films as snapshots, the
+`/discover` exists with the empty resting state, turns that carry their films as snapshots, the
 preview modal and both of its actions, and filters in their own panel. Where the build differs
-from this design: `/discover` no longer browses and leads to `/search`, and the top bar's Discover
+from this design: `/discover` no longer browses, it converses, and the top bar's Discover
 destination became Search. While the viewer speaks, a pending line in the conversation fills with
 the partial transcript, and chips and a poster preview follow what is heard, beyond the plain
 field described below. The preview shows no accessibility flags, because no record in the
@@ -22,7 +22,7 @@ grid below. Three things follow from that.
 
 ## Screen
 
-`/search` is its own route with the shared top bar, and it opens **empty**: a single large input,
+`/discover` is its own route with the shared top bar, and it opens **empty**: a single large input,
 a voice control beside it, and nothing else — no grid, no shelves, no default results. Silence is
 the resting state. The viewer types or speaks, and the screen fills downward from there.
 

@@ -1,5 +1,13 @@
 # Decisions
 
+## 2026-09-19 — Script timing is a per-jam format with the 4-minute defaults
+
+The total runtime and portion length band are per-jam parameters (`format`: total 60–900 seconds, portions 4–60 seconds) instead of global constants; omitting them keeps the established 4-minute, 10–20 second behaviour. Hard bounds (±2 seconds) and the total tolerance (~6% of runtime) are derived from the chosen format, so the writer prompt, draft rescaling, and validation stay a single consistent system at any length. Stored scripts validate against a format-agnostic structural schema; strict timing is enforced at generation time against the jam's own format.
+
+## 2026-09-19 — A jam session is one user's playback seat, not a copy of the script
+
+Per-user variation (language, ambientation) lives in a `jam_sessions` record attached to the jam, never in a forked script: the room keeps one authoritative script and each session stores the parameters that will skin its owner's playback. In the local server, ownership is a bearer token issued once at session creation (Supabase RLS with `auth.users` ownership is the persistent equivalent, one session per user per jam). Sessions record playback parameters only; per-session generated media is a later, budgeted provider step.
+
 ## 2026-09-19 — Generated jam scripts are 4 minutes of 10–20 second scene portions
 
 A jam starts from scratch (a small prompt) or from an existing movie (inspiration only, never a retelling). The script targets 240 seconds total, told in scene portions of 10–20 seconds (hard bounds 8–22 for coherence); a scene may hold several portions. Zod validates the model draft, and drafts within 190–300 seconds are deterministically rescaled and settled onto exactly 240 seconds — anything further off is a typed, retryable failure, never silently accepted. The script is stored as structured data (the authority) and rendered to markdown on request.

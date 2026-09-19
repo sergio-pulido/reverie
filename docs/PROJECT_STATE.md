@@ -50,6 +50,13 @@
 - The create screen offers both sources, shows typed safe errors, and renders the generated script with per-portion time ranges before opening the studio preview. Verified live on 2026-09-19: both source kinds returned 201 with 240-second scripts (8.5s and 30.4s latency); dated Nebius probe receipts are in `docs/DECISIONS.md`.
 - Generated scripts are in-memory behind a `JamStore` interface (bounded, restart clears them); rate limits, payload caps, and a concurrency gate guard the paid provider call. Supabase persistence of scripts is a follow-up branch.
 
+## 2026-09-19 — Script format parameters and per-user jam sessions
+
+- The script format is now a per-jam parameter: `POST /api/jams` accepts `format` (`totalSeconds` 60–900, `portionMinSeconds`/`portionMaxSeconds` 4–60), defaulting to the previous 4-minute, 10–20 second behaviour. The scriptwriter prompt, draft rescaling, and strict validation all follow the jam's stored format.
+- A jam session attaches one user to a jam: it holds a display name plus playback settings (`language` as a BCP-47-style tag, free-text `ambientation`) that skin the shared script per owner. Creating a session returns a one-time owner token; only its bearer can PATCH the settings. `GET /api/sessions/:id/script.md` renders the shared script annotated with that session's playback settings.
+- Sessions live in-memory behind a `SessionStore` interface beside `JamStore`; the Supabase migration `20260919170000_script_format_and_sessions.sql` mirrors the format columns and an owner-scoped `jam_sessions` table (RLS, one session per user per jam) for the persistent path.
+- Actual translated/re-ambiented playback generation (provider calls per session) is intentionally not implemented yet; sessions currently record and expose the parameters that will drive it.
+
 ## 2026-09-19 — Deployment and documentation aligned
 
 - Vercel config defines the Vite build/output and SPA routing that excludes API paths; `/api/health` has a Node handler shared with local Express.

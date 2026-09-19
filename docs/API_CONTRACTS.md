@@ -18,11 +18,18 @@ These are Reverie application contracts, not provider API endpoints.
 | `POST /api/jams` | Create a jam and generate its script from scratch or from an existing movie |
 | `GET /api/jams/:id` | Read a generated jam snapshot |
 | `GET /api/jams/:id/script.md` | Read the generated jam script rendered as markdown |
+| `POST /api/jams/:id/sessions` | Attach a user session to a jam; returns the session plus a one-time owner token |
+| `GET /api/jams/:id/sessions` | List a jam's sessions (public projections, never owner tokens) |
+| `GET /api/sessions/:id` | Read one session |
+| `PATCH /api/sessions/:id` | Owner-only (Bearer owner token) update of playback settings: `language`, `ambientation` |
+| `GET /api/sessions/:id/script.md` | Read the shared script annotated with the session's playback settings |
 | `POST /api/jams/:id/join` | Request admission using a display name and invite entitlement |
 | `POST /api/jams/:id/members/:memberId/admit` | Host-only lobby admission |
 | `POST /api/jams/:id/scene/accept` | Host or configured vote rule accepts the next turn |
 | `POST /api/jams/:id/forks` | Fork from a declared past scene version |
 | `POST /api/jams/:id/close` | Close a room and release active resources |
+
+`POST /api/jams` accepts an optional `format` object (`totalSeconds`, `portionMinSeconds`, `portionMaxSeconds`); omitted fields default to a 4-minute script of 10–20 second portions. The jam stores its format and all generation and validation follow it.
 
 ## Planned Supabase mutation and Realtime contracts
 

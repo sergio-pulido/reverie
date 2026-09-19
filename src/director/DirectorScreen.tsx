@@ -320,7 +320,7 @@ function ReviewTools({ beat, live }: { beat: TimelineBeat | null; live: boolean 
             Beat {beat.number} · {beat.durationSeconds}s · {BEAT_STATE_LABEL[beat.state]}
           </h2>
           <p className="director-zone-note">
-            {beat.summary ?? "This beat has no phrase: it was written before the outline existed."}
+            {beat.summary ?? "This beat has no phrase: nothing has written one for it. An imported script carries none."}
           </p>
           <p className="director-zone-note">
             {beat.state === "locked" || beat.state === "generating" || beat.state === "ready"

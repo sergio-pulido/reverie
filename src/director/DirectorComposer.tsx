@@ -179,15 +179,6 @@ export function DirectorComposer({
             {...cellProps(COMPOSER_ROW, 1)}
           />
         </label>
-        <button
-          type="button"
-          className="button button-primary director-send"
-          disabled={!draft.trim() || blocked}
-          onClick={() => void send(draft)}
-          {...cellProps(COMPOSER_ROW, 2)}
-        >
-          Direct <span aria-hidden="true">↗</span>
-        </button>
         <label className="director-attach">
           <span className="sr-only">Show it an image or a clip</span>
           <input
@@ -197,6 +188,15 @@ export function DirectorComposer({
           />
           <span aria-hidden="true">＋</span>
         </label>
+        <button
+          type="button"
+          className="button button-primary director-send"
+          disabled={!draft.trim() || blocked}
+          onClick={() => void send(draft)}
+          {...cellProps(COMPOSER_ROW, 2)}
+        >
+          Direct <span aria-hidden="true">↗</span>
+        </button>
       </div>
 
       {attached && (

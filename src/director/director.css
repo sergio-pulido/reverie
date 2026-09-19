@@ -9,19 +9,36 @@
  * reach of a thumb.
  */
 
-.director-shell { display: flex; min-height: 100vh; flex-direction: column; }
+.director-shell {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+  /* The voice control is the app's own, and it draws itself from these. They
+     are declared here because it is used outside the screen that first defined
+     them, and a control with no size at all is what happens otherwise. The
+     circle is smaller than Discover's, which is read from a sofa; this one is
+     read at arm's length and sits beside a field. */
+  --control-height: 52px;
+  --ink: #f7f4ec;
+  --focus: #ffffff;
+  --accent: #cfd7ff;
+  --listening: #e5484d;
+}
 
 .director-head {
   width: min(1720px, 100%);
   margin: 0 auto;
-  padding: 44px 48px 24px;
+  padding: 30px 48px 18px;
   display: flex;
   align-items: end;
   justify-content: space-between;
   gap: 40px;
 }
-.director-head h1 { margin: 0 0 12px; font-size: clamp(38px, 4vw, 68px); }
-.director-head .intro { margin: 0; }
+/* Smaller than the app's other headings on purpose: this screen has three
+   zones to fit above the fold of a 1080-line television, and the title is the
+   least of them. */
+.director-head h1 { margin: 0 0 8px; font-size: clamp(32px, 2.6vw, 50px); }
+.director-head .intro { margin: 0; font-size: 16px; }
 
 /* What this session has spent, against the server's ceiling. */
 .director-spend { flex: 0 0 auto; width: 260px; }
@@ -48,6 +65,10 @@
   align-items: start;
 }
 .director-column-stage, .director-column-direction { min-width: 0; display: grid; gap: 16px; align-content: start; }
+/* A grid item's automatic minimum is its content's, so without this the
+   timeline's row of beats sets the zone's width and the column grows past its
+   track — clipped by the shell rather than scrolled to, which loses beats. */
+.director-column-stage > *, .director-column-direction > * { min-width: 0; }
 
 .director-zone-head { display: flex; justify-content: space-between; align-items: start; gap: 20px; margin-bottom: 14px; }
 .director-zone-head h2 { margin: 0; font: 500 27px Fraunces, Georgia, serif; letter-spacing: -.03em; }
@@ -66,6 +87,9 @@
   display: grid;
   place-items: center;
   aspect-ratio: 16 / 9;
+  /* The frame gives up height before the timeline and the mode switch give up
+     being on screen. What is inside it is letterboxed, never cropped. */
+  max-height: min(44vh, 520px);
   border: 1px solid #39435f;
   background: #070a13;
   overflow: hidden;
@@ -209,12 +233,16 @@
 .director-level { display: inline-flex; align-items: center; gap: 3px; height: 12px; }
 .director-level i { width: 3px; height: calc(4px + var(--voice-level, 0) * 10px); background: #ff6b5a; border-radius: 2px; }
 
-.director-composer-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 10px; align-items: end; }
+/* The column is 360–520px at every desk width, so three controls never share
+   one row: the microphone keeps a thumb-sized circle, attach keeps its own,
+   the field keeps the rest, and Direct goes underneath at full width. */
+.director-composer-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: end; }
+.director-send { grid-column: 1 / -1; width: 100%; }
 .director-composer-row[data-dragging] { outline: 2px dashed #bbc9ff; outline-offset: 6px; }
 .director-field { display: block; min-width: 0; }
 .director-field textarea {
   width: 100%;
-  min-height: 62px;
+  min-height: var(--control-height);
   padding: 12px 13px;
   border: 1px solid #465476;
   border-radius: 5px;
@@ -227,12 +255,14 @@
 }
 .director-field textarea:focus { border-color: #bbc9ff; box-shadow: 0 0 0 3px rgba(165, 183, 255, .14); }
 .director-send:disabled { opacity: .5; cursor: not-allowed; transform: none; }
-.director-attach { position: relative; display: grid; place-items: center; width: 52px; height: 52px; border: 1px solid #48506a; border-radius: 50%; color: #dfe4f5; font-size: 22px; cursor: pointer; }
+.director-attach { position: relative; display: grid; place-items: center; width: var(--control-height); height: var(--control-height); border: 1px solid #48506a; border-radius: 50%; color: #dfe4f5; font-size: 22px; cursor: pointer; }
 .director-attach input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .director-attached { display: grid; gap: 10px; padding: 12px 13px; border: 1px solid #455c89; border-radius: 8px; }
 .director-attached-file { display: flex; align-items: baseline; gap: 10px; margin: 0; color: #edf0fb; font-size: 13px; flex-wrap: wrap; }
 .director-attached-file span { color: #8e94a8; font: 400 11px "DM Mono", monospace; }
-.director-intents { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 0; padding: 0; list-style: none; }
+/* Two by two, not four across: the column is never wide enough for four
+   labels, and "The look" broken over three lines is not a label. */
+.director-intents { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .director-intent { display: grid; gap: 4px; width: 100%; padding: 10px; text-align: left; border: 1px solid #48506a; border-radius: 6px; background: transparent; color: #dfe4f5; }
 .director-intent[aria-pressed="true"] { border-color: #bbc9ff; background: #2b3768; }
 .director-intent-label { font-size: 13px; font-weight: 600; }
@@ -294,11 +324,6 @@
     z-index: 2;
     background: linear-gradient(180deg, rgba(10, 14, 24, .94), rgba(10, 14, 24, .99));
   }
-  /* Three controls do not share 390 pixels evenly: the microphone keeps a
-     thumb-sized circle, the field keeps the row, and Direct goes under them. */
-  .director-composer-row { grid-template-columns: auto minmax(0, 1fr) auto; }
-  .director-send { grid-column: 1 / -1; width: 100%; }
-  .director-intents { grid-template-columns: 1fr 1fr; }
   .director-deliverable { flex-direction: column; }
   .director-deliverable .button { width: 100%; text-align: center; }
 }

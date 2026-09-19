@@ -11,9 +11,8 @@ import { totalDurationSeconds, type JamScript } from "./script";
  * stopwatch, so it carries timing and the beat phrase and no prose.
  *
  * It invents nothing. Every cell is the script's own: the offsets come from
- * the same cumulative arithmetic the stream's timeline uses, and a beat
- * written before outlines existed has no phrase, which the table shows as a
- * dash and the document explains.
+ * the same cumulative arithmetic the stream's timeline uses, and a beat with
+ * no phrase is shown as a dash rather than being given one.
  */
 export function renderTimedOutline(script: JamScript): string {
   const beats = buildOutline(script);
@@ -30,7 +29,7 @@ export function renderTimedOutline(script: JamScript): string {
   ];
   if (unnamed > 0) {
     lines.push(
-      `- ${unnamed} beat${unnamed === 1 ? " has" : "s have"} no phrase: ${unnamed === 1 ? "it was" : "they were"} written before the outline existed, and history is append-only.`,
+      `- ${unnamed} beat${unnamed === 1 ? " has" : "s have"} no phrase: an imported script carries none, and a revision written before the outline existed can never gain one.`,
     );
   }
   lines.push("", "| # | In | Out | Length | Scene | Beat |", "| ---: | --- | --- | ---: | --- | --- |");

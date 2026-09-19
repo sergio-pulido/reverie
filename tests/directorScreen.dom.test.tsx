@@ -351,13 +351,14 @@ describe("the two modes", () => {
 });
 
 describe("the composer", () => {
-  it("leads with the microphone, then the field, then Direct", async () => {
+  it("leads with the microphone, then the field, with Direct on a row of its own", async () => {
     server = await openDirector();
     const row = document.querySelector(".director-composer-row")!;
     assert.ok(row.children[0].classList.contains("voice-control"), "the microphone comes first");
     assert.ok(row.children[1].classList.contains("director-field"));
-    assert.ok(row.children[2].classList.contains("director-send"));
-    assert.ok(row.querySelector('input[type="file"]'), "and something to show it");
+    assert.ok(row.children[2].classList.contains("director-attach"), "and something to show it");
+    assert.ok(row.children[3].classList.contains("director-send"));
+    assert.ok(row.querySelector('input[type="file"]'));
   });
 
   it("a dropped file fans out four labels, and picking one says it can go no further", async () => {

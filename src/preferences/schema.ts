@@ -11,6 +11,7 @@ export const MAX_QUOTE_CHARS = 500;
 export const MAX_CHANGES_PER_TURN = 32;
 export const MAX_RANKING_ENTRIES = 100;
 export const SHORTLIST_SIZE = 3;
+export const MAX_REJECTED_CANDIDATES = 100;
 
 // Ids and vocabulary names start with a letter or digit, which also keeps prototype keys such
 // as `__proto__` out of the records below.

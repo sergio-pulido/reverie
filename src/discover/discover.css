@@ -236,6 +236,8 @@
 .discover-retry:focus-visible,
 .discover-pager button:focus-visible,
 .discover-detail-close:focus-visible,
+.discover-detail-reject:focus-visible,
+.discover-chip:focus-visible,
 .discover-search input:focus-visible {
   outline: 5px solid var(--focus);
   outline-offset: 5px;
@@ -370,6 +372,68 @@
 .discover-detail-attribution { color: var(--muted); font-size: 18px; margin: 0; }
 
 /* Below TV widths the spotlight gives way to the search, and type steps down for handheld use. */
+/* Refinement rails: one horizontal row each, scrolled rather than wrapped, so Left/Right always
+   walk the row a remote user sees and Up/Down always change row. */
+.discover-refine { display: grid; gap: 14px; padding: 0 var(--safe-x) 28px; }
+.discover-rail {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  overflow-x: auto;
+  padding: 8px 6px;
+  scrollbar-width: none;
+}
+.discover-rail::-webkit-scrollbar { display: none; }
+.discover-rail-label {
+  flex: none;
+  color: var(--muted);
+  font-family: "DM Mono", monospace;
+  font-size: 18px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.discover-chip {
+  flex: none;
+  border: 2px solid #5a6384;
+  border-radius: 999px;
+  background: rgba(15, 20, 36, .72);
+  color: var(--ink);
+  padding: 12px 22px;
+  font-size: 21px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.discover-chip[aria-pressed="true"] { border-color: #cfd7ff; background: #cfd7ff; color: #0a0f1a; }
+.discover-chip[aria-pressed="true"]::before { content: "✓ "; }
+.discover-chip-active { border-color: #cfd7ff; }
+.discover-chip-reset { border-style: dashed; color: var(--muted); }
+.discover-refine-notice { margin: 0; color: #ffd9a8; font-size: 20px; }
+
+.discover-card-pick {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  border-radius: 6px;
+  background: #cfd7ff;
+  color: #0a0f1a;
+  padding: 6px 12px;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+.discover-grid[aria-busy="true"] { opacity: .6; transition: opacity .2s ease; }
+
+.discover-detail-reject {
+  margin: 0 0 20px;
+  border: 2px solid #ffb4a8;
+  border-radius: 8px;
+  background: transparent;
+  color: #ffd6cf;
+  padding: 12px 22px;
+  font-size: 21px;
+  font-weight: 600;
+}
+
 @media (max-width: 1100px) {
   .discover-head { grid-template-columns: minmax(0, 1fr); min-height: 0; }
   .discover-spotlight, .discover-backdrop { display: none; }
@@ -382,4 +446,6 @@
   .discover-card-title { font-size: 18px; }
   .discover-card-meta, .discover-attribution { font-size: 15px; }
   .discover-detail { padding: 32px 24px; }
+  .discover-chip { font-size: 17px; padding: 10px 16px; }
+  .discover-rail-label { font-size: 14px; }
 }

@@ -427,6 +427,46 @@ project (it was applied by hand, so no tracking table records it). Each run of
 - **Not covered by automated tests:** the DOM wiring (focus, scrolling, pager hand-off). The test
   suite has no DOM, so `gridMove` is tested directly and the wiring was checked in the browser.
 
+## 2026-09-19 — Discover refines: shortlist, rank, "not this one"
+
+- Discover now narrows as the viewer states what they want. A rail of chips sits between the
+  search and the grid; each chip is a sentence ("Something scary", "Under two hours", "From the
+  nineties") and carries the quotes cited from it, which the preference engine accepts only as
+  literal substrings of that sentence. Chips cover exactly what the catalogue holds: seven genre
+  preferences, three genre refusals, two runtime limits and three eras. There is no mood, tone
+  or pace chip, because TMDB carries no such data.
+- A second rail shows everything currently shaping the result (wanted genres, each constraint,
+  the count of turned-down titles) and how many titles match; any item can be removed, and
+  "Start over" begins a new session. A chip that is already applied shows as pressed and
+  withdraws itself when chosen again.
+- "Not this one" in the title dialog adds the title to `rejectedCandidateIds` through the new
+  `rejectCandidate`; it leaves the grid at once and does not return unless the viewer brings
+  turned-down titles back from the rail (`restoreRejected`).
+- `src/catalogue/domain.ts` is the engine vocabulary used everywhere: dimensions `genre.<slug>`
+  for the 19 genres, attributes `runtimeMinutes` and `year`, tags for the 19 genre slugs plus
+  `lang.<code>`, no flags. `candidates.ts` maps a title to a Candidate and omits a runtime or
+  year the title does not carry. `scorer.ts` scores eligible titles 0..1 (90% genre affinity
+  weighted by confidence, 10% shortlist position as tie-break) and passes that ranking through
+  `acceptRanking`; its top three are marked "Top pick". `shortlistFilters.ts` turns the state
+  into database filters. `refinements.ts` defines the chips and the withdrawal turns.
+- `supabase/migrations/20260919230000_constrained_catalogue_shortlist.sql` replaces
+  `search_catalogue_titles` with a ten-argument form (the first three unchanged): runtime and
+  year bounds, wanted and refused genres, and turned-down ids, all filtered in SQL against an
+  indexed `genre_slugs` column. A missing runtime or date never satisfies a bound. It still
+  returns only the mapped columns plus `original_language`, at most 48 rows. A refined Discover
+  reads one ranked shortlist of 48 instead of paging; the unrefined browse and search are the
+  same call as before.
+- Verified: `pnpm test` (293/293, including row-to-candidate mapping, the scorer, constraint
+  push-down into the RPC body and the migration, chip grounding and rejection), `pnpm typecheck`,
+  `pnpm build`. The migration was applied by hand in the SQL Editor; `pnpm verify:shortlist`
+  against the live project: 27,839 → 4,055 with "something scary" → 3,902 with "under two hours"
+  → 3,901 after "not this one", 4,054 after removing the runtime limit with the rejected title
+  still absent, and never more than 48 rows. The same sequence was checked in a browser at
+  1920×1080, with remote navigation grid → active rail → chips → search, and at 375px with no
+  horizontal overflow.
+- **Not covered by automated tests:** the rail DOM wiring (focus hand-off between rails and after
+  a rejection). It was checked in the browser.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

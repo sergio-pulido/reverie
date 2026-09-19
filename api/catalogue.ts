@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { catalogueQuerySchema } from "../src/catalogue/contract";
+import { catalogueQuerySchema, readCatalogueFilters } from "../src/catalogue/contract";
 import { fetchCatalogue, type CatalogueAdapterOptions } from "./_lib/supabase-catalogue";
 import { readBearerToken } from "./_lib/supabase-rest";
 import { clientKey, createRateLimiter, isSameOrigin, requestUrl, sendJson } from "./_lib/http";
@@ -51,6 +51,7 @@ export default async function catalogue(
     query: url.searchParams.get("query") ?? undefined,
     page: url.searchParams.get("page") ?? undefined,
     pageSize: url.searchParams.get("pageSize") ?? undefined,
+    ...readCatalogueFilters(url.searchParams),
   });
 
   if (!parsedQuery.success) {

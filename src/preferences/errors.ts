@@ -11,6 +11,7 @@ export type PreferenceErrorCode =
   | "turn_replay_conflict"
   | "stale_state_version"
   | "turn_limit_reached"
+  | "rejection_limit_reached"
   | "unknown_dimension"
   | "unknown_attribute"
   | "unknown_tag"

@@ -1,5 +1,6 @@
 import { PreferenceError, parseOrThrow } from "./errors";
 import {
+  MAX_REJECTED_CANDIDATES,
   MAX_TURNS_PER_SESSION,
   PREFERENCE_SCHEMA_VERSION,
   configurationSchema,
@@ -26,6 +27,30 @@ export function newState(sessionId: string): PreferenceState {
     "invalid_state",
     "session id",
   );
+}
+
+const candidateIdSchema = preferenceStateSchema.shape.rejectedCandidateIds.element;
+
+/**
+ * Records explicit "not this one" feedback: the candidate is never eligible again in this
+ * session. Rejecting an already rejected candidate returns `state` itself; otherwise the result
+ * is a new state one version higher, so any ranking made before the rejection goes stale.
+ */
+export function rejectCandidate(state: PreferenceState, candidateId: unknown): PreferenceState {
+  const current = parseOrThrow(preferenceStateSchema, state, "invalid_state", "preference state");
+  const id = parseOrThrow(candidateIdSchema, candidateId, "invalid_candidates", "candidate id");
+  if (current.rejectedCandidateIds.includes(id)) return state;
+  if (current.rejectedCandidateIds.length >= MAX_REJECTED_CANDIDATES) {
+    throw new PreferenceError("rejection_limit_reached", `A session rejects at most ${MAX_REJECTED_CANDIDATES} candidates.`);
+  }
+  return { ...current, stateVersion: current.stateVersion + 1, rejectedCandidateIds: [...current.rejectedCandidateIds, id] };
+}
+
+/** Makes every rejected candidate eligible again, when the viewer asks for them back. */
+export function restoreRejected(state: PreferenceState): PreferenceState {
+  const current = parseOrThrow(preferenceStateSchema, state, "invalid_state", "preference state");
+  if (current.rejectedCandidateIds.length === 0) return state;
+  return { ...current, stateVersion: current.stateVersion + 1, rejectedCandidateIds: [] };
 }
 
 /**

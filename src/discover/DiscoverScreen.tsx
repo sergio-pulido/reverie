@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CatalogueTitle } from "../catalogue/contract";
+import { toCandidates } from "../catalogue/candidates";
+import type { CatalogueOk, CatalogueTitle } from "../catalogue/contract";
+import { rankShortlist } from "../catalogue/scorer";
+import { isRefined, toShortlistFilters } from "../catalogue/shortlistFilters";
+import type { PreferenceState } from "../preferences/schema";
+import { RefinementBar } from "./RefinementBar";
 import { useCatalogue, type CatalogueState } from "./useCatalogue";
 import { useGridNavigation } from "./useGridNavigation";
+import { useRefinement } from "./useRefinement";
 import "./discover.css";
 
 type DiscoverScreenProps = { onExit: () => void };
@@ -16,11 +22,21 @@ export function DiscoverScreen({ onExit }: DiscoverScreenProps) {
   const [selected, setSelected] = useState<CatalogueTitle | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const pagerRef = useRef<HTMLElement | null>(null);
+  const refineRef = useRef<HTMLElement | null>(null);
 
-  const { state, retry } = useCatalogue(searchInput, page);
-  const items = state.phase === "ready" ? state.response.items : [];
+  const refinement = useRefinement();
+  const refined = isRefined(refinement.state);
+  const filters = useMemo(() => (refined ? toShortlistFilters(refinement.state) : null), [refined, refinement.state]);
+  const { state, retry } = useCatalogue(searchInput, page, filters);
+  const response = shownResponse(state);
+  const { items, pickIds } = useMemo(() => orderForViewer(response, refined ? refinement.state : null), [response, refined, refinement.state]);
 
   const focusSearch = useCallback(() => searchRef.current?.focus(), []);
+  const focusRefine = useCallback((rail: "first" | "last") => {
+    const rails = refineRef.current?.querySelectorAll<HTMLElement>("[data-rail]");
+    const target = rails && rails.length > 0 ? rails[rail === "first" ? 0 : rails.length - 1] : null;
+    target?.querySelector<HTMLButtonElement>("button")?.focus();
+  }, []);
   const activate = useCallback(
     (index: number) => {
       const title = items[index];
@@ -32,8 +48,8 @@ export function DiscoverScreen({ onExit }: DiscoverScreenProps) {
     pagerRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
   }, []);
   const gridHandlers = useMemo(
-    () => ({ onActivate: activate, onExitTop: focusSearch, onExitBottom: focusPager, onBack: focusSearch }),
-    [activate, focusSearch, focusPager],
+    () => ({ onActivate: activate, onExitTop: () => focusRefine("last"), onExitBottom: focusPager, onBack: focusSearch }),
+    [activate, focusSearch, focusPager, focusRefine],
   );
   const { gridRef, activeIndex, setActiveIndex, handleKeyDown, focusItem } = useGridNavigation(
     items.length,
@@ -55,6 +71,29 @@ export function DiscoverScreen({ onExit }: DiscoverScreenProps) {
     setSelected(null);
     focusItem(activeIndex);
   }, [activeIndex, focusItem]);
+
+  /** "Not this one": the title leaves the grid now and never returns in this session. */
+  const pendingFocus = useRef<number | null>(null);
+  const { reject } = refinement;
+  const rejectSelected = useCallback(() => {
+    if (!selected) return;
+    pendingFocus.current = activeIndex;
+    reject(selected.id);
+    setSelected(null);
+  }, [selected, reject, activeIndex]);
+
+  /**
+   * Once the rejected card is gone, focus the title now at its position (the order may have
+   * changed, since a first rejection turns on ranking), or the refinements if nothing is left.
+   * The request is consumed either way, so it can never take focus later.
+   */
+  useEffect(() => {
+    const index = pendingFocus.current;
+    if (index === null) return;
+    pendingFocus.current = null;
+    if (items.length > 0) focusItem(Math.min(index, items.length - 1));
+    else focusRefine("first");
+  }, [items, focusItem, focusRefine]);
 
   useEffect(() => {
     if (!selected) return;
@@ -101,9 +140,9 @@ export function DiscoverScreen({ onExit }: DiscoverScreenProps) {
               autoComplete="off"
               onChange={(event) => setSearchInput(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "ArrowDown" && items.length > 0) {
+                if (event.key === "ArrowDown") {
                   event.preventDefault();
-                  focusItem(activeIndex);
+                  focusRefine("first");
                 }
                 if (event.key === "Escape") {
                   if (searchInput) setSearchInput("");
@@ -116,8 +155,25 @@ export function DiscoverScreen({ onExit }: DiscoverScreenProps) {
         {spotlight && <Spotlight title={spotlight} />}
       </section>
 
+      <RefinementBar
+        state={refinement.state}
+        notice={refinement.notice}
+        matchCount={state.phase === "ready" ? state.response.total : null}
+        barRef={refineRef}
+        onChoose={refinement.choose}
+        onUnchoose={refinement.unchoose}
+        onWithdraw={refinement.withdraw}
+        onRestore={refinement.restore}
+        onReset={refinement.reset}
+        onExitUp={focusSearch}
+        onExitDown={() => (items.length > 0 ? focusItem(activeIndex) : focusPager())}
+      />
+
       <CatalogueRegion
         state={state}
+        items={items}
+        pickIds={pickIds}
+        refined={refined}
         gridRef={gridRef}
         activeIndex={activeIndex}
         onKeyDown={handleKeyDown}
@@ -127,7 +183,7 @@ export function DiscoverScreen({ onExit }: DiscoverScreenProps) {
         query={searchInput}
       />
 
-      {state.phase === "ready" && (state.response.page > 1 || state.response.hasMore) && (
+      {!refined && state.phase === "ready" && (state.response.page > 1 || state.response.hasMore) && (
         <nav
           className="discover-pager"
           aria-label="Catalogue pages"
@@ -144,20 +200,42 @@ export function DiscoverScreen({ onExit }: DiscoverScreenProps) {
         </nav>
       )}
 
-      {state.phase === "ready" && state.response.items.length > 0 && (
+      {response && items.length > 0 && (
         <p className="discover-attribution">
           <span className="discover-attribution-mark" aria-hidden="true">TMDB</span>
-          {state.response.attribution ?? TMDB_ATTRIBUTION_FALLBACK}
+          {response.attribution ?? TMDB_ATTRIBUTION_FALLBACK}
         </p>
       )}
 
-      {selected && <TitleDetail title={selected} onClose={closeDetail} />}
+      {selected && <TitleDetail title={selected} onClose={closeDetail} onReject={rejectSelected} />}
     </main>
   );
 }
 
+/** The response on screen: the ready one, or the previous shortlist while a refined one reloads. */
+function shownResponse(state: CatalogueState): CatalogueOk | null {
+  if (state.phase === "ready") return state.response;
+  if (state.phase === "loading") return state.previous ?? null;
+  return null;
+}
+
+/**
+ * Unrefined, the grid keeps the catalogue's own order. Refined, the shortlist is ranked for the
+ * viewer: ineligible titles drop out at once, even before the database answers, and the top
+ * picks lead.
+ */
+function orderForViewer(response: CatalogueOk | null, state: PreferenceState | null) {
+  if (!response) return { items: [], pickIds: new Set<string>() };
+  if (!state) return { items: response.items, pickIds: new Set<string>() };
+  const { picks, ordered } = rankShortlist(toCandidates(response.items), state);
+  return { items: ordered.map(({ title }) => title), pickIds: new Set(picks.map(({ id }) => id)) };
+}
+
 type CatalogueRegionProps = {
   state: CatalogueState;
+  items: CatalogueTitle[];
+  pickIds: ReadonlySet<string>;
+  refined: boolean;
   gridRef: React.RefObject<HTMLDivElement | null>;
   activeIndex: number;
   onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
@@ -167,8 +245,9 @@ type CatalogueRegionProps = {
   query: string;
 };
 
-function CatalogueRegion({ state, gridRef, activeIndex, onKeyDown, onSelect, onFocusIndex, onRetry, query }: CatalogueRegionProps) {
-  if (state.phase === "loading") {
+function CatalogueRegion(props: CatalogueRegionProps) {
+  const { state, items, pickIds, refined, gridRef, activeIndex, onKeyDown, onSelect, onFocusIndex, onRetry, query } = props;
+  if (state.phase === "loading" && items.length === 0) {
     return (
       <section className="discover-state" aria-busy="true" aria-live="polite">
         <span className="discover-spinner" aria-hidden="true" />
@@ -214,20 +293,20 @@ function CatalogueRegion({ state, gridRef, activeIndex, onKeyDown, onSelect, onF
     );
   }
 
-  if (state.response.items.length === 0) {
+  if (items.length === 0) {
     return (
       <section className="discover-state" role="status">
         <p className="discover-state-title">No catalogue titles match</p>
-        <p>{query ? `Nothing in the catalogue matches “${query}”.` : "The catalogue returned no titles."}</p>
+        <p>{emptyMessage(query, refined)}</p>
       </section>
     );
   }
 
   return (
     <>
-      <div className="discover-grid" ref={gridRef} onKeyDown={onKeyDown}>
-        <ul aria-label="Catalogue titles">
-          {state.response.items.map((title, index) => (
+      <div className="discover-grid" ref={gridRef} onKeyDown={onKeyDown} aria-busy={state.phase === "loading"}>
+        <ul aria-label={refined ? "Titles ranked for you" : "Catalogue titles"}>
+          {items.map((title, index) => (
             <li key={title.id}>
               <button
                 type="button"
@@ -239,6 +318,7 @@ function CatalogueRegion({ state, gridRef, activeIndex, onKeyDown, onSelect, onF
               >
                 <span className="discover-card-poster">
                   <Artwork title={title} />
+                  {pickIds.has(title.id) && <span className="discover-card-pick">Top pick</span>}
                   <span className="discover-card-cue" aria-hidden="true">
                     <kbd>OK</kbd> Details
                   </span>
@@ -254,6 +334,11 @@ function CatalogueRegion({ state, gridRef, activeIndex, onKeyDown, onSelect, onF
       </div>
     </>
   );
+}
+
+function emptyMessage(query: string, refined: boolean) {
+  if (refined) return "Nothing in the catalogue fits all of that. Remove something above to widen it.";
+  return query ? `Nothing in the catalogue matches “${query}”.` : "The catalogue returned no titles.";
 }
 
 /**
@@ -303,7 +388,7 @@ function Artwork({ title }: { title: CatalogueTitle }) {
   return <img className="discover-card-art" src={title.posterUrl} alt={`Poster for ${title.title}`} loading="lazy" />;
 }
 
-function TitleDetail({ title, onClose }: { title: CatalogueTitle; onClose: () => void }) {
+function TitleDetail({ title, onClose, onReject }: { title: CatalogueTitle; onClose: () => void; onReject: () => void }) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const dialogRef = useRef<HTMLElement | null>(null);
   useEffect(() => closeRef.current?.focus(), []);
@@ -345,6 +430,9 @@ function TitleDetail({ title, onClose }: { title: CatalogueTitle; onClose: () =>
             .join(" · ")}
         </p>
         {title.synopsis && <p className="discover-detail-synopsis">{title.synopsis}</p>}
+        <button className="discover-detail-reject" onClick={onReject}>
+          Not this one
+        </button>
         <p className="discover-detail-attribution">{title.attribution ?? "Catalogue record shown as supplied."}</p>
       </section>
     </div>

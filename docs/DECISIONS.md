@@ -283,3 +283,21 @@ of the 1.5M rows is left out: it costs storage and index time and would never be
 - **Separation is unchanged.** Catalogue rows keep their TMDB ids behind the `cat:` namespace and
   their own table and schema. They are never merged with generated Movie Jam artifacts.
 
+## 2026-09-19 — Discover refinement is filtered in SQL and ranked by the engine
+
+- **Hard limits run in the database.** Every constraint the preference state holds becomes a
+  filter on `search_catalogue_titles`, so the shortlist is the best 48 of the whole catalogue
+  rather than 48 fetched rows with the misfits thrown away. The engine still re-checks every row
+  it receives with `isEligible`, so a filter the SQL cannot express (a language refusal) is
+  enforced in the browser instead of silently ignored.
+- **A genre is both a dimension and a tag.** `genre.horror` carries "I want horror"; the tag
+  `horror` is what `excludeTag` refuses, the only way to say "nothing scary". Refusing a genre
+  also states it as unwanted, and wanting it lifts the refusal.
+- **Wanted genres shape the shortlist, not only the order.** They restrict it to titles carrying
+  at least one of them, ordered by how many, which is what makes "something scary" narrow the
+  grid rather than reshuffle it.
+- **The deterministic scorer crosses the same boundary a model will.** Its ranking goes through
+  `acceptRanking`, so slice 5 can swap the ranker without changing what may reach the screen.
+- **Chips are statements, not toggles on a hidden filter.** Each carries its sentence and cites
+  quotes from it; withdrawing one is a turn whose transcript quotes what is withdrawn. A session
+  holds twelve turns, after which the viewer is told to start over.

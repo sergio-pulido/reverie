@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { GENRES, type GenreSlug } from "./genres";
 
 /**
  * Catalogue contract shared by the privileged catalogue adapter and the Discover UI.
@@ -13,6 +14,13 @@ export const CATALOGUE_LIMITS = {
   pageSizeMax: 48,
   pageSizeDefault: 24,
   maxItemsPerResponse: 48,
+  /** A refined Discover reads one ranked shortlist of this many rows instead of paging. */
+  shortlistSize: 48,
+  maxExcludedIds: 100,
+  runtimeMin: 1,
+  runtimeMax: 1_200,
+  yearMin: 1870,
+  yearMax: 2200,
   maxUpstreamBytes: 512_000,
   timeoutMsMin: 1_000,
   timeoutMsMax: 15_000,
@@ -50,6 +58,8 @@ export const catalogueTitleSchema = z.object({
   synopsis: z.string().trim().max(1_200).optional(),
   genres: z.array(z.string().trim().min(1).max(60)).max(12).default([]),
   runtimeMinutes: z.number().int().min(1).max(1_200).optional(),
+  /** ISO 639 code of the original language, when the record states one. */
+  originalLanguage: z.string().regex(/^[a-z]{2,3}$/).optional(),
   rating: z.string().trim().max(24).optional(),
   posterUrl: httpsUrl.optional(),
   backdropUrl: httpsUrl.optional(),
@@ -57,7 +67,27 @@ export const catalogueTitleSchema = z.object({
   availability: z.array(catalogueAvailabilitySchema).max(12).default([]),
 });
 
-export const catalogueQuerySchema = z.object({
+const GENRE_SLUGS = GENRES.map(({ slug }) => slug) as [GenreSlug, ...GenreSlug[]];
+const genreSlugListSchema = z.array(z.enum(GENRE_SLUGS)).min(1).max(GENRES.length);
+const runtimeBoundSchema = z.coerce.number().int().min(CATALOGUE_LIMITS.runtimeMin).max(CATALOGUE_LIMITS.runtimeMax);
+const yearBoundSchema = z.coerce.number().int().min(CATALOGUE_LIMITS.yearMin).max(CATALOGUE_LIMITS.yearMax);
+
+/**
+ * Hard limits Discover pushes into the catalogue query so rows that could never be shown are
+ * filtered in the database. Bounds are inclusive. `includeGenres` restricts the shortlist to
+ * titles carrying at least one wanted genre; `excludeIds` are provider ids the viewer turned down.
+ */
+export const catalogueFiltersSchema = z.object({
+  minRuntime: runtimeBoundSchema.optional(),
+  maxRuntime: runtimeBoundSchema.optional(),
+  minYear: yearBoundSchema.optional(),
+  maxYear: yearBoundSchema.optional(),
+  includeGenres: genreSlugListSchema.optional(),
+  excludeGenres: genreSlugListSchema.optional(),
+  excludeIds: z.array(z.coerce.number().int().positive()).min(1).max(CATALOGUE_LIMITS.maxExcludedIds).optional(),
+});
+
+export const catalogueQuerySchema = catalogueFiltersSchema.extend({
   query: z.string().trim().max(CATALOGUE_LIMITS.queryMaxLength).default(""),
   page: z.coerce
     .number()
@@ -108,6 +138,7 @@ export const catalogueResponseSchema = z.discriminatedUnion("status", [
 export type CatalogueAvailability = z.infer<typeof catalogueAvailabilitySchema>;
 export type CatalogueTitle = z.infer<typeof catalogueTitleSchema>;
 export type CatalogueQuery = z.infer<typeof catalogueQuerySchema>;
+export type CatalogueFilters = z.infer<typeof catalogueFiltersSchema>;
 export type CatalogueOk = z.infer<typeof catalogueOkSchema>;
 export type CatalogueNotConfigured = z.infer<typeof catalogueNotConfiguredSchema>;
 export type CatalogueError = z.infer<typeof catalogueErrorSchema>;
@@ -119,4 +150,33 @@ export function namespaceCatalogueId(providerId: string) {
 
 export function isCatalogueId(id: string) {
   return id.startsWith(CATALOGUE_ID_PREFIX);
+}
+
+const FILTER_SCALARS = ["minRuntime", "maxRuntime", "minYear", "maxYear"] as const;
+const FILTER_LISTS = ["includeGenres", "excludeGenres", "excludeIds"] as const;
+
+/** Writes filters as URL parameters; lists are comma-separated and absent filters are omitted. */
+export function writeCatalogueFilters(params: URLSearchParams, filters: CatalogueFilters): void {
+  for (const name of FILTER_SCALARS) {
+    const value = filters[name];
+    if (value !== undefined) params.set(name, String(value));
+  }
+  for (const name of FILTER_LISTS) {
+    const values = filters[name];
+    if (values && values.length > 0) params.set(name, values.join(","));
+  }
+}
+
+/** The raw, unvalidated form of the filters in `params`, ready for `catalogueQuerySchema`. */
+export function readCatalogueFilters(params: URLSearchParams): Record<string, string | string[]> {
+  const raw: Record<string, string | string[]> = {};
+  for (const name of FILTER_SCALARS) {
+    const value = params.get(name);
+    if (value !== null) raw[name] = value;
+  }
+  for (const name of FILTER_LISTS) {
+    const value = params.get(name);
+    if (value !== null) raw[name] = value.split(",");
+  }
+  return raw;
 }

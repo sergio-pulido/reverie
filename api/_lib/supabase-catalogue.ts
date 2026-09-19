@@ -4,6 +4,7 @@ import {
   catalogueTitleSchema,
   namespaceCatalogueId,
   type CatalogueError,
+  type CatalogueFilters,
   type CatalogueNotConfigured,
   type CatalogueOk,
   type CatalogueQuery,
@@ -41,6 +42,7 @@ const rowSchema = z.object({
   backdrop_path: z.string().nullable().optional(),
   overview: z.string().nullable().optional(),
   genres: z.string().nullable().optional(),
+  original_language: z.string().nullable().optional(),
 });
 
 const rpcResultSchema = z.object({
@@ -91,7 +93,7 @@ export async function fetchCatalogue(
       config,
       accessToken,
       CATALOGUE_RPC,
-      { search: query.query, page_number: query.page, page_size: query.pageSize },
+      { search: query.query, page_number: query.page, page_size: query.pageSize, ...toRpcFilters(query) },
       { fetchImpl: options.fetchImpl, timeoutMs: options.timeoutMs ?? CATALOGUE_LIMITS.timeoutMsDefault },
     );
   } catch (error) {
@@ -120,6 +122,22 @@ export async function fetchCatalogue(
   return ok;
 }
 
+/**
+ * The filters as the function's named arguments. Only the ones that are set are sent, so an
+ * unrefined search is the same call it always was and the database defaults stay authoritative.
+ */
+export function toRpcFilters(filters: CatalogueFilters): Record<string, number | readonly (string | number)[]> {
+  const rpc: Record<string, number | readonly (string | number)[]> = {};
+  if (filters.minRuntime !== undefined) rpc.min_runtime = filters.minRuntime;
+  if (filters.maxRuntime !== undefined) rpc.max_runtime = filters.maxRuntime;
+  if (filters.minYear !== undefined) rpc.min_year = filters.minYear;
+  if (filters.maxYear !== undefined) rpc.max_year = filters.maxYear;
+  if (filters.includeGenres) rpc.include_genres = filters.includeGenres;
+  if (filters.excludeGenres) rpc.exclude_genres = filters.excludeGenres;
+  if (filters.excludeIds) rpc.exclude_ids = filters.excludeIds;
+  return rpc;
+}
+
 function mapRestError(error: unknown): CatalogueError {
   if (error instanceof RestError && error.code === "unauthenticated") return UNAUTHENTICATED_RESPONSE;
   if (error instanceof RestError && error.code === "forbidden") {
@@ -146,6 +164,7 @@ function mapRow(row: CatalogueRow) {
     runtimeMinutes: row.runtime && row.runtime > 0 ? Math.trunc(row.runtime) : undefined,
     posterUrl: tmdbImageUrl(TMDB_POSTER_BASE, row.poster_path),
     backdropUrl: tmdbImageUrl(TMDB_BACKDROP_BASE, row.backdrop_path),
+    ...languageOf(row.original_language),
     attribution: TMDB_ATTRIBUTION,
     availability: [],
   };
@@ -168,6 +187,12 @@ function splitGenres(genres: string | null | undefined) {
     .map((genre) => genre.trim())
     .filter((genre) => genre.length > 0)
     .slice(0, GENRES_MAX);
+}
+
+/** Present only when the row states a well-formed code; a missing language is never defaulted. */
+function languageOf(code: string | null | undefined) {
+  const normalized = code?.trim().toLowerCase();
+  return normalized && /^[a-z]{2,3}$/.test(normalized) ? { originalLanguage: normalized } : {};
 }
 
 function tmdbImageUrl(base: string, path: string | null | undefined) {

@@ -18,7 +18,7 @@ behaviour works.
 | Capability | Status | Code today | Missing code |
 | --- | --- | --- | --- |
 | Open the studio (real room or labelled local preview) | Implemented | `src/main.tsx:130` (`onStudio`), `src/main.tsx:135-141`; `src/screens/Studio.tsx`; `PreviewStudio` in `src/main.tsx:193` | — |
-| Scene acceptance / voting from the studio | Not implemented | UI only says so: `src/screens/Studio.tsx:83` | No `scene/accept` route, service or store transition; planned row at `docs/API_CONTRACTS.md:109` |
+| Scene acceptance / voting from the studio | Not implemented | UI only says so: `src/screens/Studio.tsx:91` | No `scene/accept` route, service or store transition; planned row at `docs/API_CONTRACTS.md:109` |
 | Open as markdown (read-only) | Implemented (local only) | `src/ScriptScreen.tsx:41`; `apps/server/jams.ts:248` | Not exposed as a Vercel function (see below); no copy step |
 | Copy the script into an editable version (fork-on-modify) | Not implemented | None | No route/service/store/UI; the only trace is the planned row `POST /api/jams/:id/forks` at `docs/API_CONTRACTS.md:110` |
 | Chat-driven screenplay editing | Not implemented | None | No chat-to-edit route, command, Zod schema or UI; the Studio conversation/proposals are a separate surface |

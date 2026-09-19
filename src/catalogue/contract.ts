@@ -75,7 +75,8 @@ export const catalogueQuerySchema = z.object({
 
 export const catalogueOkSchema = z.object({
   status: z.literal("ok"),
-  source: z.literal("titan"),
+  /** Where the records come from. The catalogue is a curated TMDB snapshot; there is no Titan API. */
+  source: z.literal("tmdb"),
   items: z.array(catalogueTitleSchema),
   page: z.number().int(),
   pageSize: z.number().int(),

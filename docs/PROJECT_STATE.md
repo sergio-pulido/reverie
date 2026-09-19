@@ -367,15 +367,122 @@ remain unproven until `scripts/verify-realtime.mjs` completes against the migrat
   functions.
 - Documentation only; no code or runtime behaviour changed.
 
+## 2026-09-19 — Live-project verification: 27/27
+
+- Before the rerun, one anonymous RPC call showed the hosted database still ran the old
+  `request_jam_admission`: `request_jam_admission('ZZZZZZZZ', 'Probe')` returned
+  `data: null` with `P0002 jam: invite not found`. The raised exception rolled back the
+  `record_failed_admission` write in the same transaction, so the throttle never counted.
+- `20260919213000_persist_admission_throttle.sql` was then applied by hand in the Supabase SQL
+  Editor (the repo has no CLI link or service-role key). The same probe now returns
+  `{ status: "error", code: "invite_not_found" }` with no error.
+- `scripts/verify-realtime.mjs` now awaits the channel's `SUBSCRIBED` acknowledgement before
+  writing the row it expects over Realtime, instead of sleeping one second.
+
+### Verification
+
+Passed against the hosted project: `pnpm verify:realtime` 27/27, including the throttle, which
+trips after 11 failed lookups (limit: ten failures per user per ten minutes). Also passed:
+`pnpm probe:vonage` (session create, publisher token, token bound to the session), `pnpm test`
+(143/143), `pnpm typecheck`, `pnpm build`.
+
+**Not verified:** the live stage in two real browsers; the throttle across the window reset
+(the check proves the lockout, not the ten-minute expiry); migration history on the hosted
+project (it was applied by hand, so no tracking table records it). Each run of
+`verify-realtime` leaves a `verify-room-*` jam behind, and it has to be deleted by hand.
+
+## 2026-09-19 — Discover serves real films from a TMDB snapshot in Postgres
+
+- **There is no Titan catalogue API.** The Titan OS challenge supplies none; its brief names the
+  Kaggle TMDB dataset as the tool. The catalogue is now `public.catalogue_titles`: 27,839
+  released, non-adult films with a poster, an overview and at least 50 votes, curated from the
+  dataset's ~1.5M rows and loaded into the hosted Supabase project.
+- `supabase/migrations/20260919220000_catalogue_titles.sql` creates the table, a weighted
+  `document` tsvector (title A, genres B, keywords C, overview D) with GIN, trigram and btree
+  indexes, and a select-only RLS policy for signed-in viewers.
+  `20260919221000_search_catalogue_titles.sql` adds `search_catalogue_titles(search, page_number,
+  page_size)`, a `security invoker` function that returns one page and the match count. A
+  non-empty query is ranked with `ts_rank` (English and simple configurations, whichever scores
+  higher), then by popularity. An empty query is ordered by popularity. PostgREST filters can
+  match `document` but cannot order by rank, which is why this is a function.
+- `api/_lib/supabase-catalogue.ts` replaces the Titan adapter. It calls that function with the
+  viewer's own access token, so the read goes through RLS, and it maps only the columns Discover
+  renders. Posters come from `image.tmdb.org/t/p/w500` and backdrops from `w780`. Every title and
+  every page carries the TMDB attribution. `availability` is always `[]` because the dataset has
+  none, and Discover no longer renders a "Where to watch" block or copy that implies streaming.
+  The response `source` is now `"tmdb"`. `api/_lib/titan-catalogue.ts` and every `TITAN_*`
+  variable are gone.
+- Discover signs the viewer in anonymously if needed and sends `Authorization: Bearer`;
+  `/api/catalogue` answers 401 without it.
+- Cost: one round trip per page, and no `select *`. A 24-title page is about 12.7 KB. Measured on
+  the hosted database, a broad query ("love", 4,105 matches) runs in about 20 ms, and the deepest
+  empty-query page in about 12 ms.
+- Verified: step-0 checks against the live project (27,839 rows; `heist dream` ranks Inception
+  first by `ts_rank`, 0.197 vs 0.092). Then `pnpm test` (147/147), `pnpm typecheck` and
+  `pnpm build`. `/discover` was checked against the live project in a browser: real posters and
+  titles, Inception first for `heist dream`, and a detail dialog with runtime, genres, synopsis
+  and attribution and no availability. No console errors.
+- **Not verified:** a Vercel deployment of this change. The server needs `SUPABASE_URL` and
+  `SUPABASE_ANON_KEY` (or the `VITE_` pair) at runtime. The new function was applied by hand
+  through the session pooler, like the earlier migrations, so no tracking table records it.
+
+## 2026-09-19 — Discover looks and navigates like a TV app
+
+- Discover is laid out for a 1920×1080 screen read from about three metres: everything sits
+  inside a 5% title-safe inset, poster titles are 24px, metadata and body text 20–22px, and the
+  grid shows seven posters per row at 1920px, built from each title's `posterUrl`.
+- A spotlight beside the search shows the focused poster's title, year, runtime, genres and a
+  three-line synopsis over its `backdropUrl`. It repeats what the focused button announces, so it
+  is hidden from assistive technology. Below 1100px it and the backdrop give way to the search.
+- Focus is visible without relying on colour: the focused poster scales up, gains a 6px ring,
+  shows an "OK Details" label and underlines its title.
+- Remote navigation: when posters load and nothing holds focus, the first poster takes it. Arrows
+  move one poster and stop at the edges, a short last row is reachable from the row above, Up
+  from the top row goes to search, Down from the bottom row goes to the pager (Left/Right between
+  its buttons, Up or Escape back to the grid). Enter or Space opens a title, and Escape closes it
+  and restores focus. Escape (or a remote's Back key) on the grid returns to search. Escape in an
+  empty search leaves Discover. The key mapping is the pure `gridMove` in
+  `src/discover/gridMove.ts`, used by `useGridNavigation`.
+- The TMDB attribution is a fixed bar at the bottom of the screen whenever titles are shown,
+  using the response's attribution text. Nothing on the screen implies a title can be streamed.
+- Unchanged: the catalogue contract, the adapter, search, paging, and the loading, empty, error
+  and not-configured states (now in larger type).
+- Verified: `pnpm test` (155/155, including `tests/gridNavigation.test.ts` for arrow movement,
+  edges, row exits and Enter opening the focused title), `pnpm typecheck`, `pnpm build`. Checked
+  in a browser at 1920×1080 against the live catalogue: initial focus, arrows, Enter opening the
+  detail, Escape restoring focus, Down to the pager, Up back, Escape to search, the empty state,
+  and a 375px layout with no horizontal overflow. No console errors.
+- **Not covered by automated tests:** the DOM wiring (focus, scrolling, pager hand-off). The test
+  suite has no DOM, so `gridMove` is tested directly and the wiring was checked in the browser.
+
+## 2026-09-19 — A shared, server-anchored playback clock
+
+- The Studio now shows a room-wide counter that every participant derives from one server
+  anchor. The host starts, pauses or resets it; the database stamps the anchor with its own
+  `now()`, so two viewers can compare positions and agree. This is the coordination layer a
+  synchronized player needs, without yet deciding what the player renders.
+- Position is derived, never a mutable counter: `elapsedMs = paused_elapsed_ms + (now() -
+  started_at)` while playing, `paused_elapsed_ms` otherwise. The payload carries `serverNow`,
+  so a browser corrects for skew by anchoring to `elapsedMs` and advancing with its own
+  monotonic clock (`performance.now()`) — no participant's wall clock can move the room.
+- New `jam_playback` table (RLS on, no policies) plus `get`/`start`/`pause`/`reset` security
+  definer RPCs. Reads are limited to active members and the host; only the host may control
+  it. A redundant start is a no-op and never moves the anchor.
+- Client: `src/core/playbackClock.ts` (pure derivation), `src/lib/playback.ts` (RPCs),
+  `src/screens/usePlaybackClock.ts` (2.5s poll + local tick), `src/screens/PlaybackBar.tsx`.
+  Polling is the documented interim transport; the contract is Realtime events.
+- Verified live in two browsers on the local stack: both showed `0:05` at the same moment,
+  tracked `0:12 → 0:19` together, and froze together at `0:25` on pause before resetting to
+  `0:00`. `pnpm verify:realtime` now includes 7 clock checks (34/34 passing); `pnpm typecheck`,
+  `pnpm test` (166 passing) and `pnpm build` all pass. What the player shows remains undecided.
+
 ## Next milestones
 
-1. Apply every migration in `supabase/migrations` to a Supabase project and run
-   `pnpm verify:realtime` to turn the lobby, invite lifecycle and Realtime work from
-   implemented into verified. This is the single blocking gap in the collaboration slice.
-2. Supply an authorized catalogue contract (`TITAN_CATALOGUE_URL` plus a credential) and
-   re-probe `/api/catalogue` against it; Discover renders real titles as soon as it validates.
+1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.
+   Next, adopt a Supabase CLI link so future migrations get applied and tracked, not pasted.
+2. Done: Discover serves the TMDB snapshot. Next, deploy it and confirm that `/api/catalogue`
+   answers `ok` on Vercel with the Supabase server variables set.
 3. Versioned transactional scene contract: atomic voting, `expectedStateVersion`, idempotent
    `requestId`, and serialized scene acceptance. Generation only after that contract exists.
-4. Supply a video-capable Vonage application (`VONAGE_APPLICATION_ID` plus
-   `VONAGE_PRIVATE_KEY`), run `pnpm probe:vonage` for the session/token receipt, then verify
-   the live stage in two browsers against a migrated Supabase project.
+4. `pnpm probe:vonage` passes with the application credentials; next, verify the live stage in
+   two browsers against the migrated Supabase project.

@@ -4,7 +4,7 @@ Status: target architecture for the first public build. Vercel deploys the web a
 
 ## Data flow
 
-Titan catalogue data → server-side catalogue adapter → validated real-title metadata → TV-first Discover UI. Separately: participant text, microphone, image, video clip, or Vonage live-media input → Supabase authenticated writes or privileged Vercel function → normalized creative turn with declared intent → Jam orchestrator → schema and story-state validation → queue and vote state → accepted scene direction → creative reasoning and media adapters → versioned creative artifacts and live scene events → all connected clients.
+Curated TMDB snapshot in Postgres (`public.catalogue_titles`) → ranked `search_catalogue_titles` RPC under the viewer's RLS → server-side catalogue adapter → validated real-title metadata → TV-first Discover UI. Separately: participant text, microphone, image, video clip, or Vonage live-media input → Supabase authenticated writes or privileged Vercel function → normalized creative turn with declared intent → Jam orchestrator → schema and story-state validation → queue and vote state → accepted scene direction → creative reasoning and media adapters → versioned creative artifacts and live scene events → all connected clients.
 
 The client can optimistically render a pending idea, but Supabase-backed server rules are the authority for membership, proposal ordering, votes, accepted turns, scene versions, and room data. Vercel functions own privileged provider calls and budgets. The planned reconnect flow reloads an RLS-protected database snapshot; bounded event replay requires a future persisted event log.
 
@@ -13,7 +13,7 @@ The client can optimistically render a pending idea, but Supabase-backed server 
 - **core** — provider-free types and rules: room state, story version merge, queue/vote evaluation, artifacts, forks, deterministic ordering and validation.
 - **jam** — host/member permissions, lobby, presence, admission, proposal and vote commands.
 - **cinema** — screenplay, character, world, shot list, visual direction and scene artifact schemas.
-- **catalogue** — licensed Titan title metadata, availability, discovery taxonomy, safe search/filtering, and attribution rules. It is distinct from generated Jam artifacts.
+- **catalogue** — curated TMDB film metadata (no availability), ranked search, and TMDB attribution. It is distinct from generated Jam artifacts.
 - **providers** — typed Nebius, SLNG, fal.ai, and future sponsor adapters. Transport quirks stop here.
 - **live-media** — Vonage session/token lifecycle, participant media permissions, signaling, captions, broadcast/archive controls, and a normalized reference descriptor for the Jam core.
 - **server** — local Express development host; deployed privileged operations live in Vercel Node functions. No custom WebSocket lifecycle.
@@ -48,7 +48,7 @@ track kind, declared purpose, server-issued asset reference and expiry, with wit
 stopping the track. No provider session has been opened from this repository; see
 `docs/PROJECT_STATE.md` for the probe receipts.
 
-Not implemented: votes, scene transitions, forks, catalogue, recording/export/transformation
+Not implemented: votes, scene transitions, forks, recording/export/transformation
 of live media, and every remaining provider workflow. Scene acceptance is deliberately
 absent because it requires the versioned transactional command contract in
 `docs/API_CONTRACTS.md`. No Supabase project has been migrated from this repository and no

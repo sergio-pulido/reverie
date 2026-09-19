@@ -2,19 +2,19 @@
 
 > Real cinema to discover together, plus a live studio where a room becomes the director's room for a new story.
 
-Reverie is an open-source HackBarna project built around the real movie catalogue provided through Titan. People can browse and discover actual films and series, then join a **Movie Jam** to collaboratively direct a new living story: propose what happens next, shape characters and worlds, vote on the strongest direction, and watch the film evolve together.
+Reverie is an open-source HackBarna project built around a real movie catalogue: a curated snapshot of the TMDB dataset named by the Titan OS challenge. People can browse and discover actual films and series, then join a **Movie Jam** to collaboratively direct a new living story: propose what happens next, shape characters and worlds, vote on the strongest direction, and watch the film evolve together.
 
 The aim is to make film discovery and cinematic creation feel as social and immediate as choosing songs for a shared playlist. A Jam prompt can be as simple as _“a tiny dragon visits a pink unicorn world”_ or as detailed as a full character bible, visual language, plot turn, soundtrack cue, and camera direction.
 
 ## Real catalogue, real recommendations
 
-Reverie will show the real films and series made available through Titan's catalogue integration. Their titles, artwork, metadata, availability, and editorial identity remain intact. The product does not create parody replacements, invented robot remakes, or misleading synthetic listings for existing cinema.
+Reverie shows real films from a curated TMDB snapshot (27,839 titles) held in Postgres. Their titles, artwork, metadata and editorial identity remain intact, with TMDB attribution. The dataset says nothing about where a film streams, so Reverie never implies it. The product does not create parody replacements, invented robot remakes, or misleading synthetic listings for existing cinema.
 
 The catalogue powers a conversational, TV-first **Discover** experience: viewers can ask for what they feel like watching, refine the answer naturally, and browse genuine titles. Movie Jam is a separate, clearly labelled creative mode for directing a new story with other people.
 
 ## The experience
 
-1. **Discover something real** — viewers use natural conversation to find films and series in the Titan catalogue.
+1. **Discover something real** — viewers use natural conversation to find films in the TMDB catalogue.
 2. **Create or join a Movie Jam** — hosts can create a public room, a private room, or share an invite link / QR code with an audience.
 3. **Direct together** — participants write, speak, upload a reference, or share a live camera moment for the story, characters, locations, visual style, mood, dialogue, and scene changes.
 4. **Build a coherent film** — Reverie turns the room's ideas into editable creative material: story beats, screenplay, character sheets, world bible, shot list, prompts, sound direction, and scene assets.
@@ -61,7 +61,7 @@ Potential capabilities include:
 
 | Need | Possible sponsor integration |
 | --- | --- |
-| Real catalogue, title metadata, and TV discovery context | Titan OS catalogue integration |
+| Real catalogue, title metadata, and TV discovery context | Curated TMDB snapshot in Supabase Postgres (no Titan API exists) |
 | Real-time conversational direction, transcription, and script reasoning | Titan and other event-provided AI models |
 | Live participant video, broadcast, recording, captions, and room signaling | Vonage Video API |
 | Image, video, and visual asset generation | fal.ai |
@@ -84,10 +84,10 @@ The deployed application uses React, TypeScript and Vite on **Vercel**, with **S
 | Speech | SLNG | Planned transcription and optional speech responses |
 | Generated media | fal.ai | Planned image/video generation and visual transformations |
 | Live media | Vonage Video API | Implemented opt-in camera/microphone/screen with a consent register; no video-capable credential supplied yet |
-| Real-title discovery | Titan catalogue | Planned licensed, genuine film/series records |
+| Real-title discovery | TMDB snapshot in Postgres | Live: 27,839 films, ranked full-text search |
 | Invites | `qrcode.react` | Host invite panel: link, QR, code, expiry, rotation and revocation |
 
-Only `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are browser configuration. Provider secrets stay in ignored local environment files or Vercel server environment variables. `TITAN_CATALOGUE_URL` and `TITAN_API_KEY` are server-only; without both, `/api/catalogue` reports `catalogue_not_configured` and Discover shows no titles. No provider is verified or enabled yet.
+Only `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are browser configuration. Provider secrets stay in ignored local environment files or Vercel server environment variables. Discover reads `public.catalogue_titles`, a curated TMDB snapshot in the same Supabase project, through the `search_catalogue_titles` RPC as the viewer's own session; without Supabase configuration `/api/catalogue` reports `catalogue_not_configured` and Discover shows no titles. There is no Titan API. No provider is verified or enabled yet.
 
 ## Run and deploy
 

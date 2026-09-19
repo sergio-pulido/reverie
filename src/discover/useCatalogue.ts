@@ -4,6 +4,8 @@ import {
   CATALOGUE_LIMITS,
   type CatalogueResponse,
 } from "../catalogue/contract";
+import { JamError } from "../lib/errors";
+import { ensureAccessToken } from "../lib/session";
 
 export type CatalogueState =
   | { phase: "loading" }
@@ -18,6 +20,19 @@ const NETWORK_FAILURE: Extract<CatalogueState, { phase: "error" }> = {
   code: "CATALOGUE_REQUEST_FAILED",
   safeMessage: "Discover could not reach the catalogue service.",
   retryable: true,
+};
+
+const NOT_SIGNED_IN: Extract<CatalogueState, { phase: "error" }> = {
+  phase: "error",
+  code: "CATALOGUE_UNAUTHENTICATED",
+  safeMessage: "Discover could not start a session to read the catalogue.",
+  retryable: true,
+};
+
+const BROWSER_NOT_CONFIGURED: Extract<CatalogueState, { phase: "not_configured" }> = {
+  phase: "not_configured",
+  missing: ["VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY"],
+  safeMessage: "Discover needs a configured Supabase project to read the catalogue. No catalogue data is invented.",
 };
 
 const UNREADABLE_RESPONSE: Extract<CatalogueState, { phase: "error" }> = {
@@ -36,8 +51,10 @@ function toState(response: CatalogueResponse): CatalogueState {
 }
 
 /**
- * Reads the privileged catalogue endpoint. Every payload is re-validated in the browser, so
- * an unexpected shape becomes an explicit error state instead of a half-rendered title.
+ * Reads the catalogue endpoint as the viewer's own Supabase session (anonymous sign-in if
+ * needed), because the catalogue table is readable only by signed-in viewers. Every payload
+ * is re-validated in the browser, so an unexpected shape becomes an explicit error state
+ * instead of a half-rendered title.
  */
 export function useCatalogue(query: string, page: number) {
   const [state, setState] = useState<CatalogueState>({ phase: "loading" });
@@ -58,7 +75,16 @@ export function useCatalogue(query: string, page: number) {
       url.searchParams.set("page", String(page));
       url.searchParams.set("pageSize", String(CATALOGUE_LIMITS.pageSizeDefault));
 
-      void fetch(url, { signal: controller.signal, headers: { Accept: "application/json" } })
+      void ensureAccessToken("Browsing Discover")
+        .catch((error: unknown) => {
+          throw error instanceof JamError && error.code === "not_configured" ? BROWSER_NOT_CONFIGURED : NOT_SIGNED_IN;
+        })
+        .then((accessToken) =>
+          fetch(url, {
+            signal: controller.signal,
+            headers: { Accept: "application/json", Authorization: `Bearer ${accessToken}` },
+          }),
+        )
         .then(async (response) => {
           const parsed = catalogueResponseSchema.safeParse(await response.json());
           if (controller.signal.aborted) return;
@@ -66,7 +92,8 @@ export function useCatalogue(query: string, page: number) {
         })
         .catch((error: unknown) => {
           if (controller.signal.aborted || (error instanceof Error && error.name === "AbortError")) return;
-          setState(NETWORK_FAILURE);
+          if (error === BROWSER_NOT_CONFIGURED) setState(BROWSER_NOT_CONFIGURED);
+          else setState(error === NOT_SIGNED_IN ? NOT_SIGNED_IN : NETWORK_FAILURE);
         });
     }, query ? SEARCH_DEBOUNCE_MS : 0);
 

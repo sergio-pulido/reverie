@@ -11,4 +11,4 @@ The primary agent works on `main` and pushes small completed, verified slices. T
 
 PR contributors use `codex/rv-NN-description` branches. Keep PRs narrow, update from `main` before merge, and describe exact validation and known gaps. Auto-merge should wait for required checks; it does not prevent overlapping edits or resolve conflicts automatically. The repository currently has no CI workflow or lint/test scripts; typecheck/build and explicit smoke checks are the existing baseline.
 
-Never commit local environment files, `.vercel` account metadata, private rehearsal assets or credentials. Do not automatically stage the entire worktree. Documentation changes are committed and pushed with their implementation or as a dedicated documentation slice.
+Never commit local environment files, `.vercel` account metadata, private assets or credentials. Do not automatically stage the entire worktree. Documentation changes are committed and pushed with their implementation or as a dedicated documentation slice.

@@ -6,11 +6,11 @@ These are Reverie application contracts, not provider API endpoints.
 
 - `GET /api/health`: `{ "status": "ok", "service": "reverie-movie-jam" }`, in local Express and a Vercel Node function. This reports process health, not database or provider readiness.
 - Browser calls Supabase Auth for anonymous sign-in, then inserts/selects `jams` under RLS. A database trigger creates the active host membership.
-- `GET /api/catalogue?query=&page=&pageSize=`: TV-first Discover reads real catalogue records through a privileged server adapter. Same-origin only, `GET`/`HEAD` only, Zod-validated query (`query` ≤ 120 chars, `page` 1–100, `pageSize` 1–48, default 24), per-instance rate limit of 30 requests per minute, bounded upstream body, and an upstream timeout.
-  - `200 { "status": "ok", "source": "titan", "items": [...], "page", "pageSize", "total", "hasMore", "attribution" }` — every record comes from the authorized upstream. Catalogue identifiers are namespaced `cat:` so they can never be confused with generated Jam artifacts.
-  - `200 { "status": "catalogue_not_configured", "code": "CATALOGUE_NOT_CONFIGURED", "safeMessage", "missing": [...] }` — no authorized catalogue endpoint/credential is configured. The UI states this; it does not invent titles.
-  - `4xx/5xx { "status": "error", "code", "safeMessage", "retryable" }` — codes are `INVALID_QUERY`, `METHOD_NOT_ALLOWED`, `CROSS_ORIGIN_BLOCKED`, `RATE_LIMITED`, `CATALOGUE_TIMEOUT`, `CATALOGUE_UNREACHABLE`, `CATALOGUE_UNAUTHORIZED`, `CATALOGUE_RATE_LIMITED`, `CATALOGUE_UPSTREAM_ERROR`, `CATALOGUE_REQUEST_REJECTED`, `CATALOGUE_INVALID_RESPONSE`, `CATALOGUE_RESPONSE_TOO_LARGE`. They never carry the credential, the upstream URL or the upstream body.
-  - The upstream contract the adapter expects, and the `TITAN_CATALOGUE_URL` / `TITAN_API_KEY` / `TITAN_CATALOGUE_TIMEOUT_MS` configuration, are specified in `docs/specs/discover-titan-catalogue.md`. No Titan catalogue endpoint is published or supplied today, so this route answers `catalogue_not_configured`.
+- `GET /api/catalogue?query=&page=&pageSize=`: TV-first Discover reads the curated TMDB snapshot in `public.catalogue_titles` through the `search_catalogue_titles` RPC, as the caller's own Supabase session (`Authorization: Bearer <access token>`, required). Same-origin only, `GET`/`HEAD` only, Zod-validated query (`query` ≤ 120 chars, `page` 1–100, `pageSize` 1–48, default 24), per-instance rate limit of 30 requests per minute, and a database timeout. A non-empty query is ranked by `ts_rank` and then popularity; an empty query is ordered by popularity.
+  - `200 { "status": "ok", "source": "tmdb", "items": [...], "page", "pageSize", "total", "hasMore", "attribution" }` — every record is a row of the TMDB snapshot, carrying the TMDB attribution. `availability` is always `[]`: the dataset has none. Catalogue identifiers are namespaced `cat:` so they can never be confused with generated Jam artifacts.
+  - `200 { "status": "catalogue_not_configured", "code": "CATALOGUE_NOT_CONFIGURED", "safeMessage", "missing": [...] }` — the server has no Supabase URL/anon key (`missing` names them). The UI states this; it does not invent titles.
+  - `4xx/5xx { "status": "error", "code", "safeMessage", "retryable" }` — codes are `INVALID_QUERY`, `METHOD_NOT_ALLOWED`, `CROSS_ORIGIN_BLOCKED`, `RATE_LIMITED`, `CATALOGUE_UNAUTHENTICATED` (401), `CATALOGUE_FORBIDDEN` (403), `CATALOGUE_UNAVAILABLE`, `CATALOGUE_INVALID_RESPONSE`. They never carry the token or a database error body.
+  - There is no Titan catalogue API. `docs/specs/discover-titan-catalogue.md` is kept as history only.
 - `POST /api/live/token`: issues one short-lived Vonage Video connection token to one active member of one jam. Same-origin only, `POST` only, `Authorization: Bearer <Supabase access token>`, body `{ "jamId": "<uuid>" }` and nothing else (an unknown field is rejected), 2 KB body cap, per-instance rate limit of 10 requests per minute.
   - `200 { "status": "ok", "authId", "sessionId", "token", "role", "expiresAt" }` — `authId` is the public application/project identifier the browser SDK needs. The token lasts 10 minutes (hard maximum 15). `role` is derived from the membership row (`host → moderator`, active member → `publisher`); a `role` in the request body is refused, never honoured.
   - `200 { "status": "live_not_configured", "code": "LIVE_NOT_CONFIGURED", "safeMessage", "missing": [...] }` — live media is switched off or not credentialed.
@@ -114,6 +114,17 @@ code — both go through the host-only functions above, which run as owner.
 | `POST /api/jams/:id/playback/advance` | Host-only: move playback to the next portion once its video is ready |
 | `GET /api/jams/:id/playback` | Read playback state: current/locked portion indices, per-portion media status |
 | `GET /api/jams/:id/portions/:index/video` | Stream a generated portion clip (HTTP Range, `video/mp4`); server-hosted, never a provider URL |
+
+The **shared playback clock** is a separate, room-wide position that every viewer derives from one server anchor, so two participants can compare where the room is. It is implemented as Supabase RPCs, not the Express routes above:
+
+| RPC | Contract |
+| --- | --- |
+| `get_jam_playback(p_jam_id)` | Any active member or the host. Returns `{ jamId, status: "idle"｜"playing"｜"paused", elapsedMs, serverNow, stateVersion }`. |
+| `start_jam_playback(p_jam_id)` | Host-only. Sets `status = "playing"` and stamps `started_at = now()`. Pressing play while already playing is a no-op and does not move the anchor. |
+| `pause_jam_playback(p_jam_id)` | Host-only. Freezes `elapsedMs` and clears the anchor. |
+| `reset_jam_playback(p_jam_id)` | Host-only. Returns the clock to `idle` at zero. |
+
+The position is derived, never stored as a mutable counter: `elapsedMs = paused_elapsed_ms + (now() - started_at)` while playing, and `paused_elapsed_ms` otherwise. `serverNow` lets a browser correct for clock skew — it anchors to `elapsedMs` and advances with its own monotonic clock (`performance.now()`), so no participant's wall clock can move the room. Reads poll every 2.5s as an interim transport; the contract is Realtime events, so the poll interval is a single named constant a later slice replaces. The clock row is created by a trigger on `jams` and backfilled for existing rooms; the table has RLS enabled with no policies, so only the security-definer functions are reachable.
 
 `POST /api/jams` accepts an optional `format` object (`totalSeconds`, `portionMinSeconds`, `portionMaxSeconds`); omitted fields default to a 4-minute script of 10–20 second portions. The jam stores its format and all generation and validation follow it.
 

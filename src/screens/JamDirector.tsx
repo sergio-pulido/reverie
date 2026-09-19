@@ -1,4 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { hasRecording, lifecycleLabel, type JamLifecycle } from "../core/jamLifecycle";
+import {
+  directorArchiveVideoSrc,
+  listDirectorArchive,
+  readJamLifecycle,
+} from "../lib/directorSession";
 import { Notice } from "../chrome";
 import {
   initialDirectorState,
@@ -50,12 +56,42 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
   const detach = useRef<(() => void) | null>(null);
   const [beats, setBeats] = useState<DirectorBeatWindow | null>(null);
   const [attached, setAttached] = useState(false);
+  // The room's life, as the server holds it. Read once on mount so a reopened
+  // tab shows an ended room as ended, then kept current by start and stop.
+  const [lifecycle, setLifecycle] = useState<JamLifecycle>("live");
   const live = sessionId !== null;
   const active = useRef<string | null>(null);
 
   useEffect(() => {
     active.current = sessionId;
   }, [sessionId]);
+
+  /**
+   * Reads the room's life on mount, and finds its recording if it has ended.
+   *
+   * Without this a reopened tab would show a finished room as if it were
+   * waiting to start, and offer a Start button the server would refuse.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const current = await readJamLifecycle(jamId);
+        if (cancelled) return;
+        setLifecycle(current);
+        if (!hasRecording(current)) return;
+        const archive = await listDirectorArchive(jamId);
+        // Newest first, so the room's last session is the one to play.
+        const latest = archive.sessions[0];
+        if (!cancelled && latest) setRecording(directorArchiveVideoSrc(jamId, latest.id));
+      } catch {
+        // The room still works without this; it just starts from `live`.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [jamId]);
 
   // Polling is the surface until Realtime events land, matching the player.
   useEffect(() => {
@@ -123,6 +159,7 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
     try {
       const opened = await startDirectorSession(jamId, configuration);
       setSessionId(opened.sessionId);
+      setLifecycle(opened.lifecycle);
       setState(opened.state);
       setBeats(opened.beats);
       setAttached(opened.attached);
@@ -142,8 +179,11 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
     if (!sessionId) return;
     setBusy(true);
     try {
-      await endDirectorSession(jamId, sessionId);
-      setRecording(directorRecordingSrc(jamId, sessionId));
+      const stopped = await endDirectorSession(jamId, sessionId);
+      setLifecycle(stopped.lifecycle);
+      // The archive is the segmented one; the whole-session recording route
+      // stays the fallback for sessions stored before segments existed.
+      setRecording(directorArchiveVideoSrc(jamId, sessionId));
     } catch {
       // Ending is idempotent server-side; nothing useful to say here.
     } finally {
@@ -176,7 +216,9 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
         <p className="eyebrow">LIVE DIRECTOR</p>
         <h2>Direct it while it runs.</h2>
       </div>
-      <span className="playback-status" role="status">{badge(state, busy, live)}</span>
+      <span className="playback-status" role="status" data-testid="jam-lifecycle">
+        {badge(state, busy, live, lifecycle)}
+      </span>
     </div>
 
     <div className="player-frame">
@@ -203,7 +245,7 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
       <button
         className="button button-primary"
         onClick={() => void start()}
-        disabled={!canDrive || busy || live}
+        disabled={!canDrive || busy || live || lifecycle === "ended"}
       >
         {busy && !live ? "Starting…" : "Start the stream"} <span>▶</span>
       </button>
@@ -298,12 +340,23 @@ function DirectionLog({ entries }: { entries: DirectorAuditEntry[] }) {
   </ol>;
 }
 
-function badge(state: DirectorState, busy: boolean, live: boolean): string {
+/**
+ * What the room shows about itself.
+ *
+ * The lifecycle is the base — live, playing, ended — with the transitional
+ * detail the stream reports laid over it, so "PLAYING" does not appear while
+ * the provider is still warming up and the screen is still blank.
+ */
+function badge(
+  state: DirectorState,
+  busy: boolean,
+  live: boolean,
+  lifecycle: JamLifecycle,
+): string {
   if (busy && !live) return "STARTING";
-  if (!live) return state.status === "failed" ? "FAILED" : "IDLE";
-  if (state.status === "streaming") return "LIVE";
   if (state.status === "failed") return "FAILED";
-  return "WARMING UP";
+  if (live && state.status !== "streaming") return "WARMING UP";
+  return lifecycleLabel(lifecycle).toUpperCase();
 }
 
 function placeholder(state: DirectorState, live: boolean, canDrive: boolean): string {

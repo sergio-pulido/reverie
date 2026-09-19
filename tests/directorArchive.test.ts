@@ -24,6 +24,7 @@ function buildJam(): Jam {
     source: { kind: "from-scratch", prompt: "A lighthouse keeper finds a door." },
     format: { totalSeconds: 20, portionMinSeconds: 5, portionMaxSeconds: 5 },
     script: buildScript(5, 2, 2),
+    lifecycle: "live" as const,
   };
 }
 
@@ -198,4 +199,51 @@ test("archived bytes are served by this server, not by a storage URL", async () 
     `${baseUrl}/api/jams/${jam.id}/director/archive/${sessionId}/media/99.m4s`,
   );
   assert.equal(missing.status, 404);
+});
+
+test("a finished session is served as one playable file", async () => {
+  const jam = buildJam();
+  await store.createJam(jam);
+  const sessionId = "sess-video";
+  await index.openSession({ id: sessionId, jamId: jam.id, configurationKey: "480p" });
+  const sink = buildSink(jam.id, sessionId);
+  sink.init(Buffer.from("INIT"), "avc1.42e01f");
+  sink.segment(0, Buffer.from("AAAA"), 0, 2);
+  sink.segment(1, Buffer.from("BBBB"), 2, 2);
+  await sink.drained();
+
+  const response = await fetch(
+    `${baseUrl}/api/jams/${jam.id}/director/archive/${sessionId}/video`,
+  );
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "video/mp4");
+  // fMP4 is the init segment followed by its media segments, so the
+  // concatenation is the file: a plain <video> element can play it.
+  assert.equal(await response.text(), "INITAAAABBBB");
+});
+
+test("an archive with no init segment is refused, not served unplayable", async () => {
+  const jam = buildJam();
+  await store.createJam(jam);
+  const sessionId = "sess-noinit";
+  await index.openSession({ id: sessionId, jamId: jam.id, configurationKey: "480p" });
+  const sink = buildSink(jam.id, sessionId);
+  // Segments without the init segment cannot be decoded by anything.
+  sink.segment(0, Buffer.from("AAAA"), 0, 2);
+  await sink.drained();
+
+  const response = await fetch(
+    `${baseUrl}/api/jams/${jam.id}/director/archive/${sessionId}/video`,
+  );
+  assert.equal(response.status, 404);
+});
+
+test("a session that stored nothing has no video to play", async () => {
+  const jam = buildJam();
+  await store.createJam(jam);
+  await index.openSession({ id: "sess-empty", jamId: jam.id, configurationKey: "480p" });
+  const response = await fetch(
+    `${baseUrl}/api/jams/${jam.id}/director/archive/sess-empty/video`,
+  );
+  assert.equal(response.status, 404);
 });

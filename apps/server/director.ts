@@ -166,6 +166,20 @@ export function createDirectorRouter(
       sendError(response, 404, "not_found", "This jam does not exist on this server.", false);
       return;
     }
+    // A finished room does not stream again: its recording is the artifact, and
+    // a second session would leave two different films behind one room URL.
+    // Checked before the ledger is charged, so a refused start costs nothing.
+    if (jam.lifecycle === "ended") {
+      sendError(
+        response,
+        409,
+        "jam_ended",
+        "This jam has ended. Its recording is what remains of it.",
+        false,
+      );
+      return;
+    }
+
     const active = requireConfig();
     if (!active) {
       sendError(
@@ -199,6 +213,8 @@ export function createDirectorRouter(
           attached: true,
           maxSessionSeconds: limits.maxSessionSeconds,
           recordingDurable: recordings.durable,
+          // Attaching does not move the room; it reports where it already is.
+          lifecycle: jam.lifecycle,
           state: open.snapshot,
           beats: open.beats,
         });
@@ -237,11 +253,16 @@ export function createDirectorRouter(
       throw error;
     }
     streams.set(session.sessionId, stream);
+    // The room is now playing. Recorded after the handshake succeeded, so a
+    // stream fal refused leaves the room live rather than stuck in a state it
+    // never reached.
+    const started = await store.advanceLifecycle(jam.id, "start");
     response.status(201).json({
       sessionId: session.sessionId,
       attached: false,
       maxSessionSeconds: limits.maxSessionSeconds,
       recordingDurable: recordings.durable,
+      lifecycle: started.lifecycle,
       state: stream.snapshot,
       beats: stream.beats,
     });
@@ -382,7 +403,11 @@ export function createDirectorRouter(
     // Idempotent: a client tearing down twice is not an error, and what
     // matters is that the reservation is released and the recording stored.
     await endSession(request.params.sessionId);
-    response.status(204).end();
+    // A room that has stopped is ended, and what remains of it is its
+    // recording. Refused transitions are not an error here: ending twice is
+    // the same idempotent teardown as the rest of this route.
+    const stopped = await store.advanceLifecycle(request.params.id, "stop");
+    response.status(200).json({ lifecycle: stopped.lifecycle });
   });
 
   /** The stored recording of a session, served by this server only. */

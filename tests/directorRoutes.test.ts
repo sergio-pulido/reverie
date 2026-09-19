@@ -52,6 +52,7 @@ function buildJam(): Jam {
     source: { kind: "from-scratch", prompt: "A lighthouse keeper finds a door." },
     format: { totalSeconds: 20, portionMinSeconds: 5, portionMaxSeconds: 5 },
     script: buildScript(5, 2, 2),
+    lifecycle: "live" as const,
   };
 }
 
@@ -308,13 +309,19 @@ test("a second viewer on the same configuration attaches to the one stream", asy
   assert.equal(joined.sessionId, sessionId);
   assert.ok(joined.beats);
 
-  assert.equal((await endSession(jam.id, sessionId)).status, 204);
-  const third = await fetch(`${baseUrl}/api/jams/${jam.id}/director/session`, {
+  assert.equal((await endSession(jam.id, sessionId)).status, 200);
+  // The stream slot is free again, but THIS room has ended and does not stream
+  // a second time: its recording is what remains of it.
+  const reopened = await fetch(`${baseUrl}/api/jams/${jam.id}/director/session`, {
     method: "POST",
   });
-  assert.equal(third.status, 201);
-  assert.equal((await third.clone().json()).attached, false);
-  await endSession(jam.id, (await third.json()).sessionId);
+  assert.equal(reopened.status, 409);
+  assert.equal((await reopened.json()).error.code, "jam_ended");
+
+  // A different room still opens, so the refusal is about this jam's life and
+  // not about the concurrency slot.
+  const next = await openJamSession();
+  await endSession(next.jam.id, next.sessionId);
 });
 
 test("a different configuration gets its own stream", async () => {
@@ -388,11 +395,16 @@ test("a failed handshake releases the reservation and closes the peer", async ()
 test("ending a session closes the peer and is idempotent", async () => {
   const { jam, sessionId } = await openJamSession();
   peer.channel.open();
-  assert.equal((await endSession(jam.id, sessionId)).status, 204);
+  const first = await endSession(jam.id, sessionId);
+  assert.equal(first.status, 200);
+  assert.equal((await first.json()).lifecycle, "ended");
   assert.ok(peer.closed);
   // The provider was told to stop.
   assert.equal(peer.channel.parsed().at(-1)!.type, "stop");
-  assert.equal((await endSession(jam.id, sessionId)).status, 204);
+  // Ending twice is the same teardown, and the room stays ended.
+  const again = await endSession(jam.id, sessionId);
+  assert.equal(again.status, 200);
+  assert.equal((await again.json()).lifecycle, "ended");
 });
 
 test("state and audit are gone once a session is closed", async () => {

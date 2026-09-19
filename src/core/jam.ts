@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { jamScriptSchema, scriptFormatSchema } from "./script";
 import { portionPatchSchema } from "./scriptHistory";
+import type { JamLifecycle } from "./jamLifecycle";
 
 // A jam starts either from scratch (a short prompt seeds the script) or from
 // an existing movie the room wants to riff on. Catalogue titles are source
@@ -64,12 +65,18 @@ export const revertJamScriptCommandSchema = z.object({
   revision: z.number().int().min(1),
 });
 
+/** Mirrors JamLifecycle; kept here so the jam schema validates it. */
+export const jamLifecycleSchema = z.enum(["live", "playing", "ended"]) satisfies z.ZodType<JamLifecycle>;
+
 export const jamSchema = z.object({
   id: z.uuid(),
   createdAt: z.string(),
   source: jamSourceSchema,
   format: scriptFormatSchema,
   script: jamScriptSchema,
+  // Where the room is in its life. Defaulted rather than required so a jam
+  // recorded before the lifecycle existed still parses as a live room.
+  lifecycle: jamLifecycleSchema.prefault("live"),
 });
 
 export type JamSource = z.infer<typeof jamSourceSchema>;

@@ -134,5 +134,64 @@ export function createDirectorArchiveRouter(
     },
   );
 
+  /**
+   * The whole archived session as one playable file.
+   *
+   * fMP4 is the init segment followed by its media segments, so concatenating
+   * them in order IS a valid MP4 — which means a finished session plays in a
+   * plain `<video>` element with no playlist, no MSE and no player library.
+   * Segments stay individually addressable for anything that wants to seek.
+   *
+   * Streamed as it is assembled rather than buffered: a session archive can be
+   * hundreds of megabytes, and holding one in memory to serve one viewer is
+   * how a container runs out of it.
+   */
+  router.get("/api/jams/:id/director/archive/:sessionId/video", async (request, response) => {
+    if (!(await requireJam(request.params.id, response))) return;
+    const { id, sessionId } = request.params;
+    let segments;
+    try {
+      const session = await index.getSession(sessionId);
+      if (!session || session.jamId !== id) {
+        sendError(response, 404, "not_found", "There is no archive for that session.", false);
+        return;
+      }
+      segments = await index.listSegments(session.id);
+    } catch {
+      sendError(response, 503, "media_unavailable", "The director archive could not be read.", true);
+      return;
+    }
+    if (!segments.length) {
+      sendError(response, 404, "not_found", "That session stored no video.", false);
+      return;
+    }
+
+    response.setHeader("content-type", "video/mp4");
+    try {
+      const init = await recordings.getObject(`${id}/${sessionId}/init.mp4`);
+      // Without the init segment the media segments cannot be decoded, so an
+      // archive missing it is refused rather than served as an unplayable file.
+      if (!init) {
+        sendError(response, 404, "not_found", "That session stored no video.", false);
+        return;
+      }
+      response.write(init.bytes);
+      for (const segment of segments) {
+        const bytes = await recordings.getObject(segment.objectPath);
+        // A gap would silently corrupt the file. The rows only exist for
+        // uploads that succeeded, so a missing object here means the bucket
+        // lost it, and stopping is more honest than writing a broken tail.
+        if (!bytes) break;
+        response.write(bytes.bytes);
+      }
+      response.end();
+    } catch {
+      // The headers are already sent, so there is no status left to change:
+      // ending the response is all that is left, and a short file is at least
+      // not a lie about its own length.
+      response.end();
+    }
+  });
+
   return router;
 }

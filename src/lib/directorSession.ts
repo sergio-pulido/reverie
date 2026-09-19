@@ -2,6 +2,7 @@ import type { DirectorState } from "../core/directorProtocol";
 import type { DirectorAuditEntry } from "../core/directorAudit";
 import type { DirectorBeatWindow } from "../core/directorBeats";
 import type { SessionSettings } from "../core/session";
+import type { JamLifecycle } from "../core/jamLifecycle";
 
 /**
  * Client for the server-proxied live director.
@@ -29,6 +30,8 @@ export interface OpenedDirectorSession {
   maxSessionSeconds: number;
   /** False when the server has no object storage: the recording is lost on restart. */
   recordingDurable: boolean;
+  /** Where the room is now. Opening moves it to playing; attaching reports it. */
+  lifecycle: JamLifecycle;
   state: DirectorState;
   beats: DirectorBeatWindow;
 }
@@ -96,8 +99,18 @@ export function sendDirection(
   });
 }
 
-export function endDirectorSession(jamId: string, sessionId: string): Promise<void> {
-  return call<void>(`/api/jams/${jamId}/director/session/${sessionId}/end`, {
+/**
+ * Stops the stream and reports where the room ended up.
+ *
+ * The lifecycle comes back in the response rather than being inferred: the
+ * stop is the moment the room ends, and a caller that had to re-fetch the jam
+ * to discover that would show a stale state in between.
+ */
+export function endDirectorSession(
+  jamId: string,
+  sessionId: string,
+): Promise<{ lifecycle: JamLifecycle }> {
+  return call(`/api/jams/${jamId}/director/session/${sessionId}/end`, {
     method: "POST",
   });
 }
@@ -111,6 +124,29 @@ export function renewDirectorSession(jamId: string, sessionId: string): void {
 
 export function directorRecordingSrc(jamId: string, sessionId: string): string {
   return `/api/jams/${jamId}/director/recordings/${sessionId}`;
+}
+
+/**
+ * The archived session as one playable file.
+ *
+ * fMP4 concatenates to a valid MP4, so this plays in a plain `<video>` with no
+ * playlist and no player library.
+ */
+export function directorArchiveVideoSrc(jamId: string, sessionId: string): string {
+  return `/api/jams/${jamId}/director/archive/${sessionId}/video`;
+}
+
+/** The sessions a finished room archived, newest first. */
+export async function listDirectorArchive(
+  jamId: string,
+): Promise<{ durable: boolean; sessions: { id: string }[] }> {
+  return call(`/api/jams/${jamId}/director/archive`);
+}
+
+/** The room's life, as the server holds it. */
+export async function readJamLifecycle(jamId: string): Promise<JamLifecycle> {
+  const body = await call<{ jam: { lifecycle?: JamLifecycle } }>(`/api/jams/${jamId}`);
+  return body.jam.lifecycle ?? "live";
 }
 
 /**

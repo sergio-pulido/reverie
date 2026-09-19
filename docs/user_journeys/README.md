@@ -23,18 +23,24 @@ move, a connection badge, a network response, or a playable clip.
 
 | ID | Journey | Surfaces | Needs Supabase | Needs live providers |
 | --- | --- | --- | --- | --- |
-| [UJ-01](01-discover-and-navigation.md) | Discover and navigation | `/`, `/discover`, `/join`, `/api/catalogue` | no | no |
-| [UJ-02](02-jam-lifecycle-create-script-video.md) | Jam lifecycle: create, script, video | `/jams/new`, script screen, `/api/jams`, `/api/sessions`, playback routes | yes | yes (Nebius + fal) |
-| [UJ-03](03-live-room-collaboration.md) | Live room: join, collaborate, moderate | `/join`, `/jams/<slug>`, Supabase RPCs and Realtime | yes | yes for the UI create path (or a fixture) |
+| [UJ-01](01-discover-and-navigation.md) | Discover, jam registry and navigation | `/`, `/jams`, `/discover`, `/join`, `/api/catalogue` | no | no |
+| [UJ-02](02-jam-lifecycle-create-script-video.md) | Jam lifecycle: create, script, video | `/jams/new`, script screen, `/api/jams`, `/api/sessions`, playback routes | yes | generate: Nebius + fal; import: none |
+| [UJ-03](03-live-room-collaboration.md) | Live room: join, collaborate, moderate | `/join`, `/jams/<slug>`, Supabase RPCs and Realtime | yes | only to create via the UI; a fixture needs none |
 
-`Needs live providers` means the journey calls a paid model. Where a provider is not
-configured each runbook has an explicit expected failure path, and
+`Needs live providers` means the journey calls a paid model. UJ-02's "Import a script"
+variant is a pure projection with **no** provider call, so a jam and its video can be tested
+cheaply once a room exists. Where a provider is not configured each runbook has an explicit
+expected failure path, and
 [Appendix A](#appendix-a--seed-a-room-without-a-provider-call) documents how to obtain a
 room without spending on generation.
 
 **No playback UI exists yet.** Portion playback and video generation are a server API
 (`docs/API_CONTRACTS.md`), so UJ-02 drives them with `evaluate_script` from the app origin.
 Test them as API behaviour, and report the missing UI as a known gap rather than a failure.
+
+**Live media (Vonage) is a separate slice and is not covered here.** The active Studio shows
+a `LIVE STAGE` panel; where Vonage is unconfigured it must say live media is not enabled.
+Do not treat that as a failure of these journeys.
 
 ## Environments
 
@@ -51,17 +57,19 @@ collaborative path without a hosted account.
 # from the repository root, with Docker Desktop running
 docker compose up --build --wait
 # app:      http://localhost:4317
-# Supabase: http://127.0.0.1:54321
+# Supabase: http://localhost:54321  (also bound on 127.0.0.1)
 ```
+
+The app build uses `VITE_SUPABASE_URL=http://localhost:54321` and the public
+`LOCAL_ANON_KEY` from `.env.compose`. Those two public values are what the fixture in
+[Appendix A](#appendix-a--seed-a-room-without-a-provider-call) needs; never copy a secret.
 
 - `.env.compose` holds public, local-only values and is committed. Do not change it.
 - `.env.local` is loaded by the app service. For UJ-02 it needs `REVERIE_LIVE_ENABLED=true`
-  and `NEBIUS_API_KEY=...` (for the script) plus `FAL_KEY=...` (for the video).
+  and `NEBIUS_API_KEY=...` (for a generated script) plus `FAL_KEY=...` (for the video). The
+  import variant needs neither.
 - This stack is development-only. It is not Vercel parity, and in-memory script/session/
   playback state resets when the app container restarts.
-- **Checkout note:** `compose.yaml`, `Dockerfile` and `docker/` are part of the current
-  working tree at the time these runbooks were written. Run the stack from a checkout that
-  contains them, or use environment B.
 
 ### B. `pnpm dev` with a hosted Supabase project
 
@@ -77,8 +85,9 @@ see `docs/SUPABASE_SETUP.md`. Without a hosted project, use environment A.
 
 ### C. `pnpm dev` without Supabase (limited)
 
-Only UJ-01 runs fully. UJ-02 can run its create, script and video steps but not the persisted
-room assertion, and UJ-03 is unavailable. The app must say so rather than simulate a room.
+Only UJ-01 runs fully. In UJ-02 the import variant and the script/video steps can run against
+a browser-only preview registration (`preview-` slug), but the persisted-room assertions
+cannot, and UJ-03 is unavailable. The app must say so rather than simulate a room.
 
 ## Required configuration
 
@@ -175,8 +184,8 @@ Use stable, obvious values so screenshots are easy to compare:
 | --- | --- |
 | Jam title | `UJ Run <YYYY-MM-DD> <n>` |
 | Premise | `A lighthouse keeper receives a letter from the future.` |
-| Movie title | `Arrival` |
-| Movie memory | `A linguist learns to talk with visitors.` |
+| Imported script title | `UJ Imported <date>` |
+| Imported script | a single ~600-character original synopsis paragraph (long enough for the runtime) |
 | Host name | `Host <n>` |
 | Guest names | `Guest Alpha`, `Guest Beta` |
 | Message | `UJ message <timestamp>` |
@@ -207,7 +216,9 @@ not the host and the lobby tools are absent. The reliable way is a two-step fixt
 
    ```js
    // evaluate_script in the host context, after loading the app origin once so the
-   // localStorage write lands on the right origin. Fill in the two public values.
+   // localStorage write lands on the right origin. For the local Docker stack:
+   //   URL = "http://localhost:54321"
+   //   KEY = LOCAL_ANON_KEY from .env.compose (public, local-only)
    async () => {
      const URL = "<VITE_SUPABASE_URL>";
      const KEY = "<VITE_SUPABASE_ANON_KEY>";

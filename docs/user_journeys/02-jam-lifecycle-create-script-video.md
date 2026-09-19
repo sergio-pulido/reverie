@@ -1,36 +1,39 @@
 # UJ-02 — Jam lifecycle: create, script, video
 
-Covers: creating a jam from scratch, generating its script, reviewing the script and a
-per-user playback session, and generating + streaming the portion video through the playback
-API. Also covers the "from an existing movie" variant and the honest failure paths.
-Runtime: ~20–40 minutes (video generation dominates).
-Environment: A or B. Needs `REVERIE_LIVE_ENABLED=true` with `NEBIUS_API_KEY` (script) and
-`FAL_KEY` (video). Supabase is needed for the room URL; without it run section G.
+Covers: registering a jam, generating its script, reviewing the script and a per-user
+playback session, and generating + streaming the portion video through the playback API. Also
+covers the "Import a script" variant (no provider call) and the honest failure paths.
+Runtime: ~20–40 minutes for the generated path (video generation dominates); ~10 minutes for
+the import path.
+Environment: A or B. Generate needs `REVERIE_LIVE_ENABLED=true` with `NEBIUS_API_KEY`
+(script) and `FAL_KEY` (video); import needs neither. Supabase is needed for the room URL;
+without it run section G.
 
 ## Goal
 
-Prove one jam can be created end to end: the room persists, Reverie writes a real script in
-the requested format, the script is labelled as generated, a session records per-user
-playback settings without changing the shared script, and the server generates and streams
-portion clips under the locking rules.
+Prove one jam can be created end to end: the room is registered first, Reverie writes or
+imports a script in the requested format, the script is labelled honestly, a session records
+per-user playback settings without changing the shared script, and the server generates and
+streams portion clips under the locking rules.
 
 ## Preconditions
 
-- Supabase configured, live providers configured.
-- Use the smallest format (`0.2` min total, `4`–`4` s portions) — three portions. This bounds
-  the script call and the number of paid clips.
-- **No playback UI exists.** Sections E–F drive the documented playback API with
+- Supabase configured; live providers configured for the generated path.
+- Use the smallest format (`0.2` min total, `4`–`4` s portions). This bounds the script call
+  and the number of paid clips.
+- **No playback UI exists.** Sections C–D drive the documented playback API with
   `evaluate_script` from the app origin. Do not expect buttons in the Studio.
 
-## A. Create the jam from scratch
+## A. Register a jam and generate its script
 
 ### 1. Create-screen defaults and validation
 
 - Do: `navigate_page` to `/jams/new`.
-- Expect: heading `Set the first scene.`; `Jam title` prefilled `Untitled Movie Jam`;
-  `Story source` = `From scratch`; `Opening premise` prefilled; `Total length (min)` `4`,
-  `Shortest portion (s)` `10`, `Longest portion (s)` `20`; `Who can join?` `Invite only`;
-  a note that the room will receive its own persistent URL and the script is generated.
+- Expect: heading `Set the first scene.`; back link `← Back to your jams`; `Jam title`
+  prefilled `Untitled Movie Jam`; `Story source` = `From scratch`; `Opening premise`
+  prefilled; `Total length (min)` `4`, `Shortest portion (s)` `10`, `Longest portion (s)`
+  `20`; `Who can join?` `Invite only`; a note that the room will receive its own persistent
+  URL and the script is generated.
 - Do: clear `Jam title`, click `Write the script`.
 - Expect: the browser blocks submission (required); no `POST /api/jams`; focus on the invalid
   field. Repeat by clearing the premise (minLength 8).
@@ -42,10 +45,12 @@ portion clips under the locking rules.
   `A lighthouse keeper receives a letter from the future.`, total `0.2`, portions `4`–`4`,
   `Invite only`; click `Write the script`.
 - Expect:
-  - The button disables and reads `Writing your 0.2-minute script…`.
-  - Exactly one `POST /api/jams` with `source.kind` `from-scratch` and
-    `format { totalSeconds: 12, portionMinSeconds: 4, portionMaxSeconds: 4 }`.
-- Evidence: `uj-02-submitting.png`; the request body.
+  - The button reads `Writing your 0.2-minute script…` and disables.
+  - A room row is registered **first** (a `POST`/`insert` to Supabase `jams`), then exactly
+    one `POST /api/jams` with `mode: "generate"`, `source.kind: "from-scratch"`, the room's
+    `jamId`, and `format { totalSeconds: 12, portionMinSeconds: 4, portionMaxSeconds: 4 }`.
+  - The two ids match: the server script artifact is attached to the registered room.
+- Evidence: `uj-02-submitting.png`; both request bodies.
 
 ### 3. Script success
 
@@ -57,7 +62,7 @@ portion clips under the locking rules.
     existing film or catalogue title.`
   - Scene headings and `PORTION x.y · start–end · Ns` labels with action, optional dialogue
     and visuals; times are contiguous from `0:00`.
-  - URL `/jams/<slug>` — the Supabase room row persisted.
+  - URL `/jams/<slug>` — the room row persisted.
 - Evidence: `uj-02-script.png`, `uj-02-script-portions.png`, `uj-02-url.txt`.
 
 ### 4. Script markdown and playback session
@@ -82,7 +87,8 @@ portion clips under the locking rules.
 
 - Do: read the `Open as markdown` link's `href` (it is `/api/jams/<jamId>/script.md`) and
   extract `<jamId>`.
-- Expect: a UUID. All playback routes below use this server id, not the Supabase room id.
+- Expect: a UUID. Because the room is registered first, this id is also the Supabase room id.
+  All playback routes below use it.
 - Evidence: the id string.
 
 ## C. Start playback and prove the lock window
@@ -111,8 +117,8 @@ portion clips under the locking rules.
 - Do: immediately `POST /api/jams/<jamId>/playback/advance` with
   `{ "expectedStateVersion": 2 }`.
 - Expect, while the clip is still generating:
-  `409 { "error": { "code": "media_not_ready", "retryable": true } }`.
-  The room holds on the current portion; nothing advances.
+  `409 { "error": { "code": "media_not_ready", "retryable": true } }`. The room holds on the
+  current portion; nothing advances.
 - Evidence: the error body.
 
 ## D. Generate and stream the video
@@ -122,7 +128,7 @@ portion clips under the locking rules.
 - Do: repeat a bounded `evaluate_script` that waits ~5 s and returns
   `GET /api/jams/<jamId>/playback`, until `portions[0].media === "ready"`.
 - Expect: `ready` within the provider's time budget (the server polls the provider up to
-  ~10 min per job). Record elapsed time and the bytes generated.
+  ~10 min per job). Record elapsed time and bytes generated.
 - If it never becomes `ready`: mark this section `BLOCKED` (not `FAIL`) with the last
   observed status, and report the provider response class without leaking URLs or keys.
 - Evidence: the final snapshot; `uj-02-media-ready.png`.
@@ -167,57 +173,84 @@ portion clips under the locking rules.
   `portions[0..2].media` all `ready`.
 - Skip this if the run must stay cheap; record that only the first clip was generated.
 
-## E. Generate the video failure path
+## E. Variant — Import a script (no provider call)
 
-### 13. Disabled providers are honest
+### 13. Import an existing script
+
+- Do: on `/jams/new`, choose `Import a script`.
+- Expect: the `Opening premise` field disappears and an `Existing script` textarea appears
+  (minLength 40, maxLength 9000). `Movie title` and a movie memory no longer exist in this
+  build.
+- Do: set title `UJ Imported <date>`, paste a ~600-character original synopsis paragraph,
+  total `0.2`, portions `4`–`4`; submit.
+- Expect:
+  - One `POST /api/jams` with `mode: "import"`, `source.kind: "imported-script"`,
+    `source.scriptTitle` = the jam title, `scriptMarkdown` = the pasted text, and the room's
+    `jamId`. **No Nebius call is made.**
+  - The script screen shows one `Scene 1 — Imported script` split into portions whose actions
+    are chunks of the pasted text, with contiguous times.
+  - The note reads `Imported into this Movie Jam as its own editable script.`
+  - `Open as markdown` returns the pasted text verbatim as revision 1.
+- Evidence: `uj-02-import.png`, `uj-02-import-script.png`.
+
+### 14. Import fit rules are honest
+
+- Do: import a script far too short for the chosen runtime (for example 20 characters with
+  `0.2` min), then one far too long.
+- Expect: `400 { "error": { "code": "invalid_script_import" } }` with
+  `This script is too short for the selected runtime. …` or
+  `This script is too long for the selected runtime. …`. The room stays registered; the
+  create screen shows the message and no script screen appears.
+- Evidence: both error bodies.
+
+## F. Generate-the-video failure path
+
+### 15. Disabled providers are honest
 
 - Do: only if `FAL_KEY`/`REVERIE_LIVE_ENABLED` are unset, `POST .../playback/start`.
-- Expect: `503 { "error": { "code": "generation_disabled",
-  "safeMessage": "Video generation is disabled: live providers are not configured on this
-  server." } }`. No clip is claimed, no fake media appears.
+- Expect: `503 { "error": { "code": "generation_disabled", "safeMessage": "Video generation
+  is disabled: live providers are not configured on this server." } }`. No clip is claimed,
+  no fake media appears.
 - Evidence: the error body.
 - If providers are configured, mark this step `BLOCKED` and say so.
 
-## F. Variant — from an existing movie (compact)
+## G. Honest create failures
 
-- Do: repeat steps 1–2 choosing `From an existing movie`, title `Arrival`, memory
-  `A linguist learns to talk with visitors.`
-- Expect: `source.kind` `from-movie` with `movieTitle`/`movieSummary`; the script markdown
-  `Source:` line reads `an original story inspired by “Arrival”`; the generated work stays
-  labelled generated and carries no `cat:` identifier.
-- Evidence: `uj-02-from-movie.png`, the markdown source line.
-
-## G. Honest create failures (run as a second setup)
-
-- Do: on a build **without** Supabase (environment C), with providers configured, create a
-  jam with the smallest format, then click `Open the studio`.
-- Expect: a notice that the room is a local preview only, and a `MOVIE JAM / LOCAL PREVIEW`
-  screen saying it is not a room and nothing is shared or stored. No invite code, lobby,
-  roster or composer.
-- Do: with providers disabled, submit the create form.
-- Expect: `Script generation is disabled: live providers are not configured on this server.`
-  and no script screen.
+- Do: with providers disabled, submit a `From scratch` jam.
+- Expect: the room is registered first, then the notice reads
+  `Jam registered, but its script is not ready: Script generation is disabled: live providers
+  are not configured on this server.` The tester stays on the create form; `/jams` lists the
+  new room without a script. This is the intended "registered but no script" state, not a
+  pass-through to the script screen.
+- Do: on a build **without** Supabase (environment C), create a jam with the smallest format,
+  then click `Open the studio`.
+- Expect: a notice that the jam is registered in the browser as a local preview only, and a
+  `MOVIE JAM / LOCAL PREVIEW` screen saying it is not a room and nothing is shared or stored.
+  No invite panel, lobby, roster or composer.
 - Do: exceed 5 creations in a minute if you must, and expect `429 rate_limited`
   (`Too many jams created; wait a minute.`) — expected, not a defect.
-- Evidence: `uj-02-preview-studio.png`, `uj-02-generation-disabled.png`.
+- Evidence: `uj-02-registered-no-script.png`, `uj-02-preview-studio.png`.
 
 ## Pass criteria
 
-- One submission creates one script and one persisted room; the URL changes to `/jams/<slug>`.
-- Portions sum to the requested format and timings are contiguous.
+- The room is registered before the script; the script artifact carries the same id.
+- One submission creates one script; the URL changes to `/jams/<slug>` on success.
+- Portions sum to the requested format and timings are contiguous, generated or imported.
 - A session records language/ambientation, is annotated in its own script view, and only the
   owner token can update it.
 - The playback lock window follows the contract: start → priming/locked 0; advance refused
   with `media_not_ready`; after advance → playing 0/locked 1.
 - A generated clip streams as `video/mp4` with Range support and no provider URL.
-- Every failure path keeps the user on the form or returns a typed error; nothing is faked.
+- The import variant performs no provider call and rejects scripts that do not fit the runtime.
+- Every failure path returns a typed error; nothing is faked.
 
 ## Failure signals
 
+- A script artifact whose id differs from the registered room id.
 - A script whose total or portion lengths contradict the requested format.
-- A success screen without a server jam id, or a second room created on retry.
 - A provider URL, key, prompt or raw body leaking into any response or the UI.
 - Advance succeeding before the clip is ready, or a clip streaming before it is ready.
+- The import path calling a model, or silently padding/slicing a script that does not fit.
 - A preview described as a shared room.
 
 ## Teardown
@@ -230,4 +263,4 @@ portion clips under the locking rules.
 - The `portion_locked` script-edit rejection from `docs/API_CONTRACTS.md` is specified but not
   wired into the script edit route in this build; do **not** assert it.
 - Per-session translated/re-ambiented media (not implemented; sessions only record settings).
-- Real catalogue validation of the movie title.
+- Live media / Vonage (separate slice).

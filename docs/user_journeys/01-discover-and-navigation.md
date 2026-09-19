@@ -1,19 +1,19 @@
-# UJ-01 — Discover and navigation
+# UJ-01 — Discover, jam registry and navigation
 
-Covers: the home screen and its entry points, the TV-first `/discover` experience (all four
-states, search, pagination, keyboard traversal, the detail dialog, the same-origin API
-guard), and what the app does when no catalogue or no Supabase is configured.
-Runtime: ~15 minutes.
+Covers: the home screen and its entry points, the `/jams` registry, the TV-first `/discover`
+experience (all four states, search, pagination, keyboard traversal, the detail dialog, the
+same-origin API guard), and what the app does when no catalogue or no Supabase is configured.
+Runtime: ~18 minutes.
 Environment: A, B or C. The "ready grid" section additionally needs a configured
 `TITAN_CATALOGUE_URL` + `TITAN_API_KEY`; without them that section is `BLOCKED` and the
 unconfigured state is the real assertion.
 
 ## Goal
 
-Prove a first-time visitor can reach every entry point, that Discover shows only authorized
-catalogue titles and never invents them, that it is usable with a remote/keyboard, and that
-missing configuration becomes an explicit state instead of a half-rendered grid or a fake
-room.
+Prove a first-time visitor can reach every entry point, that a host can find their jams, that
+Discover shows only authorized catalogue titles and never invents them, that it is usable
+with a remote/keyboard, and that missing configuration becomes an explicit state instead of a
+half-rendered grid or a fake room.
 
 ## Preconditions
 
@@ -21,7 +21,7 @@ room.
 - Record whether `TITAN_CATALOGUE_URL`/`TITAN_API_KEY` and Supabase are configured (say only
   `set`/`missing`).
 
-## A. Home and navigation
+## A. Home, registry and entry points
 
 ### 1. Load the home screen
 
@@ -36,29 +36,53 @@ room.
   - Footer text containing `REVERIE / MOVIE JAM` and `Made for HackBarna 2026`.
 - Evidence: `uj-01-home.png`.
 
-### 2. Start a Movie Jam
+### 2. Start a Movie Jam opens the registry
 
 - Do: click `Start a Movie Jam`.
-- Expect: URL `/jams/new`; heading `Set the first scene.`; a `Jam title` field and a
-  `Write the script` button. The screen must **not** present a room or a script.
+- Expect: URL `/jams`; heading `Your stories, still running.`; a `Start a new jam` button; a
+  list region that resolves from `Loading your jams…` to either jam cards or the empty state
+  `No running jams yet.`
+- Evidence: `uj-01-registry.png`.
+
+### 3. Registry states
+
+- Expect, depending on environment:
+  - Environment C: a status notice `Supabase is not configured. These are browser-only
+    preview registrations.`
+  - With Supabase and at least one jam: each card shows `STATUS · PUBLIC|INVITE ONLY`, the
+    title, the premise, and an `Open jam` button. Completed/closed jams are absent.
+  - With Supabase and no jams: `No running jams yet.` plus
+    `Your next room will appear here as soon as it is registered.`
+- Do: if a card exists, click `Open jam`.
+- Expect: URL `/jams/<slug>` and the room header appears (full behaviour in UJ-03); return to
+  `/jams`.
+- Evidence: `uj-01-registry-card.png`.
+
+### 4. Start a new jam
+
+- Do: on `/jams`, click `Start a new jam`.
+- Expect: URL `/jams/new`; heading `Set the first scene.`; `Jam title`; a `Story source`
+  radiogroup with `From scratch` and `Import a script`; the `Script length` group; a
+  `Who can join?` select; a `Write the script` button. No room or script is shown yet.
+- Do: click `← Back to your jams`.
+- Expect: URL `/jams` again.
 - Evidence: `uj-01-create.png`.
 
-### 3. Return home, then open join
+### 5. Join screen
 
-- Do: click `← Back to Reverie` (or the `REVERIE` brand); then click `Join with an invite`.
-- Expect: first `/` with the hero; then `/join` with heading `Take a seat in the room.`,
-  fields `Invite code` and `Your display name`, and a `Join the room` button (disabled when
-  the build has no Supabase).
+- Do: from `/`, click `Join with an invite`.
+- Expect: URL `/join`; heading `Take a seat in the room.`; fields `Invite code` and
+  `Your display name`; a `Join the room` button (disabled when the build has no Supabase).
 - Evidence: `uj-01-join.png`.
 
-### 4. Browser back/forward
+### 6. Browser back/forward
 
 - Do: from `/`, click `Start a Movie Jam`; then `navigate_page type=back`; then
   `type=forward`.
-- Expect: back returns to `/`; forward returns to `/jams/new`. No blank screen or error.
+- Expect: back returns to `/`; forward returns to `/jams`. No blank screen or error.
 - Evidence: one screenshot after each navigation.
 
-### 5. Open Discover and return
+### 7. Open Discover and return
 
 - Do: from `/` click `Discover real films`.
 - Expect: URL `/discover`; heading `Find something real to watch.`; a search field.
@@ -68,15 +92,15 @@ room.
 
 ## B. Discover states
 
-### 6. Loading state
+### 8. Loading state
 
-- Do: `navigate_page` to `/discover`; take a snapshot immediately.
+- Do: `navigate_page` to `/discover`; snapshot immediately.
 - Expect: a busy region reading `Loading catalogue titles…` while pending. Missing it because
   the response is instant is acceptable; note it.
 - Evidence: `list_network_requests` filtered to `/api/catalogue`; record status and that the
   request used `query`, `page=1`, `pageSize=24`.
 
-### 7. Assert the state the environment actually supports
+### 9. Assert the state the environment actually supports
 
 Read the `/api/catalogue` response and branch:
 
@@ -95,7 +119,7 @@ Read the `/api/catalogue` response and branch:
 
 ## C. Discover ready grid (only with a configured catalogue)
 
-### 8. Grid renders only real records
+### 10. Grid renders only real records
 
 - Do: `resize_page` to a TV-like size (for example `1920x1080`); snapshot.
 - Expect:
@@ -103,10 +127,10 @@ Read the `/api/catalogue` response and branch:
     `Catalogue title` when metadata is absent.
   - A missing poster renders `No artwork supplied`, not a broken image.
   - An attribution line appears when the API returns one.
-  - No generated Jam scene or `cat:`-less invented title appears.
+  - No generated Jam scene or invented title appears.
 - Evidence: `uj-01-grid.png`.
 
-### 9. Search and empty state
+### 11. Search and empty state
 
 - Do: focus `Search the catalogue` and type a distinctive term from a visible title.
 - Expect: after roughly 320 ms the grid updates; every card matches the term (or the empty
@@ -117,7 +141,7 @@ Read the `/api/catalogue` response and branch:
 - Expect: `No catalogue titles match` and `Nothing in the catalogue matches “…”`.
 - Evidence: `uj-01-search.png`, `uj-01-empty.png`.
 
-### 10. Keyboard traversal
+### 12. Keyboard traversal
 
 - Do: focus the search field, press `ArrowDown`, then `ArrowRight`, `ArrowLeft`,
   `ArrowDown`, `ArrowUp`.
@@ -127,7 +151,7 @@ Read the `/api/catalogue` response and branch:
 - Expect: focus moves to the row's first then last card.
 - Evidence: `uj-01-keyboard.png` after each move (focus ring visible).
 
-### 11. Title detail dialog
+### 13. Title detail dialog
 
 - Do: with a card focused, press `Enter` (repeat with `Space`).
 - Expect: a dialog opens named after the title, showing title, metadata, synopsis when
@@ -139,7 +163,7 @@ Read the `/api/catalogue` response and branch:
 - Expect: the dialog closes and focus returns to the card that opened it.
 - Evidence: `uj-01-detail.png`, `uj-01-detail-focus-trap.png`.
 
-### 12. Availability links are safe
+### 14. Availability links are safe
 
 - Only if availability entries are shown.
 - Do: inspect each `Where to watch` link.
@@ -147,7 +171,7 @@ Read the `/api/catalogue` response and branch:
   link is rendered. Rejected URLs are absent rather than broken.
 - Evidence: the dialog snapshot; do not follow the link.
 
-### 13. Pagination
+### 15. Pagination
 
 - Only when the response reports more than one page.
 - Do: click `Next →`.
@@ -155,7 +179,7 @@ Read the `/api/catalogue` response and branch:
   disabled on page 1.
 - Evidence: `uj-01-page-2.png`.
 
-### 14. The API refuses what it should
+### 16. The API refuses what it should
 
 - Do: `evaluate_script` a `fetch("/api/catalogue", { method: "POST" })` from the app origin.
 - Expect: `405 { "status": "error", "code": "METHOD_NOT_ALLOWED" }`.
@@ -165,14 +189,14 @@ Read the `/api/catalogue` response and branch:
 
 ## D. Unconfigured build states
 
-### 15. Join is unavailable, not simulated
+### 17. Join is unavailable, not simulated
 
 - Do: only in environment C, open `/join` and try to submit.
 - Expect: `Join the room` is disabled; a notice says Supabase is not configured in this
   build, so no jam can be joined from here; no RPC is sent and no fake lobby appears.
 - Evidence: `uj-01-join-disabled.png`.
 
-### 16. Health is process health only
+### 18. Health is process health only
 
 - Do: `navigate_page` to `/api/health`.
 - Expect: `{ "status": "ok", "service": "reverie-movie-jam" }`. This says nothing about
@@ -181,12 +205,13 @@ Read the `/api/catalogue` response and branch:
 
 ## Pass criteria
 
-- All entry points work and no route is blank or 404.
+- All entry points work and no route is blank or 404. `Start a Movie Jam` leads to the
+  registry, and `Start a new jam` leads to the create form.
+- The registry shows only open jams this identity may see, or an explicit empty/preview state.
 - The Discover state the environment supports is exactly one of the four, with expected copy.
 - No invented title, no generated Jam artifact, and no leaked credential or upstream URL.
 - Keyboard focus follows the grid and is trapped in the dialog; `Escape` restores focus.
 - The API guard rejects methods and out-of-range queries with typed JSON.
-- Missing Supabase is stated, never simulated.
 
 ## Failure signals
 
@@ -206,3 +231,4 @@ Read the `/api/catalogue` response and branch:
 
 - Real catalogue correctness beyond what the authorized endpoint returns.
 - Natural-language discovery turns (`POST /api/discover/turns` is not implemented).
+- Live media (Vonage), which is a separate slice.

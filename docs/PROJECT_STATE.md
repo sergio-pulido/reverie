@@ -339,6 +339,17 @@ remain unproven until `scripts/verify-realtime.mjs` completes against the migrat
   `GET /auth/v1/user` `403` → local sign-out → anonymous signup `200` →
   `POST /rest/v1/jams` `201`. `pnpm typecheck` and `pnpm test` (157 passing).
 
+## 2026-09-19 — Script screen actions specified (RV-12)
+
+- `docs/specs/script-screen-actions.md` records the goal and boundary of the three
+  script-screen actions: **Open the studio** (enter the collaborative room), **Open as
+  markdown** (the shared, unpersonalized screenplay export), and **Start my session** (a
+  personal playback seat on the same script).
+- It states the one mental model behind them — one authoritative script per jam, many playback
+  seats — and repeats the standing gap: a session records and exposes playback parameters only;
+  translated or re-ambiented rendering, and per-session generated media, are not implemented.
+- Documentation only; no code or runtime behaviour changed.
+
 ## Next milestones
 
 1. Apply every migration in `supabase/migrations` to a Supabase project and run

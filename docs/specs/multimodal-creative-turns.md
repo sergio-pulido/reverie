@@ -77,7 +77,11 @@ bucket's allowed mime types belonged to the other kind, and the failure was swal
 archive would have been lost without a sound. References have their own mime and size
 constraints, different again from generated clips and from archived segments, so they get a
 bucket rather than a prefix inside someone else's. And a store that swallows an upload error is
-worse than one that fails loudly: it loses the contribution silently.
+worse than one that fails loudly: it loses the contribution silently. The same applies to
+reporting the wrong *kind* of failure — Supabase Storage answers a missing object with HTTP 400
+carrying a 404 in the body, so a status-code check turns "no such reference" into "the store is
+unavailable", and a caller retries something that will never succeed. Both defects were legible
+only against a real bucket; neither was visible to unit tests with an injected fetch.
 
 **Voice.** The speech-to-text half of this **already exists and should be reused, not rebuilt.**
 `apps/server/providers/slng.ts` is a typed SLNG adapter with a server-owned model allowlist

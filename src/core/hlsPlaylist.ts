@@ -31,6 +31,16 @@ export interface MediaPlaylistInput {
   segmentUri: (sequence: number) => string;
   /** True once the session has stopped and no segment will ever follow. */
   ended: boolean;
+  /**
+   * `VOD` for a finished session served from durable storage.
+   *
+   * A live window carries no type at all, because both of the ones HLS offers
+   * are promises it breaks: `VOD` says the playlist never changes, `EVENT` says
+   * nothing is ever removed, and a sliding window does both. A recording read
+   * back from the archive breaks neither, and saying so lets a player seek
+   * through it instead of treating it as a stream that happens to have stopped.
+   */
+  playlistType?: "VOD";
 }
 
 /** HLS version 7 is the floor for `EXT-X-MAP`, which fMP4 delivery requires. */
@@ -54,11 +64,13 @@ export function buildMediaPlaylist(input: MediaPlaylistInput): string {
     `#EXT-X-VERSION:${PLAYLIST_VERSION}`,
     `#EXT-X-TARGETDURATION:${target}`,
     `#EXT-X-MEDIA-SEQUENCE:${segments[0]?.sequence ?? 0}`,
-    // A live stream carries no EXT-X-PLAYLIST-TYPE: VOD would promise the
-    // playlist never changes, and EVENT would promise nothing is ever removed.
-    // This window drops its oldest segment, so neither is true.
-    `#EXT-X-MAP:URI="${initUri}"`,
   ];
+  // A live stream carries no EXT-X-PLAYLIST-TYPE: VOD would promise the
+  // playlist never changes, and EVENT would promise nothing is ever removed.
+  // This window drops its oldest segment, so neither is true. A finished
+  // session read back from the archive is genuinely VOD and says so.
+  if (input.playlistType) lines.push(`#EXT-X-PLAYLIST-TYPE:${input.playlistType}`);
+  lines.push(`#EXT-X-MAP:URI="${initUri}"`);
   for (const segment of segments) {
     lines.push(`#EXTINF:${segment.durationSeconds.toFixed(3)},`);
     lines.push(segmentUri(segment.sequence));

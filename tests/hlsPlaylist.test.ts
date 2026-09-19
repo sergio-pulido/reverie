@@ -97,3 +97,20 @@ test("a window must have room for at least one segment", () => {
   assert.throws(() => new HlsSegmentWindow(0), /hls_window_capacity_invalid/);
   assert.throws(() => new HlsSegmentWindow(1.5), /hls_window_capacity_invalid/);
 });
+
+test("a finished session read back from the archive is VOD, and says so", () => {
+  // The live window claims no type because it breaks both promises HLS offers.
+  // An archived session breaks neither, and a player that knows it is VOD can
+  // seek through it instead of treating it as a stream that stopped.
+  const text = buildMediaPlaylist({
+    segments: [{ sequence: 0, durationSeconds: 2 }],
+    initUri: "init.mp4",
+    segmentUri: uri,
+    ended: true,
+    playlistType: "VOD",
+  });
+  assert.match(text, /#EXT-X-PLAYLIST-TYPE:VOD\n/);
+  assert.ok(text.includes("#EXT-X-ENDLIST"));
+  // Order matters to strict parsers: the type precedes the map.
+  assert.ok(text.indexOf("#EXT-X-PLAYLIST-TYPE") < text.indexOf("#EXT-X-MAP"));
+});

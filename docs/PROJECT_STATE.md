@@ -708,6 +708,66 @@ project (it was applied by hand, so no tracking table records it). Each run of
   (`voiceState`) are pure functions that are tested. The rate limit and concurrency cap are per
   instance.
 
+## 2026-09-19 — Discover voice streams live partials through SLNG
+
+- While the viewer speaks, what has been heard so far appears under the field ("Hearing · A scary
+  film under two hours."), updating as they talk. Partials are **display only**: they never enter
+  the field and are never sent. On stop, the stream's final transcript lands in the field exactly as
+  stage 1's did, editable and not submitted.
+- Path: the page taps the microphone into a 16 kHz audio context (AudioWorklet), sends 100 ms
+  frames of 16-bit PCM over a same-origin WebSocket, `/api/voice/stream`, to our Node server, which
+  checks origin, rate (20 connections a minute), concurrency (4), the viewer's Supabase token (first
+  message, within 5 s), frame and total size, and relays the audio to SLNG's WebSocket
+  (`wss://us-east.api.slng.ai/v1/stt/slng/deepgram/nova:3-en`) with the key on the server side only.
+  SLNG's `Results` are validated with Zod; `is_final` segments make the transcript, interim ones only
+  the display.
+- Checked live on 2026-09-19, and not in SLNG's reference: this route accepts only `linear16`
+  (`encoding must be canonical linear16 for this qualified STT provider route` for WebM/Opus), and
+  rejects every control message the reference lists (`finalize`, `close`, `keepalive` each close
+  the socket with 1008). So on stop the relay appends 700 ms of silence, and answers as soon as a
+  result has heard past the point where the viewer stopped (`start + duration`), or SLNG marks
+  `speech_final`, with nothing pending. If no final comes within 3 s, the stream fails.
+- Fallback: the Opus recording from stage 1 runs alongside the stream the whole time, in memory. If
+  the socket cannot open, drops, errors, times out, or returns no words, the recording is uploaded
+  to `POST /api/voice/transcribe` and the viewer loses nothing. Vercel functions cannot hold a
+  WebSocket, so a deployed build takes this upload path; the live stream needs the Node server
+  (`pnpm dev`, `pnpm start`, the Docker image).
+- **Measurements (stage 2, streaming), 2026-09-19.** Same method, clips and machine as stage 1.
+  - 15 runs: stop → transcript in the field 104, 166, 167, 232, 239, 247, 252, 259, 259, 271, 295,
+    299, 320, 326 and 2,136 ms — **median 259 ms**, 14 of 15 under 330 ms (stage 1's median was
+    794 ms). The server's own stop → final was 92–319 ms (median 234 ms) in all 15, including the
+    2,136 ms run, whose extra time was spent in the browser and was not isolated.
+  - **Time to first partial**: 1,212–1,401 ms from the start of recording (median 1,245 ms). Each
+    clip starts with 0.4 s of silence, so that is about 0.8–1.0 s after the first word. The server
+    measured 1,094–1,282 ms from the first audio frame it received.
+  - Transcripts were exact in 13 of 15. The two others were the first clip in each batch, where the
+    fake microphone again delivered only 0.94 s of audio (30,208 bytes); the relay transcribed what
+    it got ("Something"). Punctuation can differ from HTTP: "A scary film under two hours. Please."
+  - Failed runs: the first streaming run after a server restart, before the endpoint rule above
+    existed, received no results from SLNG; the stream answered empty after 3 s and the upload
+    fallback put the full sentence in the field 3,897 ms after stop. Not reproduced in 17 later runs.
+    Forced faults in the page: a socket that never opens → upload, full sentence, 970 ms; a socket
+    closed 1.5 s into recording → upload, full sentence, 566 ms.
+  - Audio sent: **32,000 bytes a second** (16 kHz, 16-bit, mono linear16; 98,304 bytes for a 3.07 s
+    recording), about ten times the Opus upload, because this route accepts nothing else. 16 kHz is
+    the rate the model is tuned for and the lowest that keeps speech intelligible to it.
+  - A streamed turn end to end: "A scary film under two hours. Please." — three partials on screen
+    while speaking, the final in the field 271 ms after stop, sent with OK, accepted by the engine,
+    Discover narrowed to 3,902 titles, Horror and Under 120 min, ranked by the assistant.
+  - Cost: the same published $0.0065 per audio minute (SLNG's table gives one price per model). A
+    streamed request is the recording plus 0.7 s of appended silence, 3–4 s for a typical request,
+    **about $0.0003–$0.0004 per spoken turn**. A turn that falls back pays for both.
+- Code: `src/voice/{streamProtocol,streamClient,pcmCapture}.ts`, `apps/server/voiceStream.ts`
+  (attached to the Node server in `apps/server/index.ts`), stream parsing and `hear` in
+  `apps/server/providers/slng.ts`, `streamedAnswer` in `voiceState`, and the partial line in
+  `ConversationBar`.
+- Verified: `pnpm test` (435/435, with `tests/voiceStream.test.ts` driving the relay over a real
+  local socket against a scripted SLNG), `pnpm typecheck`, `pnpm build`; the rebuilt `dist/` again
+  contains no key, key name, key prefix or SLNG host.
+- **Known gaps:** as in stage 1, no person has spoken into it; synthesised speech through Chrome's
+  fake microphone only. The streaming path cannot run on Vercel. The 0.94 s capture on a cold
+  browser launch is attributed to the fake device, not proven.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

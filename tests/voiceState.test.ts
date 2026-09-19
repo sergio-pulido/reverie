@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { MAX_MESSAGE_CHARS } from "../src/conversation/decision";
 import { acceptedContentType } from "../src/voice/contract";
-import { mergeIntoDraft, outcomeOf, pressAction, voiceLabel } from "../src/voice/voiceState";
+import { toPcm16 } from "../src/voice/pcmCapture";
+import { mergeIntoDraft, outcomeOf, pressAction, streamedAnswer, voiceLabel } from "../src/voice/voiceState";
 
 describe("voice outcomes", () => {
   it("puts only a final, non-blank transcript into the field", () => {
@@ -53,5 +54,31 @@ describe("the voice control", () => {
     assert.equal(acceptedContentType("audio/ogg; codecs=opus"), "audio/ogg");
     assert.equal(acceptedContentType("video/webm"), null);
     assert.equal(acceptedContentType(undefined), null);
+  });
+});
+
+describe("the live stream", () => {
+  const timings = { firstPartialMs: 900, stopToFinalMs: 400, audioBytes: 64_000 };
+
+  it("uses the stream's final only when it has words; otherwise the recording is uploaded", () => {
+    assert.deepEqual(streamedAnswer({ kind: "final", transcript: " A comedy. ", timings }), {
+      status: "ok",
+      transcript: "A comedy.",
+      audioSeconds: 2,
+      model: "stream",
+      providerMs: 400,
+    });
+    assert.equal(streamedAnswer({ kind: "final", transcript: "  ", timings }), null);
+    assert.equal(streamedAnswer({ kind: "failed", code: "STREAM_CLOSED" }), null);
+    assert.equal(streamedAnswer(null), null);
+  });
+
+  it("encodes samples as little-endian 16-bit PCM and clips out-of-range values", () => {
+    const view = new DataView(toPcm16(new Float32Array([0, 1, -1, 2, -2, 0.5])));
+    assert.equal(view.byteLength, 12);
+    assert.deepEqual(
+      [0, 1, 2, 3, 4, 5].map((index) => view.getInt16(index * 2, true)),
+      [0, 32767, -32768, 32767, -32768, 16383],
+    );
   });
 });

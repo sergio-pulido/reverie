@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { VOICE_LIMITS } from "./contract";
 import { MicrophoneError, startRecording, type Recording } from "./recorder";
+import { openStream, type StreamSession } from "./streamClient";
 import { requestTranscript } from "./voiceClient";
-import { MICROPHONE_MESSAGES, outcomeOf, pressAction, type VoicePhase } from "./voiceState";
+import { MICROPHONE_MESSAGES, outcomeOf, pressAction, streamedAnswer, type VoicePhase } from "./voiceState";
 
 type VoiceInputOptions = {
   /** A final transcript, for the conversation field. Never sent as a turn from here. */
@@ -11,19 +12,23 @@ type VoiceInputOptions = {
 
 /**
  * Press to talk. One press opens the microphone and records; the next press (or the time limit)
- * stops, uploads the recording and hands the final transcript back. Every failure ends in a
- * plain notice and the idle state, so typing always keeps working.
+ * stops and hands the final transcript back. While recording, the audio also streams to the
+ * server and what has been heard so far comes back as `partial`, for the screen only. On stop the
+ * stream's final is used when it has words; otherwise the recording, kept all along, is uploaded.
+ * Every failure ends in a plain notice and the idle state, so typing always keeps working.
  *
- * Latency is recorded with the User Timing API: `voice:stop-to-transcript` runs from the moment
- * recording stops to the moment the transcript (or notice) is back, and carries the upload's
- * size, length and the provider's own time in its detail.
+ * Latency is recorded with the User Timing API: `voice:first-partial` runs from recording start
+ * to the first partial, and `voice:stop-to-transcript` from the moment recording stops to the
+ * moment the transcript (or notice) is back, with the path taken and the sizes in its detail.
  */
 export function useVoiceInput({ onTranscript }: VoiceInputOptions) {
   const [phase, setPhase] = useState<VoicePhase>("idle");
   const [level, setLevel] = useState(0);
   const [secondsLeft, setSecondsLeft] = useState<number>(VOICE_LIMITS.maxRecordingSeconds);
   const [notice, setNotice] = useState<string | null>(null);
+  const [partial, setPartial] = useState("");
   const recording = useRef<Recording | null>(null);
+  const stream = useRef<StreamSession | null>(null);
   const phaseRef = useRef<VoicePhase>("idle");
   const deadline = useRef<number | null>(null);
   const deliver = useRef(onTranscript);
@@ -48,11 +53,20 @@ export function useVoiceInput({ onTranscript }: VoiceInputOptions) {
     moveTo("transcribing");
     setLevel(0);
     performance.mark("voice:stop");
+    const session = stream.current;
+    stream.current = null;
+    // The recorder flushes its last PCM frame on stop, so the stream is told to finish after it.
     const audio = await active.stop();
-    const answer = await requestTranscript(audio);
+    const streamed = session && active.streaming ? await session.finish() : null;
+    if (!active.streaming) session?.cancel();
+    const fromStream = streamedAnswer(streamed);
+    const answer = fromStream ?? (await requestTranscript(audio));
     performance.measure("voice:stop-to-transcript", {
       start: "voice:stop",
       detail: {
+        path: fromStream ? "stream" : "upload",
+        streamResult: streamed ? (streamed.kind === "final" ? "final" : streamed.code) : "none",
+        streamTimings: streamed?.kind === "final" ? streamed.timings : null,
         bytes: audio.size,
         type: audio.type,
         status: answer?.status ?? "unreachable",
@@ -62,6 +76,7 @@ export function useVoiceInput({ onTranscript }: VoiceInputOptions) {
     });
     if (!mounted.current) return;
     const outcome = outcomeOf(answer);
+    setPartial("");
     moveTo("idle");
     if (outcome.kind === "text") {
       setNotice(null);
@@ -79,15 +94,31 @@ export function useVoiceInput({ onTranscript }: VoiceInputOptions) {
       moveTo("idle");
       setNotice(MICROPHONE_MESSAGES.timeout);
     }, VOICE_LIMITS.microphoneOpenMs);
+    setPartial("");
+    let firstPartial = true;
+    const session = typeof WebSocket === "undefined" ? null : openStream((text) => {
+      if (!mounted.current || phaseRef.current === "idle") return;
+      if (firstPartial && performance.getEntriesByName("voice:start").length > 0) {
+        firstPartial = false;
+        performance.measure("voice:first-partial", { start: "voice:start" });
+      }
+      setPartial(text);
+    });
     try {
-      const active = await startRecording((value) => {
-        if (mounted.current) setLevel(value);
-      });
+      const active = await startRecording(
+        (value) => {
+          if (mounted.current) setLevel(value);
+        },
+        session ? session.sendPcm : undefined,
+      );
       if (!mounted.current || phaseRef.current !== "starting") {
         active.cancel();
+        session?.cancel();
         return;
       }
       recording.current = active;
+      stream.current = session;
+      performance.mark("voice:start");
       moveTo("recording");
       const endsAt = performance.now() + VOICE_LIMITS.maxRecordingSeconds * 1_000;
       setSecondsLeft(VOICE_LIMITS.maxRecordingSeconds);
@@ -97,6 +128,7 @@ export function useVoiceInput({ onTranscript }: VoiceInputOptions) {
         if (left <= 0) void stop();
       }, 250);
     } catch (error) {
+      session?.cancel();
       // A refusal that arrives after the viewer gave up, or after the open timed out, stays quiet.
       if (phaseRef.current !== "starting") return;
       moveTo("idle");
@@ -121,8 +153,10 @@ export function useVoiceInput({ onTranscript }: VoiceInputOptions) {
       clearDeadline();
       recording.current?.cancel();
       recording.current = null;
+      stream.current?.cancel();
+      stream.current = null;
     };
   }, []);
 
-  return { phase, level, secondsLeft, notice, press };
+  return { phase, level, secondsLeft, notice, partial, press };
 }

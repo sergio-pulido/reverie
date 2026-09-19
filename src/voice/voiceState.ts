@@ -1,5 +1,6 @@
 import { MAX_MESSAGE_CHARS } from "../conversation/decision";
 import type { VoiceResponse } from "./contract";
+import type { StreamResult } from "./streamClient";
 
 /**
  * The voice control's states, and what each outcome means for the conversation field. Only a
@@ -78,4 +79,16 @@ export function pressAction(phase: VoicePhase): "start" | "stop" | "cancel" | "i
   if (phase === "recording") return "stop";
   if (phase === "starting") return "cancel";
   return "ignore";
+}
+
+/**
+ * What the live stream's result means: a final with words is the answer; anything else (no
+ * stream, a failure, or no words heard) means the recording is uploaded instead, so nothing the
+ * viewer said is lost to a stream that went wrong.
+ */
+export function streamedAnswer(result: StreamResult | null): VoiceResponse | null {
+  if (!result || result.kind !== "final") return null;
+  const transcript = result.transcript.trim();
+  if (!transcript) return null;
+  return { status: "ok", transcript, audioSeconds: result.timings.audioBytes / 32_000, model: "stream", providerMs: result.timings.stopToFinalMs };
 }

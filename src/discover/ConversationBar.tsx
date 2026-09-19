@@ -94,6 +94,13 @@ export function ConversationBar({ conversation, pending, inputRef, onSend, onExi
         </button>
       </form>
 
+      {voice.partial && voice.phase !== "idle" && (
+        <p className="discover-talk-line discover-voice-partial" aria-live="polite">
+          <span className="sr-only">Hearing: </span>
+          {voice.partial}
+        </p>
+      )}
+
       {voice.notice && (
         <p className="discover-talk-line discover-talk-system discover-voice-notice" role="status">
           {voice.notice}

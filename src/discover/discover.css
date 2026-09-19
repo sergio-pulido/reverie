@@ -377,6 +377,9 @@
 .discover-voice-recording .discover-voice-meter { visibility: visible; }
 .discover-voice-starting, .discover-voice-transcribing { opacity: .8; }
 .discover-voice-transcribing .discover-voice-dot { background: #ffd9a8; }
+/* What is being heard, as it is heard: shown, never sent, and never in the field. */
+.discover-voice-partial { color: #ffe6b8; font-style: italic; }
+.discover-voice-partial::before { content: "Hearing · "; color: #8d93ad; font-family: "DM Mono", monospace; font-size: 16px; font-style: normal; letter-spacing: .1em; }
 @keyframes discover-voice-pulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) {
   .discover-voice-recording .discover-voice-dot { animation: none; }

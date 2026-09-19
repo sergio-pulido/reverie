@@ -128,3 +128,89 @@ export async function transcribe(config: SlngConfig, input: TranscribeInput): Pr
     audioSeconds: parsed.data.metadata?.duration ?? null,
   };
 }
+
+/*
+ * Streaming over WebSocket. Checked against the live route on 2026-09-19: it accepts only
+ * `linear16` (WebM/Opus is refused), sends Deepgram-style `Results` with `is_final` and
+ * `speech_final`, and answers every control message (`finalize`, `close`, `keepalive`) with an
+ * error and a 1008 close. The utterance is ended by SLNG's own endpointing, so a caller that wants
+ * the final appends silence rather than asking for it.
+ */
+
+/** The first message on the upstream socket. */
+export const STREAM_INIT = {
+  type: "init",
+  config: { encoding: "linear16", sample_rate: 16_000, language: "en", enable_partials: true, punctuate: true },
+} as const;
+
+const resultsSchema = z.object({
+  type: z.literal("Results"),
+  is_final: z.boolean().optional(),
+  speech_final: z.boolean().optional(),
+  channel: z.object({ alternatives: z.array(z.object({ transcript: z.string() })).min(1) }),
+  start: z.number().nonnegative().optional(),
+  duration: z.number().nonnegative().optional(),
+});
+const upstreamErrorSchema = z.object({ type: z.enum(["error", "Error"]) });
+const typedSchema = z.object({ type: z.string() });
+
+export type UpstreamEvent =
+  | {
+      kind: "results";
+      transcript: string;
+      isFinal: boolean;
+      speechFinal: boolean;
+      /** How far into the stream this result has heard, in seconds, when SLNG says. */
+      heardUntil: number | null;
+    }
+  | { kind: "error" }
+  /** Metadata, UtteranceEnd, SpeechStarted: nothing the transcript depends on. */
+  | { kind: "other" }
+  | { kind: "invalid" };
+
+/** Reads one upstream text message; anything unexpected is `invalid`, never half-read. */
+export function parseUpstreamEvent(raw: string): UpstreamEvent {
+  let json: unknown;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    return { kind: "invalid" };
+  }
+  const results = resultsSchema.safeParse(json);
+  if (results.success) {
+    return {
+      kind: "results",
+      transcript: results.data.channel.alternatives[0].transcript.trim(),
+      isFinal: results.data.is_final ?? false,
+      speechFinal: results.data.speech_final ?? false,
+      heardUntil: results.data.start !== undefined && results.data.duration !== undefined ? results.data.start + results.data.duration : null,
+    };
+  }
+  if (upstreamErrorSchema.safeParse(json).success) return { kind: "error" };
+  const typed = typedSchema.safeParse(json);
+  if (typed.success && typed.data.type !== "Results") return { kind: "other" };
+  return { kind: "invalid" };
+}
+
+/**
+ * What has been heard: the finalized segments in order, plus the latest partial of the segment
+ * still in progress. Only `finals` may ever become the transcript.
+ */
+export type HeardSoFar = { finals: readonly string[]; partial: string };
+
+export const NOTHING_HEARD: HeardSoFar = { finals: [], partial: "" };
+
+export function hear(heard: HeardSoFar, event: Extract<UpstreamEvent, { kind: "results" }>): HeardSoFar {
+  if (!event.isFinal) return { finals: heard.finals, partial: event.transcript };
+  return { finals: event.transcript ? [...heard.finals, event.transcript] : heard.finals, partial: "" };
+}
+
+/** Everything heard, for display. */
+export function shownText(heard: HeardSoFar): string {
+  return [...heard.finals, heard.partial].filter(Boolean).join(" ");
+}
+
+/** The final transcript: finalized segments only. */
+export function finalText(heard: HeardSoFar): string {
+  return heard.finals.join(" ").trim();
+}

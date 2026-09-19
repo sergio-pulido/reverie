@@ -1,3 +1,4 @@
+import { capturePcm } from "./pcmCapture";
 import type { MicrophoneFailure } from "./voiceState";
 
 /**
@@ -22,6 +23,8 @@ export type Recording = {
   stop: () => Promise<Blob>;
   /** Stops capture and discards the audio. */
   cancel: () => void;
+  /** True when PCM frames are also being delivered for the live stream. */
+  streaming: boolean;
 };
 
 function pickMimeType(): string | undefined {
@@ -59,7 +62,11 @@ function watchLevel(stream: MediaStream, onLevel: (level: number) => void): () =
   };
 }
 
-export async function startRecording(onLevel: (level: number) => void): Promise<Recording> {
+/**
+ * Opens the microphone and records. With `onPcm`, the same audio is also delivered as 16 kHz PCM
+ * frames for the live stream; the recording is always kept too, so the upload path can take over.
+ */
+export async function startRecording(onLevel: (level: number) => void, onPcm?: (frame: ArrayBuffer) => void): Promise<Recording> {
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") throw new MicrophoneError("unsupported");
 
   let stream: MediaStream;
@@ -85,7 +92,9 @@ export async function startRecording(onLevel: (level: number) => void): Promise<
     if (event.data.size > 0) chunks.push(event.data);
   });
   const stopLevel = watchLevel(stream, onLevel);
+  const stopPcm = onPcm ? await capturePcm(stream, onPcm) : null;
   const release = () => {
+    stopPcm?.();
     stopLevel();
     stream.getTracks().forEach((track) => track.stop());
   };
@@ -111,5 +120,6 @@ export async function startRecording(onLevel: (level: number) => void): Promise<
       chunks.length = 0;
       release();
     },
+    streaming: stopPcm !== null,
   };
 }

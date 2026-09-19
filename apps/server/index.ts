@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer as createViteServer } from "vite";
 import { createApiApp } from "./app";
+import { attachVoiceStream } from "./voiceStream";
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const rootDirectory = path.resolve(currentDirectory, "../..");
@@ -33,9 +34,10 @@ async function start() {
     });
   }
 
-  app.listen(port, host, () => {
+  const server = app.listen(port, host, () => {
     console.log(`Reverie is ready at http://${host}:${port}`);
   });
+  attachVoiceStream(server);
 }
 
 void start();

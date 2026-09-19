@@ -990,6 +990,30 @@ editor); (3) create an OpenSubtitles API consumer, set `OPENSUBTITLES_API_KEY`, 
 3 h at 2.5 req/s) and re-emit and apply the SQL; (4) open a sample of film pages to see the
 facts. The ADP directory is newest-first, so re-crawl it by deleting `adp-pages.jsonl`. Pages
 shift while it grows.
+## 2026-09-19 — Next-increment target functionality specified
+
+- Four capabilities that the product intends and the code does not have are now specified as
+  target documents under `docs/specs/`, each opening with an explicit
+  "Status: intended, not implemented" line: the versioned transactional scene contract
+  (`transactional-scene-contract.md`), script version lines and chat-driven editing
+  (`script-forking-and-chat-editing.md`), the session-as-room-seat unification
+  (`session-as-room-seat.md`), and multimodal contributions as creative turns
+  (`multimodal-creative-turns.md`).
+- The through-line is that nothing gains a second authority path. A reference becomes a story
+  input only by being attached to a proposal; a fork changes the shared script only by being
+  adopted; both land through the same command envelope as scene acceptance
+  (`expectedStateVersion`, idempotent `requestId`, serialized commit), and all of them are
+  refused with `portion_locked` where they would touch a played or locked portion.
+- The already-implemented portion lock window is the constraint these specs are written around
+  rather than against: a fork may edit any portion, and may not always be adopted; an accepted
+  scene turn is an edit like any other; structural edits stay forbidden because flat portion
+  indices are the generation job key.
+- `docs/specs/intended-vs-implemented.md` gains seven rows and cross-links, `docs/API_CONTRACTS.md`
+  gains the planned fork, chat and reference routes plus the vote/accept RPC shape, and
+  `docs/STATE_MACHINE.md` now marks the scene lifecycle as wholly unimplemented and the
+  media-reference lifecycle as live-only.
+- **Documentation only.** No application code, test, migration or provider call was added or
+  changed in this slice, and nothing here is a claim that any of it works.
 
 ## 2026-09-19 — A public landing page at `/`
 

@@ -1,5 +1,7 @@
 import type { DirectorState } from "../core/directorProtocol";
 import type { DirectorAuditEntry } from "../core/directorAudit";
+import type { DirectorBeatWindow } from "../core/directorBeats";
+import type { SessionSettings } from "../core/session";
 
 /**
  * Client for the server-proxied live director.
@@ -22,14 +24,18 @@ export class DirectorSessionError extends Error {
 
 export interface OpenedDirectorSession {
   sessionId: string;
+  /** True when this joined a stream that was already running for this configuration. */
+  attached: boolean;
   maxSessionSeconds: number;
   /** False when the server has no object storage: the recording is lost on restart. */
   recordingDurable: boolean;
   state: DirectorState;
+  beats: DirectorBeatWindow;
 }
 
 export interface DirectorSnapshot {
   state: DirectorState;
+  beats: DirectorBeatWindow;
   audit: DirectorAuditEntry[];
   droppedAuditEntries: number;
 }
@@ -49,9 +55,18 @@ async function call<T>(url: string, init?: RequestInit): Promise<T> {
   return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
 }
 
-export function startDirectorSession(jamId: string): Promise<OpenedDirectorSession> {
+/**
+ * Opens the stream for a configuration, or joins the one already running for
+ * it. Everyone watching the same configuration shares one paid stream.
+ */
+export function startDirectorSession(
+  jamId: string,
+  configuration?: SessionSettings | null,
+): Promise<OpenedDirectorSession> {
   return call<OpenedDirectorSession>(`/api/jams/${jamId}/director/session`, {
     method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(configuration ? { configuration } : {}),
   });
 }
 
@@ -66,8 +81,14 @@ export function readDirectorSession(
 export function sendDirection(
   jamId: string,
   sessionId: string,
-  direction: { body: string; authorId?: string; proposalId?: string },
-): Promise<{ promptVersion: number; state: DirectorState }> {
+  direction: {
+    body: string;
+    authorId?: string;
+    proposalId?: string;
+    /** The outline beat this rewrites; the server refuses a locked one. */
+    beatIndex?: number;
+  },
+): Promise<{ promptVersion: number; state: DirectorState; beats: DirectorBeatWindow }> {
   return call(`/api/jams/${jamId}/director/session/${sessionId}/direct`, {
     method: "POST",
     headers: { "content-type": "application/json" },

@@ -26,7 +26,7 @@ const CONFIG: DirectorConfig = {
 const LIMITS = {
   budgetUsd: 1000,
   usdPerSecond: 0.08,
-  maxConcurrentSessions: 1,
+  maxConcurrentSessions: 2,
   maxSessionSeconds: 60,
 };
 
@@ -271,20 +271,76 @@ test("an unknown jam is refused before any provider call", async () => {
   assert.equal(offers.length, 0);
 });
 
-test("a jam may hold only one stream, and the slot frees on end", async () => {
+test("a second viewer on the same configuration attaches to the one stream", async () => {
   const { jam, sessionId } = await openJamSession();
+
+  // Not a refusal: the same film is already being paid for, so this viewer
+  // joins it rather than buying a second copy.
   const second = await fetch(`${baseUrl}/api/jams/${jam.id}/director/session`, {
     method: "POST",
   });
-  assert.equal(second.status, 409);
-  assert.equal((await second.json()).error.code, "already_open");
+  assert.equal(second.status, 200);
+  const joined = await second.json();
+  assert.equal(joined.attached, true);
+  assert.equal(joined.sessionId, sessionId);
+  assert.ok(joined.beats);
 
   assert.equal((await endSession(jam.id, sessionId)).status, 204);
   const third = await fetch(`${baseUrl}/api/jams/${jam.id}/director/session`, {
     method: "POST",
   });
   assert.equal(third.status, 201);
+  assert.equal((await third.clone().json()).attached, false);
   await endSession(jam.id, (await third.json()).sessionId);
+});
+
+test("a different configuration gets its own stream", async () => {
+  const jam = buildJam();
+  await store.createJam(jam);
+  const open = (configuration?: Record<string, string>) =>
+    fetch(`${baseUrl}/api/jams/${jam.id}/director/session`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(configuration ? { configuration } : {}),
+    });
+
+  const english = await open({ language: "en", ambientation: "" });
+  assert.equal(english.status, 201);
+  const spanish = await open({ language: "es", ambientation: "" });
+  assert.equal(spanish.status, 201);
+  const first = await english.json();
+  const second = await spanish.json();
+  assert.notEqual(first.sessionId, second.sessionId);
+
+  // Casing and spacing are cosmetic, so they must not multiply streams.
+  const sameAgain = await open({ language: "ES", ambientation: "  " });
+  assert.equal(sameAgain.status, 200);
+  assert.equal((await sameAgain.json()).sessionId, second.sessionId);
+
+  await endSession(jam.id, first.sessionId);
+  await endSession(jam.id, second.sessionId);
+});
+
+test("a third configuration is refused once the streams are full", async () => {
+  const jam = buildJam();
+  await store.createJam(jam);
+  const open = (language: string) =>
+    fetch(`${baseUrl}/api/jams/${jam.id}/director/session`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ configuration: { language, ambientation: "" } }),
+    });
+
+  const a = await open("en");
+  const b = await open("es");
+  assert.equal(a.status, 201);
+  assert.equal(b.status, 201);
+  const c = await open("fr");
+  assert.equal(c.status, 409);
+  assert.equal((await c.json()).error.code, "too_many_sessions");
+
+  await endSession(jam.id, (await a.json()).sessionId);
+  await endSession(jam.id, (await b.json()).sessionId);
 });
 
 test("a failed handshake releases the reservation and closes the peer", async () => {
@@ -374,6 +430,89 @@ test("the audit records where the stream stood when a direction was sent", async
   // "Which beat was playing when this was sent" is what an audit gets asked.
   assert.equal(sent.scriptOffsetSeconds, 10);
   assert.equal(audit.state.scriptOffsetSeconds, 10);
+
+  await endSession(jam.id, sessionId);
+});
+
+test("a direction on a locked beat is refused, and says which are still open", async () => {
+  const { jam, sessionId } = await openJamSession();
+  peer.channel.open();
+  // Beat 1 is on screen; beat 2 is already committed to generation.
+  peer.channel.deliver({
+    type: "chunk",
+    chunk_index: 0,
+    prompt_version: 1,
+    playback_seconds: 5,
+    script_offset_seconds: 5,
+  });
+
+  const direct = (beatIndex: number) =>
+    fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/direct`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ body: "Rewrite this beat.", beatIndex }),
+    });
+
+  for (const locked of [0, 1, 2]) {
+    const response = await direct(locked);
+    assert.equal(response.status, 409, `beat ${locked}`);
+    const body = await response.json();
+    assert.equal(body.error.code, "beat_locked");
+    assert.equal(body.error.retryable, false);
+    assert.equal(body.beats.minEditableBeatIndex, 3);
+  }
+
+  // Beat 3 is far enough ahead to still change.
+  const open = await direct(3);
+  assert.equal(open.status, 202);
+  assert.deepEqual((await open.json()).beats, {
+    currentBeatIndex: 1,
+    lockedBeatIndex: 2,
+    minEditableBeatIndex: 3,
+  });
+
+  await endSession(jam.id, sessionId);
+});
+
+test("direction without a beat index is not gated by the lock", async () => {
+  const { jam, sessionId } = await openJamSession();
+  peer.channel.open();
+  peer.channel.deliver({
+    type: "chunk",
+    chunk_index: 0,
+    prompt_version: 1,
+    playback_seconds: 5,
+    script_offset_seconds: 5,
+  });
+
+  // A live aside from the room is direction without being a beat edit, so
+  // there is no beat for the window to protect.
+  const response = await fetch(
+    `${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/direct`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ body: "Hold on her face." }),
+    },
+  );
+  assert.equal(response.status, 202);
+
+  await endSession(jam.id, sessionId);
+});
+
+test("before the first chunk the opening beat is already closed", async () => {
+  const { jam, sessionId } = await openJamSession();
+  peer.channel.open();
+  const response = await fetch(
+    `${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/direct`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ body: "Change the opening.", beatIndex: 0 }),
+    },
+  );
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).error.code, "beat_locked");
 
   await endSession(jam.id, sessionId);
 });

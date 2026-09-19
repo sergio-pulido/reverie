@@ -13,6 +13,12 @@ import {
 import { DirectorAuditLog, type DirectorAuditEntry } from "../../src/core/directorAudit";
 import type { JamScript } from "../../src/core/script";
 import {
+  beatOffsets,
+  beatWindow,
+  isBeatLocked,
+  type DirectorBeatWindow,
+} from "../../src/core/directorBeats";
+import {
   buildConfigureMessage,
   DirectorError,
   startDirectorSession,
@@ -59,7 +65,19 @@ export interface DirectionRequest {
   body: string;
   authorId?: string;
   proposalId?: string;
+  /**
+   * The outline beat this direction rewrites, when it rewrites one.
+   *
+   * Optional because not every direction targets a beat: a live aside from the
+   * room is direction without being an edit. When it IS given, the beat window
+   * applies and a direction landing on the beat being generated, or the one
+   * after it, is refused — that block is what gives the room time to react to
+   * a cascade instead of seeing it arrive on screen.
+   */
+  beatIndex?: number;
 }
+
+export type DirectionRefusal = "stream_not_ready" | "beat_locked";
 
 /**
  * The slice of a peer connection this stream uses.
@@ -163,9 +181,26 @@ export class DirectorStream {
    * The body is recorded exactly as sent, not as received, so the log cannot
    * disagree with what the provider was actually asked for.
    */
-  direct(request: DirectionRequest): { accepted: boolean; promptVersion?: number } {
+  /** The beat being generated, the one locked behind it, and what is editable. */
+  get beats(): DirectorBeatWindow {
+    return beatWindow(
+      beatOffsets(this.options.script),
+      this.state.scriptOffsetSeconds,
+    );
+  }
+
+  direct(request: DirectionRequest): {
+    accepted: boolean;
+    refusal?: DirectionRefusal;
+    promptVersion?: number;
+    beats?: DirectorBeatWindow;
+  } {
     if (!this.control || this.control.readyState !== "open") {
-      return { accepted: false };
+      return { accepted: false, refusal: "stream_not_ready" };
+    }
+    const beats = this.beats;
+    if (request.beatIndex !== undefined && isBeatLocked(beats, request.beatIndex)) {
+      return { accepted: false, refusal: "beat_locked", beats };
     }
     const next = nextPromptMessage(this.state, request.body);
     this.control.send(JSON.stringify(next.message));
@@ -177,9 +212,10 @@ export class DirectorStream {
       body: request.body,
       authorId: request.authorId,
       proposalId: request.proposalId,
+      beatIndex: request.beatIndex,
       scriptOffsetSeconds: this.state.scriptOffsetSeconds ?? undefined,
     });
-    return { accepted: true, promptVersion };
+    return { accepted: true, promptVersion, beats };
   }
 
   /** Stops the stream, finalizes the recording and stores it. */

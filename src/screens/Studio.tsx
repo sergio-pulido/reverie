@@ -88,7 +88,7 @@ export function Studio({ slug, onLeave }: { slug: string; onLeave: () => void })
 
           <div className="studio-scene">
             <JamPlayer jamId={jam.id} canDrive={isHost} configuration={configuration} />
-            <JamDirector jamId={jam.id} canDrive={isHost} />
+            <JamDirector jamId={jam.id} canDrive={isHost} configuration={configuration} />
             <div className="queue-card queue-card-stack">
               <div><p className="eyebrow">UP NEXT</p><h2>Proposal queue</h2></div>
               <div className="contribution-list" aria-live="polite">

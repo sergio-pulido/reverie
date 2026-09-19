@@ -5,6 +5,8 @@ import {
   type DirectorState,
 } from "../core/directorProtocol";
 import type { DirectorAuditEntry } from "../core/directorAudit";
+import type { DirectorBeatWindow } from "../core/directorBeats";
+import type { SessionSettings } from "../core/session";
 import {
   directorRecordingSrc,
   DirectorSessionError,
@@ -19,6 +21,8 @@ type JamDirectorProps = {
   jamId: string;
   /** Only the host opens a stream: it bills by the second. */
   canDrive: boolean;
+  /** Viewers on the same configuration share one stream. */
+  configuration: SessionSettings | null;
 };
 
 const POLL_MS = 2_000;
@@ -32,7 +36,7 @@ const RENEW_MS = 30_000;
  * back what happened. The recording is what you watch, and the audit trail is
  * what you check it against.
  */
-export function JamDirector({ jamId, canDrive }: JamDirectorProps) {
+export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [state, setState] = useState<DirectorState>(initialDirectorState);
   const [audit, setAudit] = useState<DirectorAuditEntry[]>([]);
@@ -41,6 +45,8 @@ export function JamDirector({ jamId, canDrive }: JamDirectorProps) {
   const [failure, setFailure] = useState<string | null>(null);
   const [direction, setDirection] = useState("");
   const [recording, setRecording] = useState<string | null>(null);
+  const [beats, setBeats] = useState<DirectorBeatWindow | null>(null);
+  const [attached, setAttached] = useState(false);
   const live = sessionId !== null;
   const active = useRef<string | null>(null);
 
@@ -58,6 +64,7 @@ export function JamDirector({ jamId, canDrive }: JamDirectorProps) {
         if (cancelled) return;
         setState(snapshot.state);
         setAudit(snapshot.audit);
+        setBeats(snapshot.beats);
       } catch {
         // A closed session stops answering; the stop path owns that state.
       }
@@ -86,9 +93,11 @@ export function JamDirector({ jamId, canDrive }: JamDirectorProps) {
     setFailure(null);
     setRecording(null);
     try {
-      const opened = await startDirectorSession(jamId);
+      const opened = await startDirectorSession(jamId, configuration);
       setSessionId(opened.sessionId);
       setState(opened.state);
+      setBeats(opened.beats);
+      setAttached(opened.attached);
       setDurable(opened.recordingDurable);
     } catch (error) {
       setFailure(
@@ -99,7 +108,7 @@ export function JamDirector({ jamId, canDrive }: JamDirectorProps) {
     } finally {
       setBusy(false);
     }
-  }, [jamId]);
+  }, [configuration, jamId]);
 
   const stop = useCallback(async () => {
     if (!sessionId) return;
@@ -122,6 +131,7 @@ export function JamDirector({ jamId, canDrive }: JamDirectorProps) {
     try {
       const sent = await sendDirection(jamId, sessionId, { body });
       setState(sent.state);
+      setBeats(sent.beats);
       setDirection("");
     } catch (error) {
       setFailure(
@@ -148,6 +158,7 @@ export function JamDirector({ jamId, canDrive }: JamDirectorProps) {
     </div>
 
     <p className="form-note" aria-live="polite">{statusLine(state, live, canDrive)}</p>
+    {live && beats && <BeatWindow beats={beats} attached={attached} />}
 
     <div className="hero-actions">
       <button
@@ -196,6 +207,34 @@ export function JamDirector({ jamId, canDrive }: JamDirectorProps) {
     {failure && <Notice>{failure}</Notice>}
     {state.error && <Notice>{state.error}</Notice>}
   </div>;
+}
+
+/**
+ * Which beats are closed and which can still change.
+ *
+ * The beat on screen and the one behind it are already with the provider, so
+ * an edit there would arrive too late to matter. Saying so is the point: the
+ * gap is the room's window to react to a change before it is rendered.
+ */
+function BeatWindow({
+  beats,
+  attached,
+}: {
+  beats: DirectorBeatWindow;
+  attached: boolean;
+}) {
+  const playing = beats.currentBeatIndex;
+  return <p className="form-note">
+    {playing === null
+      ? "Beat 1 is already being generated."
+      : `Beat ${playing + 1} is playing${
+          beats.lockedBeatIndex === null
+            ? " and it is the last one"
+            : `, beat ${beats.lockedBeatIndex + 1} is already being generated`
+        }.`}
+    {" "}Edits from beat {beats.minEditableBeatIndex + 1} onward still change the film.
+    {attached ? " You joined a stream this room already had open." : ""}
+  </p>;
 }
 
 /** What was asked for and what the model did with it. */

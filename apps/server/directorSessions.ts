@@ -60,7 +60,12 @@ export type SessionRefusal =
 
 export interface OpenSession {
   sessionId: string;
-  jamId: string;
+  /**
+   * `<jamId>:<configurationKey>`. One paid stream per distinct configuration
+   * in a room, not one per viewer — everyone on the same configuration shares
+   * it (docs/specs/configuration-keyed-streams.md).
+   */
+  streamKey: string;
   startedAt: number;
   lastSeenAt: number;
   reservedUsd: number;
@@ -97,14 +102,16 @@ export class DirectorSessionLedger {
     return Math.max(0, this.limits.budgetUsd - this.spentUsd);
   }
 
-  open(jamId: string): OpenSession | SessionRefusal {
+  open(streamKey: string): OpenSession | SessionRefusal {
     this.expireIdle();
-    // The per-jam check comes first so the caller is told the specific reason:
-    // with a single concurrent slot, "too many streams" would otherwise mask
-    // "this jam already has one" and send a client off retrying.
+    // The per-configuration check comes first so the caller is told the
+    // specific reason: with a single concurrent slot, "too many streams" would
+    // otherwise mask "this configuration already has one" and send a client
+    // off retrying instead of attaching to the stream that exists.
     for (const session of this.sessions.values()) {
-      // One stream per jam: a second would bill twice for one room.
-      if (session.jamId === jamId) return "already_open";
+      // One stream per configuration: a second would bill twice for one
+      // audience watching the same thing.
+      if (session.streamKey === streamKey) return "already_open";
     }
     if (this.sessions.size >= this.limits.maxConcurrentSessions) {
       return "too_many_sessions";
@@ -117,7 +124,7 @@ export class DirectorSessionLedger {
     const at = this.now();
     const session: OpenSession = {
       sessionId: `${at.toString(36)}-${this.counter.toString(36)}`,
-      jamId,
+      streamKey,
       startedAt: at,
       lastSeenAt: at,
       reservedUsd,
@@ -183,5 +190,14 @@ export class DirectorSessionLedger {
 
   find(sessionId: string): OpenSession | undefined {
     return this.sessions.get(sessionId);
+  }
+
+  /** The open session serving a configuration, so viewers can attach to it. */
+  findByStreamKey(streamKey: string): OpenSession | undefined {
+    this.expireIdle();
+    for (const session of this.sessions.values()) {
+      if (session.streamKey === streamKey) return session;
+    }
+    return undefined;
   }
 }

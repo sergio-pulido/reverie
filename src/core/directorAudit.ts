@@ -38,6 +38,8 @@ export interface DirectorAuditEntry {
   readonly scriptOffsetSeconds?: number;
   /** The proposal this direction came from, when it came from one. */
   readonly proposalId?: string;
+  /** The outline beat it rewrites, when it rewrites one. */
+  readonly beatIndex?: number;
   /** Who asked for it. Absent for provider-originated entries. */
   readonly authorId?: string;
   /** The direction text exactly as it was sent to fal. */

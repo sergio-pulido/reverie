@@ -12,6 +12,11 @@ import {
 } from "./directorRecordings";
 import { DirectorStream, type DirectorPeer } from "./directorStream";
 import {
+  configurationKey,
+  DEFAULT_CONFIGURATION,
+} from "../../src/core/portionPlayback";
+import { sessionSettingsSchema } from "../../src/core/session";
+import {
   DirectorError,
   resolveDirectorConfig,
   startDirectorSession,
@@ -39,7 +44,19 @@ const directionSchema = z.object({
   body: z.string().trim().min(1).max(2_000),
   authorId: z.string().trim().min(1).max(200).optional(),
   proposalId: z.string().trim().min(1).max(200).optional(),
+  beatIndex: z.number().int().min(0).max(1000).optional(),
 });
+
+/**
+ * A viewer names the configuration they are watching. Everyone on the same
+ * one shares a stream, so this selects which stream to attach to rather than
+ * requesting a private one.
+ */
+const attachSchema = z
+  .object({
+    configuration: sessionSettingsSchema.optional(),
+  })
+  .optional();
 
 export interface DirectorRouterOptions {
   config?: DirectorConfig | null;
@@ -93,7 +110,38 @@ export function createDirectorRouter(
       return;
     }
 
-    const session = ledger.open(jam.id);
+    const attach = attachSchema.safeParse(request.body);
+    if (!attach.success) {
+      sendError(response, 400, "invalid_command", "That configuration is not valid.", false);
+      return;
+    }
+    const configuration = attach.data?.configuration ?? DEFAULT_CONFIGURATION;
+    const streamKey = `${jam.id}:${configurationKey(configuration)}`;
+
+    // Everyone watching the same configuration shares one paid stream. A
+    // second viewer attaches to it instead of opening — and paying for — a
+    // second copy of the same film.
+    const existing = ledger.findByStreamKey(streamKey);
+    if (existing) {
+      const open = streams.get(existing.sessionId);
+      if (open) {
+        ledger.renew(existing.sessionId);
+        response.status(200).json({
+          sessionId: existing.sessionId,
+          attached: true,
+          maxSessionSeconds: limits.maxSessionSeconds,
+          recordingDurable: recordings.durable,
+          state: open.snapshot,
+          beats: open.beats,
+        });
+        return;
+      }
+      // Ledger and stream map disagree: the session is not really serving
+      // anyone, so release it rather than attach a viewer to nothing.
+      ledger.release(existing.sessionId);
+    }
+
+    const session = ledger.open(streamKey);
     if (typeof session === "string") {
       sendError(response, 409, session, refusalMessage(session), session !== "budget_exhausted");
       return;
@@ -123,9 +171,11 @@ export function createDirectorRouter(
     streams.set(session.sessionId, stream);
     response.status(201).json({
       sessionId: session.sessionId,
+      attached: false,
       maxSessionSeconds: limits.maxSessionSeconds,
       recordingDurable: recordings.durable,
       state: stream.snapshot,
+      beats: stream.beats,
     });
   });
 
@@ -150,6 +200,20 @@ export function createDirectorRouter(
     ledger.renew(request.params.sessionId);
     const sent = stream.direct(direction.data);
     if (!sent.accepted) {
+      if (sent.refusal === "beat_locked") {
+        // The beat is on screen or already committed to generation. Refusing
+        // is the point: it is the window the room has to react to a change.
+        response.status(409).json({
+          error: {
+            code: "beat_locked",
+            safeMessage:
+              "That beat is already being generated. Only later beats can still change.",
+            retryable: false,
+          },
+          beats: sent.beats,
+        });
+        return;
+      }
       // The stream exists but its channel is not open: a real, temporary state
       // rather than a failure of the request.
       sendError(
@@ -164,6 +228,7 @@ export function createDirectorRouter(
     response.status(202).json({
       promptVersion: sent.promptVersion,
       state: stream.snapshot,
+      beats: sent.beats,
     });
   });
 
@@ -176,6 +241,7 @@ export function createDirectorRouter(
     }
     response.json({
       state: stream.snapshot,
+      beats: stream.beats,
       audit: stream.entries,
       droppedAuditEntries: stream.audit.droppedCount,
     });
@@ -231,7 +297,7 @@ function refusalMessage(refusal: string): string {
     return "The director budget for this server is spent.";
   }
   if (refusal === "already_open") {
-    return "This jam already has a director stream open.";
+    return "That configuration already has a director stream open.";
   }
   return "Too many director streams are open right now.";
 }

@@ -76,13 +76,14 @@ test("a long session is never billed above its reservation", () => {
   assert.equal(ledger.committedUsd.toFixed(2), "9.60");
 });
 
-test("one stream per jam, and a bounded number overall", () => {
+test("one stream per configuration, and a bounded number overall", () => {
   const now = { value: 0 };
   const ledger = ledgerAt(now, { maxSessionSeconds: 60, maxConcurrentSessions: 2 });
-  assert.notEqual(typeof ledger.open("jam-a"), "string");
-  assert.equal(ledger.open("jam-a"), "already_open");
-  assert.notEqual(typeof ledger.open("jam-b"), "string");
-  assert.equal(ledger.open("jam-c"), "too_many_sessions");
+  assert.notEqual(typeof ledger.open("jam:en|"), "string");
+  assert.equal(ledger.open("jam:en|"), "already_open");
+  // Same jam, different configuration: its own stream.
+  assert.notEqual(typeof ledger.open("jam:es|"), "string");
+  assert.equal(ledger.open("jam:fr|"), "too_many_sessions");
 });
 
 test("an abandoned session is reclaimed but keeps its reservation spent", () => {
@@ -142,10 +143,22 @@ test("a handshake that never opened refunds its whole reservation", () => {
 test("release and close are not interchangeable", () => {
   const now = { value: 0 };
   const ledger = ledgerAt(now, { maxSessionSeconds: 120, maxConcurrentSessions: 2 });
-  const opened = ledger.open("ran") as { sessionId: string };
-  const refused = ledger.open("never-ran") as { sessionId: string };
+  const opened = ledger.open("jam:ran|") as { sessionId: string };
+  const refused = ledger.open("jam:never-ran|") as { sessionId: string };
 
   ledger.close(opened.sessionId); // billed at the 60s minimum: $4.80
   ledger.release(refused.sessionId); // billed nothing
   assert.equal(ledger.committedUsd.toFixed(2), "4.80");
+});
+
+test("an open stream is found by its configuration so viewers can attach", () => {
+  const now = { value: 0 };
+  const ledger = ledgerAt(now, { maxSessionSeconds: 60, maxConcurrentSessions: 2 });
+  const session = ledger.open("jam:en|") as { sessionId: string };
+  assert.equal(ledger.findByStreamKey("jam:en|")?.sessionId, session.sessionId);
+  assert.equal(ledger.findByStreamKey("jam:es|"), undefined);
+
+  // An abandoned stream is not offered to a new viewer to attach to.
+  now.value = SESSION_IDLE_TIMEOUT_MS + 1;
+  assert.equal(ledger.findByStreamKey("jam:en|"), undefined);
 });

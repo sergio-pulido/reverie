@@ -1,5 +1,17 @@
 # Decisions
 
+## 2026-09-20 — Every integration goes through a PR; nobody pushes to `main` directly (RV-20)
+
+`AGENTS.md` and `docs/CONTRIBUTING.md` described a two-tier delivery model: a "primary agent"
+pushing small verified commits straight to `main`, and a "collaborating developer" going through
+PRs. That split no longer holds — the fleet working this repository grew past the point where a
+direct push to a shared branch is safe to reason about, and it was flagged as a live contradiction
+(one contributor building against the documented direct-push rule while another had just been told
+the opposite). The rule is now uniform: rebase onto the latest `main`, push the branch, open a PR,
+merge the PR. Nobody, including the session that used to be "primary", pushes to `main` directly.
+`AGENTS.md`, `docs/CONTRIBUTING.md` and `README.md` are updated to say so; entries dated before this
+one that describe or assume a direct push to `main` are historical record, not current practice.
+
 ## 2026-09-19 — The story outline is a centralized artifact, and every way to modify it is an adapter
 
 A jam's script is the right artifact to generate and to play, and the wrong one to **steer**: no

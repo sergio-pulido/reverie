@@ -1308,6 +1308,36 @@ open a PR, merge the PR. The previous split between a "primary agent" pushing di
 "collaborating developer" going through PRs is retired — see `docs/DECISIONS.md` for why. `AGENTS.md`,
 `docs/CONTRIBUTING.md` and `README.md` are updated; no code changed.
 
+## 2026-09-20 — The outline is real: beats born with the script, a serialized edit queue, a panel to steer from (RV-22)
+
+- **Beats at creation.** The scriptwriter asks for a `summary` per portion in the one script
+  completion; any portion still without one is filled by a single fill-in completion over the
+  whole script (`src/core/outlineSummary.ts`, `apps/server/outlineWriter.ts`), refused on a count
+  mismatch. Imports get the same fill-in when a provider is configured, under the generation gate.
+  `POST /api/jams` answers `outline: { complete }`; a missing beat is shown as missing, never
+  invented.
+- **The edit queue** (`apps/server/outline.ts`): `POST /api/jams/:id/outline/edits` admits one
+  `set` or `reroll` edit per request (`src/core/outlineEdit.ts`), idempotent on `requestId`,
+  refused at admission with `portion_locked`, `stale_state_version` (`expectedRevision` behind),
+  `queue_full` (10 waiting) or `generation_disabled`. One worker per jam drains a FIFO: the
+  cascade completion runs outside the lock, then `JamStore.commitScript` lands every portion as
+  one revision inside `withJamLock`, guarded by the boundary and the base revision. The ledger
+  (last 50 per jam) is readable at `GET /api/jams/:id/outline/edits`.
+- **Serialization decision recorded** in `docs/DECISIONS.md`: the jams router, the queue and the
+  director are one container process, so the per-jam critical section is real. The
+  cross-instance row in `docs/specs/intended-vs-implemented.md` is closed as a deployment
+  constraint rather than left unowned.
+- **Delivery to the director.** After a commit the edited beat's phrase is sent to every open
+  stream of the jam as a direction carrying `beatIndex`; refusals are recorded on the edit and
+  never fail it. No session is opened for it.
+- **Client.** `OutlinePanel` on the script screen and in the Studio: beats with played /
+  generating / editable state, "Rewrite" and "Not this" on editable beats, the ledger, and honest
+  "no beat yet" and "no script on this server" states. `GET /api/jams/:id/outline` also returns
+  the current script so the screenplay under the panel follows the revision the beats describe.
+- **Verified offline** with injected completions: see the test counts in the PR. **Not verified
+  live:** no cascade or fill-in has been run against Nebius from this repository; the route
+  authorization gap is unchanged (no script route on the Express host checks the caller).
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

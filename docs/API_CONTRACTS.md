@@ -109,6 +109,10 @@ code — both go through the host-only functions above, which run as owner.
 | `POST /api/jams/:id/script/revert` | Restore an earlier revision as a new revision (undo/redo); rejected with `portion_locked` if a played or locked portion would change |
 | `GET /api/jams/:id/script/revisions` | List revision metadata (no script bodies) |
 | `GET /api/jams/:id/script/revisions/:revision` | Read one full revision: structured script plus its rendered markdown |
+| `GET /api/jams/:id/outline` | The current revision's beats with the strictest open stream's lock window, the pending-edit count and the current script (`docs/specs/story-outline.md`) |
+| `POST /api/jams/:id/outline/edits` | Admit one outline edit (`set` or `reroll`) to the per-jam queue; idempotent on `requestId`; `202` with the edit record |
+| `GET /api/jams/:id/outline/edits` | The edit ledger for a jam, newest first (at most 50) |
+| `GET /api/jams/:id/outline/edits/:editId` | One edit record |
 | `POST /api/jams/:id/sessions` | Attach a user session to a jam; returns the session plus a one-time owner token |
 | `GET /api/jams/:id/sessions` | List a jam's sessions (public projections, never owner tokens) |
 | `GET /api/sessions/:id` | Read one session |
@@ -156,9 +160,28 @@ The reconciliation is idempotent and backfills before enforcing `NOT NULL`. It i
 The command is a discriminated union on `mode`:
 
 - `mode: "generate"` (the default when `mode` is omitted) takes `source` as `from-scratch` or `from-movie`, calls the server-configured Nebius allowlist behind the generation concurrency gate, and stores revision 1 as the rendered markdown.
-- `mode: "import"` takes `source: { kind: "imported-script", scriptTitle }` and `scriptMarkdown` (40–9000 characters). It makes **no** provider call and takes no concurrency slot; the pasted markdown is stored verbatim as revision 1, while a derived timed projection (`src/core/scriptImport.ts`) provides the portions the director uses as beats. Text too short or too long for the selected format returns `invalid_script_import` (`400`, `retryable: false`).
+- `mode: "import"` takes `source: { kind: "imported-script", scriptTitle }` and `scriptMarkdown` (40–9000 characters). The pasted markdown is stored verbatim as revision 1, while a derived timed projection (`src/core/scriptImport.ts`) provides the portions the director uses as beats. Import makes **one** provider call — the outline fill-in that writes a beat per portion — only when a provider is configured and a generation slot is free; otherwise the jam is created with its beats missing and no call is made (RV-22). Text too short or too long for the selected format returns `invalid_script_import` (`400`, `retryable: false`).
 
-Both modes accept an optional `jamId` — the room id created before the script — so the script and its revisions attach to the registered jam rather than a second server-minted id. Reusing an id that already has a script returns `jam_exists` (`409`). Success is `201 { jam, scriptMarkdown }`. The browser registry (`GET`-free: `src/lib/jams.ts#listJams`) reads `jams` under the existing RLS select policy, so `/jams` shows the rooms an identity hosts or has joined, newest first, hiding `completed`/`closed`.
+Both modes answer `outline: { complete: boolean }` beside the jam: `false` means at least one portion has no beat, which the outline panel shows as missing rather than filling. Both modes accept an optional `jamId` — the room id created before the script — so the script and its revisions attach to the registered jam rather than a second server-minted id. Reusing an id that already has a script returns `jam_exists` (`409`). Success is `201 { jam, scriptMarkdown }`. The browser registry (`GET`-free: `src/lib/jams.ts#listJams`) reads `jams` under the existing RLS select policy, so `/jams` shows the rooms an identity hosts or has joined, newest first, hiding `completed`/`closed`.
+
+## Outline edits
+
+An outline edit is the one command every way of steering the story produces
+(`docs/specs/story-outline.md`). `POST /api/jams/:id/outline/edits` takes
+`{ requestId, intent: "set", beatIndex, summary }` or `{ requestId, intent: "reroll", beatIndex, reason? }`,
+plus optional `expectedRevision` (the script revision the client read; behind → `409 stale_state_version`
+with the current `revision`), `mechanism` (`direct | vote | poll | chat`, default `direct`) and
+`authorId`. Admission checks, in order: the jam exists (`404 not_found`), a provider is configured
+(`503 generation_disabled`), the beat exists (`400 invalid_command`), the beat is editable
+(`409 portion_locked`), the revision is current, the queue has room (`409 queue_full`, at most 10 waiting).
+A replayed `requestId` returns `200` with the record the first request created.
+
+Edits are processed one at a time per jam. The cascade completion runs outside the per-jam critical
+section; the commit takes it once and lands every rewritten portion as one revision, refusing
+`portion_locked` if the boundary moved meanwhile and `stale_state_version` if the base revision was
+replaced twice. The edit record's `status` is `queued | processing | landed | failed`, with
+`baseRevision`, `revision`, a typed `error`, and `direction: { sent, refused }` for the beat sent to
+open streams after the commit. Durations and structure are never rewritten.
 
 ## Beat locking and the live director
 

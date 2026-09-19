@@ -20,6 +20,7 @@ Reverie is an open-source HackBarna 2026 project with two separate modes. **Disc
 - **Shared chat and proposals.** Append-only, synchronized through Supabase Realtime, and reloaded from the database on every reconnect.
 - **A shared playback clock.** The host starts, pauses and resets a room-wide timer anchored to the database's clock, so every participant sees the same position.
 - **A screenplay to work from.** The host generates one from a short prompt (Nebius) or imports their own markdown. The script is split into timed portions. Each portion can be edited on its own, and every change is kept as a revision that can be restored.
+- **An outline to steer from.** Every portion carries a one-phrase beat, written with the script. The room reads the beats instead of the screenplay, rewrites one or rejects it, and the story after it is re-derived in one model call and committed as a new revision. Edits queue one at a time per jam, respect the live director's lock window, and the changed beat is sent to any open stream as direction. No cascade has been run against a live model from this repository yet.
 - **Opt-in live camera, microphone and screen (Vonage Video API).** Nothing is published until the participant consents. Each consent records its owner, purpose and expiry, and withdrawing it stops the track. Nothing is recorded. Opening a session and minting a token have been proven against Vonage, but a live stage between two browsers has not been tested.
 
 ## Not built yet

@@ -21,3 +21,13 @@ export async function ensureUserId(action = "Joining a jam"): Promise<string> {
   }
   return data.user.id;
 }
+
+/** The caller's access token, signing in anonymously first if this profile has no session. */
+export async function ensureAccessToken(action: string): Promise<string> {
+  if (!supabase) throw notConfigured(action);
+  await ensureUserId(action);
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) throw new JamError("unauthenticated", "Your session is no longer signed in. Reload the page to continue.", true);
+  return token;
+}

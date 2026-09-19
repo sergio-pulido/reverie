@@ -235,19 +235,6 @@
   background: transparent;
   color: #eaebf0;
 }
-.discover-availability h3 { font-size: 16px; letter-spacing: .12em; font-family: "DM Mono", monospace; color: #c4c8dd; }
-.discover-availability ul { list-style: none; margin: 0 0 20px; padding: 0; display: flex; flex-wrap: wrap; gap: 12px; }
-.discover-availability li {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 16px;
-  border: 1px solid #3c445f;
-  border-radius: 8px;
-  font-size: 16px;
-}
-.discover-availability a { text-decoration: underline; }
-.discover-availability-kind { color: #9297ad; font-family: "DM Mono", monospace; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; }
 .discover-detail-attribution { color: #9297ad; font-family: "DM Mono", monospace; font-size: 13px; margin: 0; }
 
 @media (max-width: 720px) {

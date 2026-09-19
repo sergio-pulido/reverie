@@ -59,11 +59,12 @@ export function DiscoverScreen({ onExit }: DiscoverScreenProps) {
 
       <section className="discover-head">
         <h1>
-          Find something <em>real</em> to watch.
+          Find a <em>real</em> film.
         </h1>
         <p className="discover-note">
-          Discover shows only titles supplied by the authorized catalogue, with their own artwork,
-          metadata and availability. Generated Movie Jam scenes never appear here.
+          Discover shows real films from a curated TMDB catalogue, with their own artwork and
+          metadata. It does not say where a film can be watched. Generated Movie Jam scenes never
+          appear here.
         </p>
         <label className="discover-search">
           <span className="sr-only">Search the catalogue</span>
@@ -263,25 +264,6 @@ function TitleDetail({ title, onClose }: { title: CatalogueTitle; onClose: () =>
             .join(" · ")}
         </p>
         {title.synopsis && <p className="discover-detail-synopsis">{title.synopsis}</p>}
-        {title.availability.length > 0 && (
-          <div className="discover-availability">
-            <h3>Where to watch</h3>
-            <ul>
-              {title.availability.map((entry) => (
-                <li key={`${entry.provider}-${entry.kind}`}>
-                  {entry.url ? (
-                    <a href={entry.url} rel="noreferrer noopener" target="_blank">
-                      {entry.provider}
-                    </a>
-                  ) : (
-                    <span>{entry.provider}</span>
-                  )}
-                  <span className="discover-availability-kind">{entry.kind}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
         <p className="discover-detail-attribution">{title.attribution ?? "Catalogue record shown as supplied."}</p>
       </section>
     </div>

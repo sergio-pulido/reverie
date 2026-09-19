@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { catalogueQuerySchema } from "../src/catalogue/contract";
-import { fetchCatalogue, type CatalogueAdapterOptions } from "./_lib/titan-catalogue";
+import { fetchCatalogue, type CatalogueAdapterOptions } from "./_lib/supabase-catalogue";
+import { readBearerToken } from "./_lib/supabase-rest";
 import { clientKey, createRateLimiter, isSameOrigin, requestUrl, sendJson } from "./_lib/http";
 
 const RATE_LIMIT_REQUESTS = 30;
@@ -62,7 +63,13 @@ export default async function catalogue(
     return;
   }
 
-  const result = await fetchCatalogue(parsedQuery.data, options);
-  const statusCode = result.status === "error" ? (result.retryable ? 502 : 400) : 200;
-  sendJson(response, statusCode, result);
+  const result = await fetchCatalogue(parsedQuery.data, readBearerToken(request.headers.authorization), options);
+  sendJson(response, statusFor(result), result);
+}
+
+function statusFor(result: Awaited<ReturnType<typeof fetchCatalogue>>) {
+  if (result.status !== "error") return 200;
+  if (result.code === "CATALOGUE_UNAUTHENTICATED") return 401;
+  if (result.code === "CATALOGUE_FORBIDDEN") return 403;
+  return result.retryable ? 502 : 400;
 }

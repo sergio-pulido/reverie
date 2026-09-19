@@ -281,12 +281,47 @@ trips after 11 failed lookups (limit: ten failures per user per ten minutes). Al
 project (it was applied by hand, so no tracking table records it). Each run of
 `verify-realtime` leaves a `verify-room-*` jam behind, and it has to be deleted by hand.
 
+## 2026-09-19 — Discover serves real films from a TMDB snapshot in Postgres
+
+- **There is no Titan catalogue API.** The Titan OS challenge supplies none; its brief names the
+  Kaggle TMDB dataset as the tool. The catalogue is now `public.catalogue_titles`: 27,839
+  released, non-adult films with a poster, an overview and at least 50 votes, curated from the
+  dataset's ~1.5M rows and loaded into the hosted Supabase project.
+- `supabase/migrations/20260919220000_catalogue_titles.sql` creates the table, a weighted
+  `document` tsvector (title A, genres B, keywords C, overview D) with GIN, trigram and btree
+  indexes, and a select-only RLS policy for signed-in viewers.
+  `20260919221000_search_catalogue_titles.sql` adds `search_catalogue_titles(search, page_number,
+  page_size)`, a `security invoker` function that returns one page and the match count. A
+  non-empty query is ranked with `ts_rank` (English and simple configurations, whichever scores
+  higher), then by popularity. An empty query is ordered by popularity. PostgREST filters can
+  match `document` but cannot order by rank, which is why this is a function.
+- `api/_lib/supabase-catalogue.ts` replaces the Titan adapter. It calls that function with the
+  viewer's own access token, so the read goes through RLS, and it maps only the columns Discover
+  renders. Posters come from `image.tmdb.org/t/p/w500` and backdrops from `w780`. Every title and
+  every page carries the TMDB attribution. `availability` is always `[]` because the dataset has
+  none, and Discover no longer renders a "Where to watch" block or copy that implies streaming.
+  The response `source` is now `"tmdb"`. `api/_lib/titan-catalogue.ts` and every `TITAN_*`
+  variable are gone.
+- Discover signs the viewer in anonymously if needed and sends `Authorization: Bearer`;
+  `/api/catalogue` answers 401 without it.
+- Cost: one round trip per page, and no `select *`. A 24-title page is about 12.7 KB. Measured on
+  the hosted database, a broad query ("love", 4,105 matches) runs in about 20 ms, and the deepest
+  empty-query page in about 12 ms.
+- Verified: step-0 checks against the live project (27,839 rows; `heist dream` ranks Inception
+  first by `ts_rank`, 0.197 vs 0.092). Then `pnpm test` (147/147), `pnpm typecheck` and
+  `pnpm build`. `/discover` was checked against the live project in a browser: real posters and
+  titles, Inception first for `heist dream`, and a detail dialog with runtime, genres, synopsis
+  and attribution and no availability. No console errors.
+- **Not verified:** a Vercel deployment of this change. The server needs `SUPABASE_URL` and
+  `SUPABASE_ANON_KEY` (or the `VITE_` pair) at runtime. The new function was applied by hand
+  through the session pooler, like the earlier migrations, so no tracking table records it.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.
    Next, adopt a Supabase CLI link so future migrations get applied and tracked, not pasted.
-2. Supply an authorized catalogue contract (`TITAN_CATALOGUE_URL` plus a credential) and
-   re-probe `/api/catalogue` against it; Discover renders real titles as soon as it validates.
+2. Done: Discover serves the TMDB snapshot. Next, deploy it and confirm that `/api/catalogue`
+   answers `ok` on Vercel with the Supabase server variables set.
 3. Versioned transactional scene contract: atomic voting, `expectedStateVersion`, idempotent
    `requestId`, and serialized scene acceptance. Generation only after that contract exists.
 4. `pnpm probe:vonage` passes with the application credentials; next, verify the live stage in

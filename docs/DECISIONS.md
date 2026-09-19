@@ -103,6 +103,8 @@ The primary agent commits and pushes completed verified slices directly to `main
 
 ## 2026-09-19 — Ship Discover as a configuration-driven adapter with an explicit unconfigured state
 
+*Superseded by "The catalogue is a curated TMDB snapshot in Postgres; there is no Titan API" below.*
+
 A credential named `TITAN_API_KEY` exists, but no Titan catalogue endpoint, request shape or response schema is published or supplied, and the Titan SDK publishes no content API. Rather than guess a base URL, substitute a different provider under Titan's name, or seed placeholder films, the catalogue adapter takes its endpoint from `TITAN_CATALOGUE_URL` and reports `catalogue_not_configured` until an authorized contract is supplied. The expected upstream contract is written down in `docs/specs/discover-titan-catalogue.md`, so adopting a real catalogue changes one adapter file and nothing else. An empty Discover screen that says why is honest; an invented catalogue is not.
 
 ## 2026-09-19 — Validate every catalogue record individually and drop what fails
@@ -221,3 +223,29 @@ authorization to waiting members — which would hand a not-yet-admitted session
 of the room's channel — the lobby polls the single row it is already authorized to read,
 its own `jam_members` row, every five seconds. Polling ends at `active`, where Postgres
 Changes take over, and at `removed`, which will not change by waiting.
+
+## 2026-09-19 — The catalogue is a curated TMDB snapshot in Postgres; there is no Titan API
+
+The Titan OS challenge supplies no catalogue API. Its brief names the Kaggle TMDB dataset as the
+tool and judges on a TV-ready UI, real data and cost efficiency. Reverie therefore stops waiting
+for an upstream that will not arrive. The catalogue is `public.catalogue_titles`, 27,839 films
+curated from the dataset and held in the Supabase project the app already uses. The long tail
+of the 1.5M rows is left out: it costs storage and index time and would never be recommended.
+
+- **Reads run as the viewer.** `search_catalogue_titles` is `security invoker`, and the table's
+  only policy is select for `authenticated`. Discover presents the viewer's anonymous session
+  token, so the server holds no privileged key and the catalogue cannot be written through the API.
+- **Rank lives in SQL.** PostgREST can filter on `document` but cannot order by `ts_rank`, so
+  ranked search and its match count are one function returning one page. Title words are indexed
+  with the `simple` configuration and plot text with `english`, so a query is matched both ways.
+- **Cost is bounded by the page.** The function returns only the eight columns Discover maps, at
+  most 48 rows, in one round trip. There is no `select *` and no table-wide fetch.
+- **Availability is empty, not guessed.** The dataset says nothing about where a film streams, so
+  every title has `availability: []`. The UI renders no "where to watch" block and no copy that
+  implies one. The response says `source: "tmdb"`, not `"titan"`: labelling TMDB data as a
+  Titan feed would misstate where the data comes from.
+- **Attribution travels with the data.** Every title and every page carries the TMDB attribution
+  that TMDB's terms require wherever its data or images appear.
+- **Separation is unchanged.** Catalogue rows keep their TMDB ids behind the `cat:` namespace and
+  their own table and schema. They are never merged with generated Movie Jam artifacts.
+

@@ -1,5 +1,7 @@
 # Spec: TV-first Discover and the Titan catalogue adapter
 
+> **Superseded (2026-09-19).** There is no Titan catalogue API. Discover serves a curated TMDB snapshot from `public.catalogue_titles`; see `docs/DECISIONS.md` and `api/_lib/supabase-catalogue.ts`. This spec is kept as history.
+
 Status: implemented for the structure and the unconfigured state. No live catalogue query has succeeded, because no Titan catalogue contract has been supplied.
 
 ## Problem

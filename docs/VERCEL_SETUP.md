@@ -4,11 +4,11 @@
 
 Import this public repository into Vercel with root directory `.` and production branch `main`. Select Node.js 22.x. `vercel.json` selects Vite, `pnpm install --frozen-lockfile`, `pnpm build`, and output directory `dist`. The package manager version is pinned in `package.json`.
 
-`api/health.ts` deploys as a Node function. SPA rewrites exclude `/api` so direct Jam links load the client and unknown API routes do not return HTML. Express is for local development/build preview, not the Vercel entrypoint. Future privileged endpoints belong under `api/`.
+`api/health.ts` and `api/catalogue.ts` deploy as Node functions. SPA rewrites exclude `/api` so direct Jam links load the client and unknown API routes do not return HTML. Express is for local development/build preview, not the Vercel entrypoint. Future privileged endpoints belong under `api/`.
 
 ## Environment
 
-Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` for Production and Preview. They are public values embedded at build time; redeploy after changing them. Prefer a separate Supabase project for previews to avoid modifying production rooms.
+Set `TITAN_CATALOGUE_URL` and `TITAN_API_KEY` as server-only variables when an authorized catalogue contract exists; they are never exposed to the browser, and `/api/catalogue` reports `catalogue_not_configured` without them. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` for Production and Preview. They are public values embedded at build time; redeploy after changing them. Prefer a separate Supabase project for previews to avoid modifying production rooms.
 
 Follow [Supabase setup](SUPABASE_SETUP.md) before testing persistent rooms. Anonymous identity belongs to the browser profile and origin: localhost, preview and production do not share host sessions. Clearing browser data may lose host access until account recovery is implemented.
 
@@ -31,7 +31,7 @@ In another terminal:
 node scripts/smoke.mjs
 ```
 
-After deployment, run `SMOKE_BASE_URL=https://YOUR-DEPLOYMENT node scripts/smoke.mjs` against the assigned HTTPS domain. Check `/api/missing` returns 404, open `/jams/new` directly, create a room, reload its URL in the same browser, and verify the record in Supabase. A second browser must not read an invite-only room under the current host-only policies. Admission is a future milestone; do not weaken policies to bypass that restriction.
+After deployment, run `SMOKE_BASE_URL=https://YOUR-DEPLOYMENT node scripts/smoke.mjs` against the assigned HTTPS domain. Check `/api/missing` returns 404, confirm `/api/catalogue` answers `ok` or `catalogue_not_configured` and never invented titles, open `/discover` and `/jams/new` directly, create a room, reload its URL in the same browser, and verify the record in Supabase. A second browser must not read an invite-only room under the current host-only policies. Admission is a future milestone; do not weaken policies to bypass that restriction.
 
 A healthy endpoint proves only the function is reachable. It does not prove Supabase, Realtime, Titan or providers work. Deployment/account configuration and the live database migration have not been performed by this foundation change.
 

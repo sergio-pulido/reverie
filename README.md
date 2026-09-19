@@ -87,7 +87,7 @@ The deployed application uses React, TypeScript and Vite on **Vercel**, with **S
 | Real-title discovery | Titan catalogue | Planned licensed, genuine film/series records |
 | Invites | `qrcode.react` | Installed; QR and admission UI not wired yet |
 
-Only `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are browser configuration. Provider secrets stay in ignored local environment files or Vercel server environment variables. No provider is verified or enabled yet.
+Only `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are browser configuration. Provider secrets stay in ignored local environment files or Vercel server environment variables. `TITAN_CATALOGUE_URL` and `TITAN_API_KEY` are server-only; without both, `/api/catalogue` reports `catalogue_not_configured` and Discover shows no titles. No provider is verified or enabled yet.
 
 ## Run and deploy
 
@@ -127,7 +127,7 @@ The HackBarna demo will start with a host-led story, then reveal a QR code so au
 
 ## Status
 
-Implemented: landing page, create/join/studio routes, local preview, Supabase-backed room creation and host membership migration, plus local and Vercel health handlers. Admission, shared chat/proposals, presence, voting, Discover catalogue data and live media remain unimplemented. Hosted deployment and live Supabase verification are still pending.
+Implemented: landing page, create/join/studio routes, the TV-first `/discover` route with keyboard traversal and search, the privileged `GET /api/catalogue` adapter, local preview, Supabase-backed room creation and host membership migration, plus local and Vercel health handlers. Admission, shared chat/proposals, presence, voting and live media remain unimplemented. No catalogue contract has been supplied, so Discover reports an unconfigured catalogue rather than showing titles. Hosted deployment and live Supabase verification are still pending.
 
 ## Contributing
 

@@ -1,5 +1,9 @@
 # Decisions
 
+## 2026-09-19 — A jam registers its room first, and import is a first-class creation source
+
+Creating a jam now registers the room before the script exists, and the pre-minted room id is passed to `POST /api/jams` as `jamId`, so one jam owns exactly one script and its revision history instead of a second, unrelated server id. `/jams` lists the rooms an identity can read (host or any member) and offers "start a new jam"; without Supabase it is an explicitly non-shareable browser-local registry, never presented as shared. Creation has two sources: generate from a prompt (Nebius, behind the existing gate) or import an existing script. Import makes no provider call, stores the pasted markdown verbatim as revision 1, and derives a word-boundary, format-bounded timed projection for playback; text that cannot fill or fit the runtime is refused with `invalid_script_import` rather than padded or shredded into mid-word fragments. The earlier "from an existing movie" prompt path stays supported by the API but is no longer a create-screen option, matching the product decision that a room brings its own script.
+
 ## 2026-09-19 — Script timing is a per-jam format with the 4-minute defaults
 
 The total runtime and portion length band are per-jam parameters (`format`: total 10–900 seconds, portions 4–60 seconds, at most 48 portions) instead of global constants; omitting them keeps the established 4-minute, 10–20 second behaviour. The low floor exists for tiny test jams, and the scriptwriter's completion token budget scales with the expected portion count instead of paying a flat worst case. Hard bounds (±2 seconds) and the total tolerance (~6% of runtime) are derived from the chosen format, so the writer prompt, draft rescaling, and validation stay a single consistent system at any length. Stored scripts validate against a format-agnostic structural schema; strict timing is enforced at generation time against the jam's own format.

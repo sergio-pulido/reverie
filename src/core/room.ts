@@ -19,6 +19,8 @@ export const jamRoomSchema = z.object({
   status: jamStatusSchema,
   host_id: z.string().uuid().optional(),
   invite_code: z.string().optional(),
+  created_at: z.string().optional(),
+  updated_at: z.string().optional(),
 });
 
 export const jamMemberSchema = z.object({

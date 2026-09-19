@@ -150,6 +150,14 @@ produce that evidence.
 - A typed fal.ai queue adapter exists behind `REVERIE_LIVE_ENABLED` + `FAL_KEY` with a server-owned model allowlist. It is NOT probed: no fal model has been verified, no credentials exist in the repo, and playback start returns a typed `generation_disabled` error until live configuration is provided. A dated probe receipt in `docs/DECISIONS.md` must precede any claim that generation works.
 - Playback state and the edit-lock guard are in-memory pending the RV-07 structured-script store rework; the pinned portion text currently reads from the creation-time structured script (structural edits are forbidden in v1, so indices are stable). Verified: `pnpm typecheck` and `pnpm test` (60/60) locally.
 
+## 2026-09-19 — Jam registry and script import (RV-08)
+
+- Every jam now registers its room first and passes that room id to `POST /api/jams` as `jamId`, so the generated or imported script and its revision history attach to that exact room instead of a second, server-minted id.
+- `/jams` is the registry: it lists the rooms this identity hosts or has joined (RLS-scoped `jams` select, newest first), hides `completed`/`closed`, and offers "start a new jam". Home's primary action opens it. Without Supabase it reads a browser-local preview registry and labels it non-shareable.
+- Creation offers two sources: a from-scratch prompt (Nebius, generation-gated) or an imported script. Import makes no provider call, keeps the pasted markdown verbatim as revision 1, and derives a word-boundary, format-bounded portion projection; text too short or too long for the runtime is refused with `invalid_script_import` rather than padded or split mid-word.
+- Verified locally: `pnpm typecheck`, `pnpm test` (111 passing, including the import route and the projection), `pnpm build`, and `scripts/smoke.mjs` against a production server covering the new `/jams` deep link. The import path was exercised live against the built server: `POST /api/jams` with `mode: "import"` returned 201 and `script.md` returned the exact pasted markdown, while `mode: "generate"` without a provider returned the typed `generation_disabled` 503.
+- Not verified: no Supabase project is migrated, so the RLS-scoped remote registry is implemented and unit-tested but not exercised against a live database. The API still accepts `from-movie`, but the create screen no longer offers it.
+
 ## Next milestones
 
 1. Apply every migration in `supabase/migrations` to a Supabase project and run

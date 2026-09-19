@@ -149,11 +149,52 @@ produce that evidence.
 - Locking a portion enqueues a bounded video-generation job (concurrency 1); finished clips land in a capped in-memory `PortionMediaStore` and stream to clients at `GET /api/jams/:id/portions/:index/video` with Range support. Clients never receive provider URLs. `GET /api/jams/:id/playback` is the polling surface until Realtime events land.
 - A typed fal.ai queue adapter exists behind `REVERIE_LIVE_ENABLED` + `FAL_KEY` with a server-owned model allowlist. It is NOT probed: no fal model has been verified, no credentials exist in the repo, and playback start returns a typed `generation_disabled` error until live configuration is provided. A dated probe receipt in `docs/DECISIONS.md` must precede any claim that generation works.
 - Playback state and the edit-lock guard are in-memory pending the RV-07 structured-script store rework; the pinned portion text currently reads from the creation-time structured script (structural edits are forbidden in v1, so indices are stable). Verified: `pnpm typecheck` and `pnpm test` (60/60) locally.
+## 2026-09-19 — Invite lifecycle, QR sharing and a lobby that actually updates
+
+- An invite can now end. `jams` carries `invite_expires_at` and `invite_revoked_at`;
+  `rotate_jam_invite` mints a new code (killing every outstanding link and QR),
+  `revoke_jam_invite` closes the room to new arrivals, and `get_jam_invite` is the only
+  read path. All three are host-only `security definer` functions.
+- The invite columns are excluded from the column grants on `public.jams` to
+  `authenticated`, for `select` and `update` alike. An admitted member can read the room
+  but not its entitlement, and a host cannot hand-write a predictable code. RLS could not
+  express this: it answers which rows, not which columns of a row.
+- A revoked or expired invite is refused with the same message an unknown code gets, and
+  `jam_admission_attempts` throttles failed lookups to ten per user per ten minutes, so
+  enumerating private rooms is refused rather than merely expensive.
+- The host has an invite panel: the link, a QR of that same URL rendered with
+  `qrcode.react`, the code in large type to read aloud, the current lifecycle state, and
+  rotate/revoke controls. The panel never decides access; it renders what the database says.
+- The lobby no longer promises an update it could not deliver. A waiting participant holds
+  no Realtime channel — channel authorization requires *active* membership — so the lobby
+  polls its own `jam_members` row every five seconds and stops at `active` or `removed`. A
+  refusal now reads as a refusal instead of a slow network.
+- A repeated join request is idempotent at the database: the display name refreshes, the
+  status does not, so a second submit cannot reset a pending admission or re-admit someone
+  the host removed.
+
+### Verification
+
+Passed locally: `pnpm typecheck`, `pnpm test` (111 passing, 13 of them new and covering
+invite state derivation, revocation outranking expiry, an unparseable expiry, the host-facing
+description never leaking a raw timestamp, rotation-lifetime bounds, the invite-code schema
+rejecting lookalikes, a jam row no longer carrying `invite_code`, and the throttle mapping to
+a marked retryable error), `pnpm build`, and `scripts/smoke.mjs` against a local production
+server (9 checks). In the browser: an invite link prefills the code on `/join`, and the local
+preview is still labelled non-shareable. The QR was rendered through `qrcode.react` with the
+real `inviteUrl` output and produced a 37x37-module SVG carrying an accessible title.
+
+**Not verified:** this repository still has no Supabase credentials, so no migration has been
+applied and `pnpm verify:realtime` has not been run. The column grants, the throttle, the
+lifecycle functions and the two-session host/participant journey are implemented and
+specified but unproven against a live database. `scripts/verify-realtime.mjs` now asserts all
+of them and needs only `SUPABASE_URL` and `SUPABASE_ANON_KEY` against a migrated project.
 
 ## Next milestones
 
 1. Apply every migration in `supabase/migrations` to a Supabase project and run
-   `pnpm verify:realtime` to turn the lobby and Realtime work from implemented into verified.
+   `pnpm verify:realtime` to turn the lobby, invite lifecycle and Realtime work from
+   implemented into verified. This is the single blocking gap in the collaboration slice.
 2. Supply an authorized catalogue contract (`TITAN_CATALOGUE_URL` plus a credential) and
    re-probe `/api/catalogue` against it; Discover renders real titles as soon as it validates.
 3. Versioned transactional scene contract: atomic voting, `expectedStateVersion`, idempotent

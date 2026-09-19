@@ -85,7 +85,7 @@ The deployed application uses React, TypeScript and Vite on **Vercel**, with **S
 | Generated media | fal.ai | Planned image/video generation and visual transformations |
 | Live media | Vonage Video API | Planned opt-in camera/screen sessions and media controls |
 | Real-title discovery | Titan catalogue | Planned licensed, genuine film/series records |
-| Invites | `qrcode.react` | Installed; QR and admission UI not wired yet |
+| Invites | `qrcode.react` | Host invite panel: link, QR, code, expiry, rotation and revocation |
 
 Only `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are browser configuration. Provider secrets stay in ignored local environment files or Vercel server environment variables. `TITAN_CATALOGUE_URL` and `TITAN_API_KEY` are server-only; without both, `/api/catalogue` reports `catalogue_not_configured` and Discover shows no titles. No provider is verified or enabled yet.
 

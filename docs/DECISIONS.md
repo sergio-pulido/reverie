@@ -128,3 +128,47 @@ display a table, column or constraint name to whoever triggered it.
 An active member reads the active roster; only the host reads the waiting rows. Enforcing
 this in the `jam_members` select policy rather than in the component that renders the lobby
 means a participant reading the table directly sees the same thing the UI shows them.
+
+## 2026-09-19 — The invite is a column privilege, not only a policy
+
+A member has to be able to read the room they are in. They must not be able to read the
+room's invite code, or an admitted participant could forward the entitlement to anyone. RLS
+cannot express that: it answers *which rows*, not *which columns of a row*. So the
+table-level `select` and `update` grants on `public.jams` are dropped and re-issued per
+column, excluding `invite_code`, `invite_expires_at` and `invite_revoked_at`.
+
+The same grant closes a second hole. The host update policy would otherwise let a host write
+`invite_code` directly — including a short, guessable, or previously revoked one. With the
+column ungranted, the only writer is `rotate_jam_invite`, which runs as owner and always
+draws from `generate_invite_code()`.
+
+## 2026-09-19 — Rotation is revocation with continuity
+
+`revoke_jam_invite` stamps `invite_revoked_at` and the room stops admitting anyone.
+`rotate_jam_invite` mints a fresh code instead, which kills every outstanding link and QR in
+the same instant while leaving the room open. Because the entitlement is a column on the
+room rather than a row per guest, there is nothing left behind to expire separately, and
+neither function touches anyone already in the room — removing a member is
+`set_jam_member_status`, which is a different decision with a different audit meaning.
+
+A refused invite reports exactly what an unknown code reports. If "this invite expired" and
+"no such invite" read differently, a prober learns that a private room exists at that code.
+
+## 2026-09-19 — Failed invite lookups are throttled, not only made improbable
+
+Eight characters of a 31-symbol alphabet is roughly 39 bits, which is not guessable from a
+browser. That is an argument about cost, not about permission. `jam_admission_attempts`
+counts failed lookups per authenticated user over a rolling 10-minute window and refuses
+after ten, so enumeration of private rooms is refused rather than merely expensive. The
+table has RLS enabled and no policies at all: the only things that reach it are the
+`security definer` functions.
+
+## 2026-09-19 — A waiting participant polls, because it cannot subscribe
+
+Realtime channel authorization requires *active* membership, so a participant in the lobby
+holds no channel and cannot be pushed their own admission. The previous lobby told them the
+page would update and then waited for a manual retry. Rather than widen Realtime
+authorization to waiting members — which would hand a not-yet-admitted session a live view
+of the room's channel — the lobby polls the single row it is already authorized to read,
+its own `jam_members` row, every five seconds. Polling ends at `active`, where Postgres
+Changes take over, and at `removed`, which will not change by waiting.

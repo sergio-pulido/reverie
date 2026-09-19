@@ -54,14 +54,21 @@ It opens three independent anonymous sessions and asserts lobby placement, refus
 self-admission and of direct `jam_members` inserts, host admission, cross-session Realtime
 delivery of a message and a proposal, snapshot recovery after a dropped subscription,
 host-only visibility of the waiting lobby, outsider denial, removal, and refusal to re-enter
-after removal. It leaves one test jam
+after removal. It also covers the invite lifecycle: that the invite column is not selectable
+by anyone including the host, that a host cannot hand-write a code, that a non-host cannot
+read, rotate or revoke an invite, that a revoked invite is indistinguishable from an unknown
+code, that rotation kills the previous code, that a repeated request is idempotent, and that
+repeated wrong codes are throttled. It leaves one test jam
 behind and prints its slug so it can be deleted from the dashboard. This repository has no
 Supabase credentials, so the script has never been run here.
 
-By hand: create a room in one browser and reload its persistent URL; open the invite code in
-a second browser profile and confirm it waits until the host admits it; send a line from each
-side and confirm both appear; reload one side and confirm the conversation is restored from
-the snapshot; remove the guest and confirm the room stops updating for them.
+By hand: create a room in one browser and reload its persistent URL; open the host invite
+panel and scan the QR with a phone; join from a second browser profile and confirm it waits
+until the host admits it, without touching the page; send a line from each side and confirm
+both appear; reload one side and confirm the conversation is restored from the snapshot;
+rotate the invite and confirm the previous link stops working; revoke it and confirm a new
+arrival is refused; remove the guest and confirm the room stops updating for them and that
+the same invite does not let them back in.
 
 Anonymous Auth users receive the `authenticated` database role; the public API key alone is not a signed-in identity. RLS enforces room membership on every collaborative table. The join and admit RPCs constrain who can change membership and refuse self-promotion, removed-member re-entry and private-room enumeration.
 

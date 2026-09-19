@@ -17,24 +17,42 @@ These are Reverie application contracts, not provider API endpoints.
 
 | Function | Caller | Returns | Refuses |
 | --- | --- | --- | --- |
-| `request_jam_admission(p_invite_code, p_display_name)` | any authenticated session | `{ jamId, slug, title, memberStatus }` | no session (`28000`), name outside 1–32 characters (`22023`), unknown code (`P0002`), completed/closed jam (`22023`), previously removed caller (`42501`) |
+| `request_jam_admission(p_invite_code, p_display_name)` | any authenticated session | `{ jamId, slug, title, memberStatus }` | no session (`28000`), name outside 1–32 characters (`22023`), unknown, revoked or expired invite (`P0002`), completed/closed jam (`22023`), previously removed caller (`42501`), more than 10 failed lookups in 10 minutes (`53400`) |
 | `set_jam_member_status(p_jam_id, p_member_id, p_status)` | host only | `{ jamId, userId, displayName, role, status }` | non-host caller and the host's own row (`42501`), status other than `active`/`removed` (`22023`), unknown member (`P0002`) |
+| `get_jam_invite(p_jam_id)` | host only | `{ jamId, slug, code, expiresAt, revokedAt, state }` | non-host caller (`42501`), unknown jam (`P0002`) |
+| `rotate_jam_invite(p_jam_id, p_expires_in_minutes)` | host only | the new invite, same shape | non-host caller (`42501`), lifetime outside 5 minutes to 24 hours (`22023`) |
+| `revoke_jam_invite(p_jam_id)` | host only | the revoked invite, same shape | non-host caller (`42501`) |
 
 `memberStatus` is `waiting` for an invite-only jam and `active` for a public one. A host calling it against their own jam gets their existing host membership back unchanged. Neither
 function can create or promote a host. The browser has no insert, update or delete policy on
 `jam_members`, so these functions are the only membership mutation path.
 
+A repeated `request_jam_admission` from the same session is idempotent: the display name is
+refreshed and the status is left alone, so a second submit never resets a pending admission
+or re-admits a removed participant.
+
+`state` is `active`, `expired` or `revoked`. A revoked or expired invite is refused with the
+same `P0002` message an unknown code gets, so a probe cannot tell a lapsed invite from a
+code that never existed. `p_expires_in_minutes` is `null` for an invite that does not expire.
+
 ### Implemented table access
 
 | Table | Select | Insert |
 | --- | --- | --- |
-| `jams` | host or any waiting/active member | host only, `host_id = auth.uid()` |
+| `jams` | host or any waiting/active member, **excluding `invite_code`, `invite_expires_at` and `invite_revoked_at`** | host only, `host_id = auth.uid()` |
+| `jam_admission_attempts` | none | none (RLS on, no policies; reached only by `security definer` functions) |
 | `jam_members` | own row; the host sees every row; an active member sees only the active roster | none |
 | `jam_messages` | active members | active members, `author_id = auth.uid()` (defaulted, never sent by the browser) |
 | `jam_proposals` | active members | active members, `status = 'queued'` |
 
 No update or delete policy exists on `jam_messages` or `jam_proposals`: both are append-only
 until the versioned scene contract below is implemented.
+
+The three invite columns on `jams` are excluded from the column grants to `authenticated`
+for both `select` and `update`. RLS answers which rows a caller may read; which columns of
+a row they may read is a column privilege, so this is the only place it can be enforced. A
+member therefore cannot re-share the entitlement, and a host cannot hand-write a predictable
+code — both go through the host-only functions above, which run as owner.
 
 ### Implemented Realtime contracts
 
@@ -46,6 +64,10 @@ until the versioned scene contract below is implemented.
   because no persisted event log exists yet.
 - Who is queued for admission is host-only information, enforced by the `jam_members` select
   policy rather than by which panel the client renders.
+- A waiting participant holds no channel, because channel authorization requires *active*
+  membership. Their access status is polled from their own `jam_members` row every 5 seconds
+  until it becomes `active` (Postgres Changes take over) or `removed` (terminal). No read
+  surface is added for this: `user_id = auth.uid()` is already in the select policy.
 
 ## Planned privileged HTTP interfaces
 

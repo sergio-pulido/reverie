@@ -1,14 +1,19 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { beatAtOffset, buildOutline } from "../src/core/outline";
+import { beatAt, buildOutline } from "../src/core/outline";
 import {
   applyCascade,
   buildCascadePrompt,
   OutlineCascadeError,
 } from "../src/core/outlineCascade";
+import { beatOffsets } from "../src/core/directorBeats";
 import { jamScriptSchema, type JamScript } from "../src/core/script";
 
-/** Two scenes, three portions, distinct durations so offsets are unambiguous. */
+/**
+ * Two scenes, three portions, distinct durations so offsets are unambiguous.
+ * Durations stay inside the video model's [5, 15] second band, which the script
+ * schema enforces — a fixture outside it fails validation, not the assertion.
+ */
 function scriptOf(): JamScript {
   return jamScriptSchema.parse({
     title: "The Key",
@@ -17,14 +22,14 @@ function scriptOf(): JamScript {
       {
         heading: "INT. HALLWAY",
         portions: [
-          { durationSeconds: 10, summary: "she finds the key", action: "She kneels." },
-          { durationSeconds: 15, summary: "she pockets it", action: "She stands." },
+          { durationSeconds: 5, summary: "she finds the key", action: "She kneels." },
+          { durationSeconds: 10, summary: "she pockets it", action: "She stands." },
         ],
       },
       {
         heading: "INT. CELLAR",
         portions: [
-          { durationSeconds: 20, summary: "she unlocks the cellar", action: "The door gives." },
+          { durationSeconds: 15, summary: "she unlocks the cellar", action: "The door gives." },
         ],
       },
     ],
@@ -37,27 +42,38 @@ test("outline flattens scenes into beats with cumulative offsets", () => {
     beats.map((beat) => [beat.portionIndex, beat.startSeconds, beat.sceneIndex]),
     [
       [0, 0, 0],
-      [1, 10, 0],
-      [2, 25, 1],
+      [1, 5, 0],
+      [2, 15, 1],
     ],
   );
   assert.equal(beats[2].sceneHeading, "INT. CELLAR");
   assert.equal(beats[0].summary, "she finds the key");
 });
 
-test("an unknown stream offset reads as the first beat, not the last", () => {
+test("a stream that has not reported a position is on no beat at all", () => {
+  // Not the opening beat: "nothing is playing" and "the first beat is playing"
+  // are different claims, and direction must not be sent against the second
+  // when only the first is true.
   const beats = buildOutline(scriptOf());
-  assert.equal(beatAtOffset(beats, null)?.portionIndex, 0);
+  assert.equal(beatAt(beats, null), null);
 });
 
 test("a stream offset lands on the beat that contains it", () => {
   const beats = buildOutline(scriptOf());
-  assert.equal(beatAtOffset(beats, 0)?.portionIndex, 0);
-  assert.equal(beatAtOffset(beats, 9)?.portionIndex, 0);
-  assert.equal(beatAtOffset(beats, 10)?.portionIndex, 1);
-  assert.equal(beatAtOffset(beats, 24)?.portionIndex, 1);
-  assert.equal(beatAtOffset(beats, 25)?.portionIndex, 2);
-  assert.equal(beatAtOffset(beats, 999)?.portionIndex, 2);
+  assert.equal(beatAt(beats, 0)?.portionIndex, 0);
+  assert.equal(beatAt(beats, 4)?.portionIndex, 0);
+  assert.equal(beatAt(beats, 5)?.portionIndex, 1);
+  assert.equal(beatAt(beats, 14)?.portionIndex, 1);
+  assert.equal(beatAt(beats, 15)?.portionIndex, 2);
+  assert.equal(beatAt(beats, 999)?.portionIndex, 2);
+});
+
+test("the outline's offsets are the director's, not a second timeline", () => {
+  const script = scriptOf();
+  assert.deepEqual(
+    buildOutline(script).map((beat) => beat.startSeconds),
+    beatOffsets(script),
+  );
 });
 
 test("a cascade rewrites the tail and leaves settled beats alone", () => {

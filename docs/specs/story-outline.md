@@ -174,11 +174,28 @@ before anything is written; output that does not validate is refused, never coer
 partially applied. Existing story text fed back as context is material, not instruction — a line
 of dialogue that reads like an order is dialogue.
 
-## The playback lock window
+## The lock window, which comes from the stream
 
-Portions at or below `currentPortionIndex + 1` are immutable: played, or the generation buffer
-(`docs/API_CONTRACTS.md`). The outline inherits this unchanged, which is why the artifact is a
-view of **what is up to come** — the settled part of the story is readable and not editable.
+Beats at or below the one already committed to the provider are immutable. The outline inherits
+this, which is why the artifact is a view of **what is up to come** — the settled part of the
+story is readable and not editable.
+
+The boundary is **derived from the live stream**, not from a stored cursor. `src/core/directorBeats.ts`
+answers it: `beatWindow` returns `{ currentBeatIndex, lockedBeatIndex, minEditableBeatIndex }`
+from where the stream has reached on the script clock, and `isBeatLocked` tests one beat against
+it. The rule is that a stream generates ahead of what a viewer sees, so the beat on screen and
+the one already with the provider are both closed, and editing resumes two beats ahead.
+
+Two properties of this source have no analogue in the stored cursor it replaced, and both bear on
+the queue:
+
+- **With no stream open, nothing is locked.** The whole outline is editable before a session
+  starts and after one ends. The same edit is therefore refused mid-session and accepted outside
+  one, which makes the boundary check non-idempotent across that transition — a hazard for a
+  contract whose replay guarantees rest on idempotent `requestId`s.
+- **Beat 0 is locked before the first chunk arrives**, because the configure message carried the
+  script to the provider when the session opened. There is no moment where a live session has
+  nothing committed.
 
 The check is simpler than it first appears. The lock window is a *prefix* and a cascade only ever
 runs forward, so if the edited beat is editable then every beat after it is too. **Only the edited
@@ -209,12 +226,21 @@ below must not be built on `withJamLock` alone.** The exit that moves the script
 gives the cascade a real transaction and a real cross-instance row lock, and is the reason that
 work is sequenced before the queue rather than after it.
 
+There is also no longer a compare-and-swap anywhere in `JamStore` to model the commit on.
+`getPlayback` and `updatePlayback` were deleted with the portion video pipeline, so the interface
+is now persistence plus revision history and nothing else. What survives to build on is
+`withJamLock`, `PlaybackGuard`, `minEditablePortionIndex`, `PortionLockedError` and
+`directorBeats.ts`. The versioned commit is something this work must *add*, not something it can
+reuse.
+
 ## The outline drives the live director too
 
-A beat is also the direction text for the live director (`apps/server/directorStream.ts`, RV-16).
+A beat is also the direction text for the live director (`apps/server/directorStream.ts`, on main).
 One edited phrase drives both the rewritten script portion and what the stream is told to render.
-The director's seam takes `{ body, authorId?, proposalId? }` and makes no assumption about where a
-direction came from, so a beat needs no translation to become one.
+The director's seam takes `{ body, authorId?, proposalId?, beatIndex? }` and makes no assumption
+about where a direction came from, so a beat needs no translation to become one. A direction
+naming a closed beat is refused with `beat_locked`, the stream-side counterpart of the
+`portion_locked` a script edit gets.
 
 This is the second consumer that justifies centralizing the artifact, and it constrains delivery:
 
@@ -223,7 +249,7 @@ This is the second consumer that justifies centralizing the artifact, and it con
   last would reach a chunk) and would flood a bounded audit log, pushing out the record of what a
   human actually asked for. The stream reports `scriptOffsetSeconds` on its own timeline, and the
   outline carries each beat's cumulative `startSeconds`, so the beat in play is a lookup
-  (`beatAtOffset`).
+  (`beatAt`, which defers to `currentBeatIndex` rather than restating it).
 - **The queue never opens or holds a director session.** A session bills a 60-second minimum of
   wall clock whether or not anyone is directing. An outline edit commits durably with no stream
   up; delivery is best-effort on top. "No session open" and "session closed under me" are ordinary
@@ -246,6 +272,7 @@ a raw provider body or an internal prompt.
 | Code | Meaning | Retryable |
 | --- | --- | --- |
 | `portion_locked` | the edited beat is played or is the generation buffer, or the boundary moved into the cascade's range before it committed | no |
+| `beat_locked` | a direction names a beat the stream has already committed to the provider | no |
 | `stale_state_version` | `expectedStateVersion` is behind; the current snapshot is attached | yes, after reconciling |
 | `invalid_cascade` | the model's rewrite did not cover the tail exactly; nothing was written | yes |
 | `generation_disabled` | no provider is configured; no cascade is fabricated | no |
@@ -278,7 +305,8 @@ a raw provider body or an internal prompt.
 ## Implementation status
 
 Implemented (`eedeb0a`, tested offline, no provider): the `summary` field on the portion schema,
-`buildOutline` and `beatAtOffset` (`src/core/outline.ts`), and the cascade prompt, schema and
+`buildOutline` and `beatAt` (`src/core/outline.ts`, over `directorBeats.ts`'s timeline), and the
+cascade prompt, schema and
 application (`src/core/outlineCascade.ts`).
 
 Not implemented: the edit queue, the edit intent type, the provider wiring, every input mechanism

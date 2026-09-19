@@ -89,6 +89,7 @@
   margin: 0 calc(-1 * var(--safe-x)) 0 -12px;
   padding: 20px var(--safe-x) 26px 60px;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
   list-style: none;
   scrollbar-width: none;
 }
@@ -299,6 +300,7 @@ button.search-card:hover .search-card-poster { box-shadow: 0 0 0 3px rgba(207, 2
   font-weight: 700;
   transition: transform .16s ease, background-color .16s ease;
 }
+.search-send-mark { display: none; }
 .search-send:disabled { opacity: .5; cursor: default; }
 .search-send:focus-visible, :root:not([data-input="pointer"]) .search-send:focus {
   outline: 5px solid var(--focus);
@@ -318,6 +320,7 @@ button.search-card:hover .search-card-poster { box-shadow: 0 0 0 3px rgba(207, 2
   margin: 0 -10px;
   padding: 10px;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
   scrollbar-width: none;
 }
 .search-strip::-webkit-scrollbar { display: none; }
@@ -516,24 +519,65 @@ button.search-card:hover .search-card-poster { box-shadow: 0 0 0 3px rgba(207, 2
     padding: 8dvh var(--safe-x) 0;
   }
   .search-invitation { font-size: 34px; letter-spacing: -.03em; text-align: left; }
-  .search-turns { gap: 44px; }
+  .search-turns { gap: 44px; padding: 0 var(--safe-x); }
   .search-line { max-width: 92%; font-size: 18px; }
   .search-line-viewer { padding: 12px 18px; }
-  .search-line-assistant, .search-line-system, .search-results-caption, .search-results-empty { padding-left: 32px; }
+  .search-line-assistant, .search-line-system, .search-results-caption, .search-results-empty { padding-left: 30px; }
   .search-line-assistant::before { font-size: 22px; }
   .search-results-caption { font-size: 14px; }
-  .search-track { gap: 18px; padding-left: 44px; }
-  .search-card-title { font-size: 16px; }
-  .search-card-year { font-size: 15px; }
-  .search-card-pick { font-size: 12px; padding: 3px 7px; }
+
+  /* A poster row runs from the gutter off the right edge and is dragged with the thumb. Its
+     cards settle on the gutter so a row never rests showing a sliver of one. */
+  .search-track {
+    gap: 12px;
+    margin: 0 calc(-1 * var(--safe-x));
+    padding: 12px var(--safe-x) 18px;
+    scroll-snap-type: x proximity;
+    scroll-padding-left: var(--safe-x);
+  }
+  .search-card-slot { scroll-snap-align: start; }
+  .search-card-title { min-height: 2.5em; margin-top: 6px; font-size: 15px; }
+  .search-card-year { font-size: 14px; }
+  .search-card-pick { top: 6px; left: 6px; padding: 3px 7px; font-size: 12px; }
+
+  .search-pending { margin-top: 36px; }
   .search-pending-text, .search-pending-placeholder { font-size: 20px; }
-  .search-heard-chip, .search-chip { font-size: 16px; padding: 9px 15px; }
-  .search-dock { padding: 20px var(--safe-x) 14px; }
-  .search-composer-form { gap: 10px; }
-  .search-field input { padding: 0 16px; font-size: 18px; border-radius: 14px; }
-  .search-send { padding: 0 16px; font-size: 17px; border-radius: 14px; }
-  .search-status { padding-left: 0; font-size: 16px; }
-  .voice-control-icon { width: 28px; height: 28px; }
+  .search-heard-chip { font-size: 16px; padding: 9px 15px; }
+  .search-results-preview .search-card-slot { width: 112px; }
+  /* The dock: its own padding clears a phone's home indicator, and the keyboard lifts it. */
+  .search-dock { padding: 14px var(--safe-x) calc(12px + env(safe-area-inset-bottom, 0px)); }
+  .search-composer-form { gap: 8px; }
+  .search-field input { padding: 0 14px; border-width: 2px; border-radius: 14px; font-size: 17px; }
+  .voice-control { border-width: 2px; }
+  .voice-control-icon { width: 26px; height: 26px; }
+  /* The send button gives its label back to the field and keeps the arrow: two words and a
+     microphone beside a 360-pixel field leave nothing to read what is being typed. */
+  .search-send { width: var(--control-height); padding: 0; border-width: 2px; border-radius: 14px; font-size: 26px; font-weight: 400; }
+  .search-send-word {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .search-send-mark { display: block; line-height: 1; }
+  .search-status { padding-left: 0; font-size: 15px; }
+  /* The strip: thumb-sized chips, dragged sideways, with Filters held at the leading edge so it
+     is never scrolled out of reach. */
+  .search-strip { gap: 8px; margin: 0; padding: 6px 0; scroll-padding-left: 0; }
+  .search-strip-label { font-size: 14px; }
+  .search-strip-notice { font-size: 15px; }
+  .search-chip { min-height: 44px; padding: 10px 16px; font-size: 15px; }
+  .search-chip-filters {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: #0b0f1b;
+    box-shadow: 8px 0 12px #080b13;
+  }
   .search-preview-body { grid-template-columns: minmax(0, 1fr); gap: 20px; padding: 120px 20px 20px; }
   .search-preview-poster { width: 120px; }
   .search-preview-summary h2 { font-size: 32px; }

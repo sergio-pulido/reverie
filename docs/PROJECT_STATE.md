@@ -1373,6 +1373,101 @@ Nothing about the engine, the turn snapshots, the two preview actions or the rem
 changed. Verified in Chrome at 360×800 and 390×844, and held by DOM tests at 360 that read the
 real stylesheet at that width (`tests/searchPhone.dom.test.tsx`).
 
+## 2026-09-20 — Appearing in the film, and the beat that is made from it
+
+A participant can choose to be a character in the film the room is generating. One frame from
+their own camera becomes the character reference and beats are generated with
+`minimax/h3-max/reference-to-video`. The consent model is the feature; the full rules are in
+`docs/specs/appearing-in-the-film.md`.
+
+- **The register grew a kind, not a twin.** `likeness` joins camera, microphone and screen in
+  `jam_live_consents` (`20260920100000_likeness_consent.sql`). The trigger issues its reference
+  with a `likeness:` prefix and still clamps the lifetime; the insert policy still pins
+  `owner_id = auth.uid()`; there is still no update or delete policy, so a grant is retired only
+  by `withdraw_live_consent`. A partial unique index allows one standing likeness grant per
+  participant per jam. `likeness` is not a track kind: `permittedKinds` filters to track kinds
+  explicitly, so agreeing to appear starts no camera and a camera grant seeds no beat.
+- **The frame is taken on a press, seen, and approved.** `AppearInFilm` opens the camera on a
+  press and takes nothing by opening, captures on a second press, shows the picture back, and
+  sends it only on a third press that declares what it is for. The camera closes as soon as the
+  picture is taken. The frame is square, 256–1024 pixels, at most 512 KB, and lives in the
+  private bucket under `likeness/<jamId>/<uuid>`; no signed URL is minted and `GET
+  /api/jams/:id/likeness/:assetRef` serves it to its owner alone.
+- **Withdrawal is one press, immediate, and honest about the past.** It stops the likeness being
+  used by any beat generated from then on. Beats already generated still show the person, and the
+  panel says exactly that rather than implying a recall. `describeBeatLikeness` is three-valued
+  (`none` / `standing` / `withdrawn_since`) so a withdrawal can never reclassify an existing beat
+  as having used nobody.
+- **Generation.** `POST /api/jams/:id/beats/:index/video` on the Node server. Whether anyone
+  appears is not in the request body: the server reads the register fresh under the caller's own
+  RLS at the instant of submission, and `usableLikenesses` answers, so there is no cache to
+  invalidate. Frames travel inline as `data:` URIs, at most three per beat. A grant whose frame
+  never arrived is `409 frame_missing`, never a plain beat generated without that person. No
+  provider is `503 generation_disabled` and no Supabase is `503 likeness_not_configured`; neither
+  is ever a mock.
+- **One budget.** `FAL_ASSET_BUDGET_USD` now covers both ways this process spends: the director's
+  session ledger and beat generation reserve against a shared `FalBudget`, so the stated total is
+  the real ceiling.
+- A jam where nobody has agreed generates a plain beat through
+  `minimax/h3-max/text-to-video`, exactly as it would have before this existed.
+
+### Verified against the live models
+
+`pnpm probe:beat-video`, 2026-09-20, 5-second 768p clips through the real adapter:
+
+| | model | submit → downloaded clip | reported inference | clip |
+| --- | --- | --- | --- | --- |
+| Plain beat | `minimax/h3-max/text-to-video` | 5.8 s | 2.5 s | 4.6 MB mp4 |
+| Likeness beat | `minimax/h3-max/reference-to-video` | 8.6 s | 3.0 s | 4.2 MB mp4 |
+
+A likeness beat took **1.48× the wall clock** and 1.2× the inference. Both models returned a
+playable mp4. Two earlier measured facts shaped the code: the queue tracks a request under
+`minimax/h3-max`, not under the endpoint id its published schema declares, so the adapter
+follows the `status_url` and `response_url` the submit response returns (validated to be https
+on the queue host) rather than constructing them; and a reference below 256×256 is refused with
+`image_too_small`, which is why `checkFrame` refuses it here first.
+
+**Cost was not measured.** No queue response carries a price, so the rates in `.env.example` are
+fal's published figures read from their model listing on 2026-09-20 — $0.08/s at 768p for
+reference-to-video against $0.04/s promotional for text-to-video — and both defaults are the
+list rate so a stale default never understates the bill. The reference frames themselves are free
+at our caps: the provider includes 4,096 reference tokens and a 1024×1024 image is 1,024, so
+three references fit inside the allowance.
+
+### Verified against a real Postgres
+
+The whole migration chain was applied in order to a scratch PostgreSQL 14 instance with the
+Supabase roles, `auth.uid()` and the default API-role grants in place. Every migration applied
+(`20260919220000_catalogue_titles.sql` needs Supabase's `extensions` schema and was skipped),
+and the consent rules were then exercised as two real participants:
+
+- a likeness insert carrying `https://evil.invalid/face.jpg` and a 99-hour expiry was stored
+  with a trigger-issued `likeness:` reference and a clamped lifetime
+- a camera grant in the same room still got the `live:` prefix
+- a second standing likeness grant was refused by `jam_live_consents_one_standing_likeness`
+- granting on another participant's behalf was refused by the row-level security policy
+- `update` reached 0 rows and `delete` removed none, there being no policy for either
+- a non-member read 0 rows of the register and, naming the consent id exactly, was refused
+  withdrawal; an active member of the room who was not the owner was refused identically; the
+  owner's own withdrawal succeeded, and a fresh grant was then allowed
+
+### Verification
+
+- `npx tsc --noEmit` clean, `pnpm test` 821/821 (was 790), `pnpm build` passes. New tests:
+  `tests/likeness.test.ts` (14, the pure rules), `tests/likenessRoutes.test.ts` (22, the routes
+  over a fake Supabase and a fake provider) and `tests/appearInFilm.dom.test.tsx` (9, the panel).
+- The consent gate was checked by breaking it: removing the effectiveness filter from
+  `usableLikenesses` fails 9 tests across all three files, including the three that hold
+  withdrawal, expiry and the standing of an already-generated beat.
+- **Not verified:** likeness *fidelity*. The probe's reference frame is a synthesised 512×512
+  image, which measures the round trip honestly and says nothing about how well a face survives
+  it; no photograph of a person has been sent. The migration has not been applied to the hosted
+  Supabase project. The whole path has not been run end to end in a browser against a live room,
+  so the panel's capture, approval and withdrawal are covered by DOM tests and the routes by
+  their own tests, but the two have not been exercised together. Durable frame and clip storage
+  needs `SUPABASE_SERVICE_ROLE_KEY`; without it both stay in memory and the routes report
+  `durable: false`.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

@@ -21,11 +21,11 @@ Reverie is an open-source HackBarna 2026 project with two separate modes. **Disc
 - **A shared playback clock.** The host starts, pauses and resets a room-wide timer anchored to the database's clock, so every participant sees the same position.
 - **A screenplay to work from.** The host generates one from a short prompt (Nebius) or imports their own markdown. The script is split into timed portions. Each portion can be edited on its own, and every change is kept as a revision that can be restored.
 - **Opt-in live camera, microphone and screen (Vonage Video API).** Nothing is published until the participant consents. Each consent records its owner, purpose and expiry, and withdrawing it stops the track. Nothing is recorded. Opening a session and minting a token have been proven against Vonage, but a live stage between two browsers has not been tested.
+- **Choosing to appear in the film.** A participant can agree to be a character in the film the room is generating. One frame from their own camera, taken on their own press and approved by them before it is used, becomes the character reference, and beats are generated with `minimax/h3-max/reference-to-video` so the person on screen is them. Agreeing is its own grant in the same consent register, separate from joining the room and separate from turning on a camera. Withdrawing is one press and stops the next beat immediately; beats already generated still show the person, and the room is told exactly that rather than being promised a recall. The frame never reaches another participant's browser. Both models were measured live; a room where nobody has agreed generates as it always did. See [the spec](docs/specs/appearing-in-the-film.md).
 
 ## Not built yet
 
-- Voting, and turning an accepted proposal into a scene. The Studio says this on screen.
-- Generated video. A fal.ai adapter and a portion video pipeline exist, but no fal model has been verified, and starting playback generation returns `generation_disabled`.
+- Voting, and turning an accepted proposal into a scene. The Studio says this on screen. Beat generation exists as a route (`POST /api/jams/:id/beats/:index/video`, Node server only) and both its models are verified live, but nothing in the Studio yet drives it, and `POST /api/jams` playback generation still returns `generation_disabled`.
 - Voice input and transcription (SLNG), image and video-clip uploads, forks, recording, broadcast and export.
 - Translated or re-styled playback per participant. A session stores those settings, but nothing renders them.
 
@@ -42,7 +42,7 @@ The Studio's scene panel is a static illustration, not generated output.
 | Validation | Zod | Command and provider-response schemas at every boundary |
 | Reasoning | Nebius (`Qwen/Qwen3-30B-A3B-Instruct-2507` for Discover) | Script generation and the Discover conversation, both verified live |
 | Live media | Vonage Video API | Implemented. `pnpm probe:vonage` passed; the two-browser stage is untested. |
-| Generated media | fal.ai | Adapter behind a model allowlist; no model verified |
+| Generated media | fal.ai | Adapter behind a server-owned model allowlist. `minimax/h3-max/text-to-video` and `minimax/h3-max/reference-to-video` verified live (`pnpm probe:beat-video`); the live director's model is not. |
 | Speech | SLNG | Planned, no code |
 | Catalogue | TMDB snapshot in Postgres | Live: 27,839 films |
 | Invites | `qrcode.react` | Link, QR, code, expiry, rotation and revocation |
@@ -91,7 +91,7 @@ pnpm build
 curl --fail http://127.0.0.1:4317/api/health
 ```
 
-Create `.env.local` from `.env.example`, then follow [Supabase setup](docs/SUPABASE_SETUP.md) and [Vercel deployment](docs/VERCEL_SETUP.md). Without Supabase configuration the app runs as a clearly labelled, non-shareable local preview. A configured project that fails reports the failure and never falls back to the preview. Live checks against configured services: `pnpm verify:realtime`, `pnpm verify:shortlist`, `pnpm verify:conversation` and `pnpm probe:vonage`.
+Create `.env.local` from `.env.example`, then follow [Supabase setup](docs/SUPABASE_SETUP.md) and [Vercel deployment](docs/VERCEL_SETUP.md). Without Supabase configuration the app runs as a clearly labelled, non-shareable local preview. A configured project that fails reports the failure and never falls back to the preview. Live checks against configured services: `pnpm verify:realtime`, `pnpm verify:shortlist`, `pnpm verify:conversation`, `pnpm probe:vonage` and `pnpm probe:beat-video`. The last one generates two real clips and spends real money.
 
 Design documents:
 
@@ -113,8 +113,9 @@ Design documents:
   - Discover over the live catalogue: `verify:shortlist`, and `verify:conversation` with Nebius, which passed three times
   - script generation through Nebius
   - Vonage session and token creation: `probe:vonage`
+  - both beat models, plain and likeness: `probe:beat-video`, 5-second 768p clips in 5.8 s and 8.6 s
 - **Verified locally only:** the shared playback clock, in two browsers on the local stack; 554/554 unit tests.
-- **Not verified:** a Vercel deployment; a live Vonage stage between two browsers; any fal.ai model. Hosted migrations were applied by hand, so no tracking table records them.
+- **Not verified:** a Vercel deployment; a live Vonage stage between two browsers; the live director's fal model; likeness fidelity, since the beat probe's reference frame is a synthesised image rather than a photograph of a person. Hosted migrations were applied by hand, so no tracking table records them.
 - **Not implemented:** everything under [Not built yet](#not-built-yet).
 - **Deliberately blocked:** scene acceptance, which waits on a versioned transactional contract.
 

@@ -1,5 +1,67 @@
 # Decisions
 
+## 2026-09-20 — Appearing in the film is a consent kind, not a second register
+
+A participant can choose to be a character in the film the room generates. That needed a record
+of who agreed, to what, until when — and the live-media register already holds exactly that shape
+for camera, microphone and screen. So `likeness` joins `jam_live_consents` as a fourth consent
+kind rather than starting a parallel store.
+
+The alternative, a `jam_likeness_grants` table of its own, was rejected for a specific reason and
+not for tidiness: two registers means two answers to "may this person be used", and the moment
+they disagree — a withdrawal landing in one and not the other — the disagreement is a person on
+screen who asked not to be. One table, one withdrawal function, one definition of effective.
+
+The cost of sharing is that a likeness grant now flows through code written for publishable
+tracks. `permittedKinds` was the sharp edge: unchanged, a likeness grant would have been read as
+permission to publish something. It now filters to track kinds explicitly, and two tests hold both
+directions — agreeing to appear starts no camera, and a camera grant seeds no beat. The
+TypeScript union caught this at the seam before any of it ran, which is the argument for the
+kinds being a closed union rather than a string.
+
+**A partial unique index allows one standing likeness grant per participant per jam.** Two would
+mean two references for one face, and withdrawing one would leave the other standing — a
+withdrawal that does not withdraw. Changing your frame is withdrawing and agreeing again, with a
+fresh purpose and a fresh expiry, which is the honest shape of that act anyway.
+
+**Withdrawal is forward-looking, and the interface says so in those words.** A beat is a thing
+that happened. `describeBeatLikeness` is three-valued — `none`, `standing`, `withdrawn_since` —
+rather than a boolean, precisely so that a withdrawal cannot quietly reclassify an existing beat
+as having used nobody. "Ending the agreement stops the next beat, not this one" is the sentence
+the room sees, and a DOM test asserts the copy does not drift into implying a recall.
+
+## 2026-09-20 — Reference-to-video is a model on the fal allowlist, and one budget covers both
+
+`minimax/h3-max/reference-to-video` generates a beat seeded by approved frames;
+`minimax/h3-max/text-to-video` generates the same beat with nobody in it. They are two entries in
+one server-owned allowlist behind one adapter and one key, not a new provider. A request carrying
+frames reaches the reference model and one without reaches the plain model; there is deliberately
+no third path that asks for a likeness and quietly returns a beat without it.
+
+**Measured, against both live models** (`pnpm probe:beat-video`, 2026-09-20, 5-second 768p
+clips): the plain beat took 5.8 s from submit to a downloaded clip with 2.5 s of reported
+inference; the reference beat took 8.6 s with 3.0 s — 1.48× the wall clock, 1.2× the inference.
+The provider refuses a reference below 256×256 (`image_too_small`), which is why the frame check
+is server-side and happens before anything is spent.
+
+Cost could not be measured the same way: no response from the queue carries a price, so the
+figures in `.env.example` are fal's published rates read from their model listing on 2026-09-20 —
+$0.08 per second at 768p for reference-to-video, against $0.04 promotional for text-to-video,
+which is 2× per second today and level once the promotion ends. Both defaults are the list rate,
+so a stale default overstates rather than understates the bill. Reference *inputs* are billed as
+tokens beyond an included 4,096; a 1024×1024 image is 1,024 tokens, so capping a frame at
+1024×1024 and a beat at three references keeps every likeness beat inside the allowance. That cap
+is a pricing decision written into `src/core/likeness.ts`, not a guess at a good size.
+
+**`FAL_ASSET_BUDGET_USD` is now genuinely one total.** The director's ledger counted its own
+spend; beat generation would have counted its own beside it, and the stated budget would have
+been half the real ceiling. Both now reserve against a shared `FalBudget`.
+
+**The frame goes to the provider inline, as a `data:` URI**, rather than being uploaded for a URL.
+It has to reach the provider — that is the generation the person consented to — but it does not
+have to become an address that anyone holding the link can fetch, and inline means the only
+copies are ours and the provider's, for the length of the request.
+
 ## 2026-09-20 — The account menu shows the real anonymous session, not a fabricated identity
 
 The top bar now ends in an avatar with a menu behind it. The obvious way to build that surface is

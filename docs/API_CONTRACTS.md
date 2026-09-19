@@ -80,7 +80,7 @@ until the versioned scene contract below is implemented.
 
 ## Portion playback, locking, and video generation
 
-Portions are addressed by a zero-based global `portionIndex` in flattened scene order (the markdown label `Portion 2.1` is a render of that order, not the address). The structured script (scenes → portions) is the editing source of truth; markdown revisions are deterministic renders of it (coordination ruling, 2026-09-19 — mechanism agreed with jam-storage before either side implements).
+Playback addresses portions by a zero-based global `portionIndex` in flattened scene order; edit operations address them as `(sceneIndex, portionIndex)` tuples. Structural edits (insert/delete/reorder of scenes or portions) are forbidden in v1, so both addressings are stable and map deterministically (the markdown label `Portion 2.1` is a render, not the address). The structured script (scenes → portions) is the editing source of truth; markdown revisions are deterministic renders of it (coordination ruling, 2026-09-19, contract agreed with jam-storage).
 
 **Lock window.** Server-owned playback state on the jam: `playback: { status: "idle" | "priming" | "playing" | "finished", currentPortionIndex, stateVersion }`. Derived rules, never stored per portion:
 
@@ -88,11 +88,13 @@ Portions are addressed by a zero-based global `portionIndex` in flattened scene 
 - `portionIndex == currentPortionIndex + 1` (or `0` while `priming`): **locked** — the generation buffer. Its text is pinned at the script revision current at lock time.
 - `portionIndex >= currentPortionIndex + 2`: freely editable.
 
-Any script edit that changes a portion at or below the locked index is rejected with `portion_locked` (`retryable: false`, includes the locked index and current `stateVersion`). Edits to later portions succeed as normal revisions.
+Any script edit that changes a portion at or below the locked index is rejected with `portion_locked` (`retryable: false`, includes the locked index and current `stateVersion`). Edits to later portions succeed as normal revisions. The JamStore enforces this boundary itself: playback pushes the locked index forward with a monotonic `setPlaybackCursor`, and portion mutations below the boundary throw `PORTION_LOCKED`. A revert whose target revision differs from the current one in any locked or played portion is rejected the same way — no partial reverts. Duration edits must stay within the jam format's hard portion bounds, but the total-runtime tolerance is not re-enforced on live edits.
+
+Pinning needs no store API: playback advances the cursor first, then reads the current revision number `N`; because the boundary is already enforced and history is append-only, portion text at revision `N` is immutable for the locked portion.
 
 **Advance rule.** `playback.advance` (host-only, `expectedStateVersion`-guarded) moves the cursor forward by exactly one portion, and only when the locked portion's video is `ready`; otherwise it fails with `media_not_ready` (`retryable: true`) and the room holds on the current portion (`media.delayed`). On a successful advance the next portion is locked, its text pinned, and its generation job enqueued — the pipeline stays exactly one portion ahead. Skipping is not expressible in the API.
 
-**Generation jobs.** Locking a portion enqueues one job: `queued → submitted → generating → downloading → ready | failed` (`failed` carries `retryable`). Jobs are keyed by `(jamId, portionIndex, pinnedRevision)` and idempotent. The clip duration target is the portion's `durationSeconds` (within the jam format's hard bounds). Late provider output after `room.closed` or a superseding revert is discarded. Events: `portion.locked`, `media.requested`, `media.ready`, `media.delayed`.
+**Generation jobs.** Locking a portion enqueues one job: `queued → submitted → generating → downloading → ready | failed` (`failed` carries `retryable`). Jobs are keyed by `(jamId, portionIndex, pinnedRevision)` and idempotent. The clip duration target is the portion's `durationSeconds` (within the jam format's hard bounds). Late provider output after `room.closed` is discarded (locked portions cannot be reverted, so a pinned generation is never superseded). Events: `portion.locked`, `media.requested`, `media.ready`, `media.delayed`.
 
 **fal.ai boundary.** Calls go through a typed adapter in `apps/server/providers/fal.ts` behind `REVERIE_LIVE_ENABLED` and `FAL_KEY`, with a server-owned model allowlist (`FAL_MODEL` may only select from it), bounded generation concurrency, and per-jam clip-count and spend caps. The adapter is not claimed live until a dated probe receipt is recorded. Clients never receive fal URLs or request bodies.
 

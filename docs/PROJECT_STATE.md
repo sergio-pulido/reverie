@@ -302,6 +302,26 @@ remain unproven until `scripts/verify-realtime.mjs` completes against the migrat
   not prove Vercel parity and the in-memory script/session/playback stores still reset when the
   app container restarts.
 
+## 2026-09-19 — Script generation self-corrects runtime misses (RV-10)
+
+- `writeJamScript` no longer fails after sending the same prompt twice. A draft
+  that cannot be fitted to the jam's runtime is retried with targeted feedback:
+  the next prompt carries the rejected draft's actual total seconds, its portion
+  count, whether it ran long or short, and the feasible portion band for the
+  target. A reply that fails the draft shape is retried with the exact JSON
+  shape restated.
+- Attempts are bounded at four paid completions, so the cost of a stubborn
+  provider is capped; only after that do we return the existing typed, retryable
+  `generation_failed`, which the create screen can retry without losing the
+  already-registered room. The 0.8×–1.25× rescale window is unchanged.
+- The provider completion is now an injectable argument of `writeJamScript`, so
+  the retry loop is tested offline: a too-short draft is corrected into an exact
+  240-second script, an unusable shape is retried, and an uncorrectable draft
+  stops after the bounded attempts (`tests/scriptwriter.test.ts`).
+- Verified locally: `pnpm typecheck` and `pnpm test` (153 passing). No live
+  provider call was made for this change, so provider behaviour is implemented
+  and unit-tested here, not claimed as a live probe.
+
 ## Next milestones
 
 1. Apply every migration in `supabase/migrations` to a Supabase project and run

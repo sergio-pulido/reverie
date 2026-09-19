@@ -3,6 +3,7 @@ import { VOICE_LIMITS } from "./contract";
 import { MicrophoneError, startRecording, type Recording } from "./recorder";
 import { openStream, type StreamSession } from "./streamClient";
 import { requestTranscript } from "./voiceClient";
+import { mergePartial } from "./partialMerge";
 import { MICROPHONE_MESSAGES, outcomeOf, pressAction, streamedAnswer, type VoicePhase } from "./voiceState";
 
 type VoiceInputOptions = {
@@ -13,7 +14,8 @@ type VoiceInputOptions = {
 /**
  * Press to talk. One press opens the microphone and records; the next press (or the time limit)
  * stops and hands the final transcript back. While recording, the audio also streams to the
- * server and what has been heard so far comes back as `partial`, for the screen only. On stop the
+ * server and what has been heard so far comes back as `partial`, for the screen only: each new
+ * partial is merged into it where the two overlap, never laid end to end. On stop the
  * stream's final is used when it has words; otherwise the recording, kept all along, is uploaded.
  * Every failure ends in a plain notice and the idle state, so typing always keeps working.
  *
@@ -24,7 +26,6 @@ type VoiceInputOptions = {
 export function useVoiceInput({ onTranscript }: VoiceInputOptions) {
   const [phase, setPhase] = useState<VoicePhase>("idle");
   const [level, setLevel] = useState(0);
-  const [secondsLeft, setSecondsLeft] = useState<number>(VOICE_LIMITS.maxRecordingSeconds);
   const [notice, setNotice] = useState<string | null>(null);
   const [partial, setPartial] = useState("");
   const recording = useRef<Recording | null>(null);
@@ -102,7 +103,7 @@ export function useVoiceInput({ onTranscript }: VoiceInputOptions) {
         firstPartial = false;
         performance.measure("voice:first-partial", { start: "voice:start" });
       }
-      setPartial(text);
+      setPartial((shown) => mergePartial(shown, text));
     });
     try {
       const active = await startRecording(
@@ -121,11 +122,8 @@ export function useVoiceInput({ onTranscript }: VoiceInputOptions) {
       performance.mark("voice:start");
       moveTo("recording");
       const endsAt = performance.now() + VOICE_LIMITS.maxRecordingSeconds * 1_000;
-      setSecondsLeft(VOICE_LIMITS.maxRecordingSeconds);
       deadline.current = window.setInterval(() => {
-        const left = (endsAt - performance.now()) / 1_000;
-        setSecondsLeft(left);
-        if (left <= 0) void stop();
+        if (performance.now() >= endsAt) void stop();
       }, 250);
     } catch (error) {
       session?.cancel();
@@ -158,5 +156,5 @@ export function useVoiceInput({ onTranscript }: VoiceInputOptions) {
     };
   }, []);
 
-  return { phase, level, secondsLeft, notice, partial, press };
+  return { phase, level, notice, partial, press };
 }

@@ -31,6 +31,15 @@ describe("whether a phrase carries a request", () => {
     assert.equal(carriesRequest("um", { answering: true }), false, "filler is filler even as an answer");
   });
 
+  it("does not take a trailing 'or', as a speech service hears it, for a request", () => {
+    for (const heard of ["I want four.", "I want… four", "um, I'd like two", "I want too"]) {
+      assert.equal(carriesRequest(heard), false, heard);
+    }
+    for (const request of ["Seven", "Nine", "I want 1917", "under two hours", "two comedies", "a film for two"]) {
+      assert.equal(carriesRequest(request), true, request);
+    }
+  });
+
   it("reads curly and straight apostrophes alike", () => {
     assert.equal(carriesRequest("I’d like"), false);
     assert.equal(carriesRequest("I'd like"), false);

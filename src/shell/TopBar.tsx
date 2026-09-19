@@ -1,17 +1,18 @@
 import type { KeyboardEvent, MouseEvent } from "react";
-import { DESTINATION_PATH, DISCOVER_PATH, HOME_PATH, type Destination } from "../lib/routes";
+import { DESTINATION_PATH, HOME_PATH, type Destination } from "../lib/routes";
 import { useShell } from "./ShellContext";
 import { focusFirstContent, scrollPageBelow, topBarItems } from "./topBarFocus";
 
 const DESTINATIONS: readonly { id: Destination; label: string }[] = [
   { id: "home", label: "Home" },
-  { id: "discover", label: "Discover" },
+  { id: "search", label: "Search" },
   { id: "jam", label: "Movie Jam" },
 ];
 
 /**
- * The one top bar, rendered at the top of every screen: the brand, the destinations and a search
- * icon. It holds no text field: searching opens Discover with its own field focused.
+ * The one top bar, rendered at the top of every screen: the brand and the three destinations,
+ * Search marked by its lens as well as its name. It holds no text field: choosing Search opens
+ * the search screen with its own field focused.
  *
  * It scrolls away with the page. A remote reaches it again with Up from the first row, or with
  * Back from anywhere on the page. Left and Right move along it, Down returns to the page: to
@@ -44,14 +45,12 @@ export function TopBar({ current, onEnterPage }: { current: Destination; onEnter
               aria-current={id === current ? "page" : undefined}
               onClick={(event) => follow(event, () => shell.go(id))}
             >
+              {id === "search" && <SearchIcon />}
               {label}
             </a>
           </li>
         ))}
       </ul>
-      <a className="top-bar-item top-bar-search" data-top-bar-item="" href={DISCOVER_PATH} aria-label="Search" onClick={(event) => follow(event, shell.search)}>
-        <SearchIcon />
-      </a>
     </nav>
   );
 }
@@ -87,7 +86,7 @@ function moveAlongBar(event: KeyboardEvent<HTMLElement>, onEnterPage?: () => voi
 /** A lens and a handle, drawn for Reverie. */
 function SearchIcon() {
   return (
-    <svg className="top-bar-search-icon" viewBox="0 0 24 24" width="28" height="28" aria-hidden="true" focusable="false">
+    <svg className="top-bar-search-icon" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false">
       <circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" strokeWidth="2.4" />
       <path d="M15.4 15.4 21 21" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
     </svg>

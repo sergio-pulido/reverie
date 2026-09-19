@@ -5,7 +5,7 @@ import type { Destination } from "../lib/routes";
 export type Shell = {
   /** Go to a destination. Choosing the one already on screen returns to its top. */
   go: (destination: Destination) => void;
-  /** Open Discover with its search field focused. */
+  /** Open the search screen with its field focused. */
   search: () => void;
 };
 

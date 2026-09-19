@@ -65,7 +65,7 @@ describe("the conversation transcript", () => {
 
 });
 
-describe("which ranking the grid shows", () => {
+describe("which ranking a shortlist is shown in", () => {
   const scary = REFINEMENTS.find(({ id }) => id === "want-horror");
   assert.ok(scary);
   const state = applyTurn(newState("shown"), refinementTurn(scary, newState("shown")), CATALOGUE_CONFIGURATION);

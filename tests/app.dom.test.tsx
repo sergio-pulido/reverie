@@ -1,5 +1,4 @@
 import { cleanup, focusOn, focused, press, render, settle } from "./render";
-import { scrollCalls } from "./dom";
 import assert from "node:assert/strict";
 import { act, type ReactNode } from "react";
 import { afterEach, describe, it } from "node:test";
@@ -9,6 +8,7 @@ import { FilmPage } from "../src/discover/FilmPage";
 import { liveTopBar } from "../src/shell/topBarFocus";
 import { useRemoteConventions } from "../src/shell/useRemoteConventions";
 import { fakeCatalogue } from "./catalogueFake";
+import { openSearch, say } from "./searchScreen";
 
 afterEach(cleanup);
 
@@ -102,44 +102,43 @@ describe("the app's home", () => {
   });
 });
 
-describe("the app's Discover grid", () => {
-  it("answers Back from a poster by scrolling to the top and focusing the bar", async () => {
-    await openApp("/discover");
-    assert.ok(focused().classList.contains("discover-card"), "the first poster has focus");
-    await press("ArrowDown");
-    await press("ArrowDown");
-    scrollCalls.length = 0;
-    assert.equal(await press("Escape"), true);
-    assert.equal(current(), "Discover");
-    assert.deepEqual(scrollCalls.at(-1), { top: 0 });
-  });
-
-  it("opens a poster with OK, but never with a held OK's repeats", async () => {
-    await openApp("/discover");
-    assert.equal(await press("Enter", { repeat: true }), true);
-    assert.equal(window.location.pathname, "/discover", "a repeat opens nothing");
+describe("the app's search", () => {
+  it("closes a film reopened with Forward to search, even after search's entry was replaced", async () => {
+    await openSearch("/search");
+    await say("Inception");
+    await press("ArrowUp");
+    await press("ArrowUp");
     await press("Enter");
-    assert.match(window.location.pathname, /^\/discover\/\d+$/);
-  });
-
-  it("closes a film reopened with Forward to the grid, even after the grid's entry was replaced", async () => {
-    await openApp("/discover");
     await press("Enter");
     const film = window.location.pathname;
+    assert.match(film, /^\/discover\/\d+$/);
     await historyStep(() => window.history.back());
-    assert.equal(window.location.pathname, "/discover");
+    assert.equal(window.location.pathname, "/search");
 
-    // Back twice from the grid leaves Discover: its entry is replaced by the home.
+    // Back twice from search leaves it: its entry is replaced by the home.
     await press("Escape");
     await press("Escape");
     assert.equal(window.location.pathname, "/");
 
     await historyStep(() => window.history.forward());
     assert.equal(window.location.pathname, film);
-    assert.equal(current(), "Discover");
+    assert.equal(current(), "Search");
     await press("Escape");
     await settle();
-    assert.equal(window.location.pathname, "/discover", "the grid, not the entry that replaced it");
+    assert.equal(window.location.pathname, "/search", "search, not the entry that replaced it");
+  });
+
+  it("opens a film from the home over the home, and search from the bar replaces it", async () => {
+    await openApp("/");
+    await press("ArrowDown");
+    await press("Enter");
+    assert.match(window.location.pathname, /^\/discover\/\d+$/);
+    const search = Array.from(liveTopBar()!.querySelectorAll<HTMLElement>("[data-top-bar-item]")).find((item) => item.textContent === "Search")!;
+    await focusOn(search);
+    await press("Enter");
+    assert.equal(window.location.pathname, "/search");
+    assert.equal(document.querySelector(".film-page"), null);
+    assert.equal(focused().getAttribute("type"), "search");
   });
 });
 

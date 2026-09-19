@@ -3,7 +3,7 @@ import { toCandidates } from "../catalogue/candidates";
 import type { CatalogueTitle } from "../catalogue/contract";
 import { isEligible } from "../preferences/eligibility";
 import type { PreferenceState } from "../preferences/schema";
-import { requestRanking } from "./assistantClient";
+import { useAssistant } from "./AssistantContext";
 import { rankingKey, type RankingStatus } from "./rankedShortlist";
 
 /**
@@ -12,6 +12,7 @@ import { rankingKey, type RankingStatus } from "./rankedShortlist";
  * `titles` is null while the shortlist is loading, so nothing is ranked against a stale one.
  */
 export function useAssistantRanking(titles: readonly CatalogueTitle[] | null, state: PreferenceState, enabled: boolean): RankingStatus {
+  const { requestRanking } = useAssistant();
   const [status, setStatus] = useState<RankingStatus>({ phase: "idle" });
   const controller = useRef<AbortController | null>(null);
   const key = titles ? rankingKey(state, titles) : null;

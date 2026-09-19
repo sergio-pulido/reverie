@@ -24,7 +24,7 @@ const FRAMING: ReadonlySet<string> = new Set([
   "something", "anything", "thing", "things", "kind", "sort", "just", "maybe", "please", "show",
   "find", "get", "give", "let", "let's", "lets", "look", "looking", "watch", "watching", "see",
   "movie", "movies", "film", "films", "one", "is", "be", "have", "what", "how", "about", "there",
-  "any", "good", "tonight", "now", "again", "else", "more", "idea", "ideas", "think", "thinking",
+  "any", "good", "tonight", "now", "again", "else", "more", "idea", "ideas", "think", "thinking", "too",
 ]);
 
 /** Words that answer a question the assistant is waiting on, and nothing else. */
@@ -33,15 +33,25 @@ export const ANSWERS: ReadonlySet<string> = new Set([
   "whatever", "first", "second", "last", "that", "this",
 ]);
 
+/**
+ * A number word straight after "want", "like" and the like is how a speech service hears a
+ * trailing "or" ("I want four"), and is not a request. Anywhere else it counts: "a film for two",
+ * a title said on its own ("Seven"), and digits ("1917") always.
+ */
+const NUMBER_WORDS: ReadonlySet<string> = new Set(["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]);
+const REQUEST_VERBS: ReadonlySet<string> = new Set(["want", "wanna", "like", "love", "need", "fancy"]);
+
 export type RequestContext = {
   /** The assistant asked a question and is waiting for the answer. */
   answering?: boolean;
 };
 
 export function carriesRequest(text: string, { answering = false }: RequestContext = {}): boolean {
-  return wordsOf(text).some((word) => {
+  const words = wordsOf(text);
+  return words.some((word, index) => {
     if (FILLER.has(word) || FRAMING.has(word)) return false;
     if (ANSWERS.has(word)) return answering;
+    if (NUMBER_WORDS.has(word) && REQUEST_VERBS.has(words[index - 1])) return false;
     return true;
   });
 }

@@ -68,7 +68,7 @@ export const catalogueTitleSchema = z.object({
 });
 
 /**
- * The full record behind a film's own page. It extends the grid title with the fields only that
+ * The full record behind a film's own page. It extends the list title with the fields only that
  * page shows. Every one is optional: a record that does not state a value simply lacks the key.
  */
 export const catalogueTitleDetailSchema = catalogueTitleSchema.extend({

@@ -8,7 +8,7 @@ import type { CatalogueTitle, CatalogueTitleDetail } from "../catalogue/contract
 
 export type FilmFact = { label: string; value: string };
 
-/** The film as far as it is known: the grid's title at first, the full record once it arrives. */
+/** The film as far as it is known: a row's copy at first, the full record once it arrives. */
 export type FilmRecord = CatalogueTitle & Partial<Omit<CatalogueTitleDetail, keyof CatalogueTitle>>;
 
 export function formatRuntime(minutes: number | undefined) {

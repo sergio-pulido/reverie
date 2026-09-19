@@ -12,7 +12,7 @@ export type FilmState =
 
 const NOT_REACHABLE: FilmState = { phase: "error", code: "CATALOGUE_REQUEST_FAILED", safeMessage: "This film could not be loaded.", retryable: true };
 const UNREADABLE: FilmState = { phase: "error", code: "CATALOGUE_INVALID_RESPONSE", safeMessage: "This film could not be shown.", retryable: false };
-const NOT_CONFIGURED: FilmState = { phase: "not_configured", safeMessage: "Discover needs a configured Supabase project to show films." };
+const NOT_CONFIGURED: FilmState = { phase: "not_configured", safeMessage: "Films need a configured Supabase project to be shown." };
 
 /**
  * One film's full record: a single request, for a single row. The answer is re-validated in the
@@ -23,7 +23,7 @@ export async function requestFilm(providerId: string, signal: AbortSignal): Prom
   const url = new URL("/api/catalogue-title", window.location.origin);
   url.searchParams.set("id", providerId);
   try {
-    const accessToken = await ensureAccessToken("Browsing Discover");
+    const accessToken = await ensureAccessToken("Browsing films");
     const response = await fetch(url, { signal, headers: { Accept: "application/json", Authorization: `Bearer ${accessToken}` } });
     const parsed = catalogueTitleResponseSchema.safeParse(await response.json());
     if (signal.aborted) return null;

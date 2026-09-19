@@ -482,3 +482,64 @@ jam created from an imported script answered `idle` with four portions, `start` 
 typed `generation_disabled`, the video route `404`, and advance `invalid_transition`. The screens
 themselves were not opened in a browser this session: the shared Chrome profile was locked by
 another session, so the UI states in UJ-02 section C are unrun.
+
+
+## 2026-09-19 — One top bar, a layered Back, and a home that pays for what it shows
+
+**Back is layered, and leaving goes to the parent.** Back from anywhere on a page scrolls to the
+top and focuses the top bar; only Back on the bar leaves the screen. This is the published TV
+convention for apps with top navigation, and it is what makes the bar reachable again from far
+down a page when it has scrolled away. Leaving goes to the screen's parent (the three destinations
+are siblings under the home; a jam's screens sit under Movie Jam), not simply to the previous
+history entry: history is stepped back only when the entry behind is the parent, and replaced
+otherwise, so tab-hopping between destinations never turns Back into a replay of the session. On
+the home, Back on the bar is not taken: it belongs to the platform, which may exit the app.
+
+**A film page opens with focus on the bar.** Its only action, "Not this one", changes the
+viewer's preferences, so it must not receive a second press of OK. Landing on the bar's current
+item keeps the page's old one-press Back, makes OK on that item close the page, and leaves Down to
+enter it. The item names where the film was opened from, and choosing it closes the page through
+the same path as Back, so history is never pushed on top of the film.
+
+**A film opened from the home is a layer over the home**, as a film opened from the grid is a
+layer over the grid. The home stays mounted and inert underneath, so it keeps its shelves, scroll
+and focus, and the card that opened the film gets focus back when it closes, with nothing read
+again.
+
+**The home reads two shelves, then only what the viewer approaches.** `search_catalogue_titles`
+counts every match on every call, so the home never fires every shelf on load. The hero and the
+spotlight still come from those two reads rather than from requests of their own. Shelves already
+read are kept for five minutes and shared between visits; a read in flight is joined. The
+anonymous sign-in behind those reads became single-flight at the same time, because two eager
+reads on a first visit could otherwise create two identities.
+
+**Focus is marked until a pointer is used.** Browsers decide `:focus-visible` from pointer and
+keyboard heuristics; a remote may give them neither, which left programmatic focus (the landing
+item, the bar after Back) unmarked. The root records `data-input="pointer"` after a pointer is
+used, and every focused control is marked until then.
+
+**OK is handled by the app on the home and the bar**, as the Discover grid already does: the
+browser's own Enter activation is prevented and the item is chosen once. Held repeats of OK and of
+Back are swallowed, so holding a key cannot fall through to whatever the next screen focuses.
+
+**Kept on purpose:** "Leave the room" in the studio. It ends the participant's presence (and with
+it any live camera, microphone or screen tracks), which people in a live room look for; it is a
+room action, not a way back. The explanation of a Jam (the illustration and the three steps) moved
+to the create screen, where someone is about to start one.
+
+**History entries carry a key and their opener's key.** Replacing an entry (which leaving does)
+leaves any forward entries in place with a record that no longer describes what lies behind them.
+Replaced keys are remembered for the tab session, and an entry whose opener was replaced is closed
+by replacement rather than by stepping back into a screen it was never opened from.
+
+**A shelf's height is fixed by construction, not measured.** Every card is two title lines and one
+meta line tall, every card is one card wide, and a poster image fills its 2:3 box without sizing
+it. The loading placeholder, a loaded shelf and a failed one then share one height computed from
+those sizes, and the hero reserves its own tallest content the same way, so the page never moves
+as reads arrive.
+
+**Component tests run in jsdom.** The suite had no DOM, so focus hand-offs were checked only by
+hand. The catalogue read is provided through a React context, which the app leaves at
+`/api/catalogue` and tests replace with their own titles, so App-level tests exercise real posters
+through the real code. `jsdom` is a dev dependency with no effect on the build; tests render
+real screens, drive them with key events and fail on any React or jsdom error.

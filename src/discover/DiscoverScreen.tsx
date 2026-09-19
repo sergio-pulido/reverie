@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { providerIdOf, type CatalogueOk, type CatalogueTitle } from "../catalogue/contract";
 import { isRefined, toShortlistFilters } from "../catalogue/shortlistFilters";
+import type { SearchRequest } from "../App";
 import type { FilmRoute } from "../lib/routes";
+import { TopBar } from "../shell/TopBar";
+import { focusTopBar } from "../shell/topBarFocus";
+import { Artwork } from "./Artwork";
+import { TMDB_ATTRIBUTION_FALLBACK, TmdbAttribution } from "./TmdbAttribution";
 import { ConversationBar } from "./ConversationBar";
 import { FilmPage } from "./FilmPage";
 import type { Feed, FeedController } from "./pageFeed";
@@ -12,19 +17,15 @@ import { catalogueRequestKey, useCatalogue, type CatalogueState } from "./useCat
 import { useConversation } from "./useConversation";
 import { useGridNavigation } from "./useGridNavigation";
 import { useRefinement } from "./useRefinement";
-import "./discover.css";
 
 type DiscoverScreenProps = {
   /** The film the URL names, or null for the grid. */
   film: FilmRoute;
+  /** Set when the top bar's search icon asked for the search field. */
+  searchRequest: SearchRequest | null;
   onOpenFilm: (providerId: string) => void;
   onCloseFilm: () => void;
-  onExit: () => void;
 };
-
-/** Shown whenever TMDB records are on screen, even if a response omits its own attribution. */
-const TMDB_ATTRIBUTION_FALLBACK =
-  "Film data and images from TMDB (themoviedb.org). This product uses TMDB data but is not endorsed or certified by TMDB.";
 
 /** How far below the viewport the end of the grid starts loading the next page. */
 const END_OF_GRID_MARGIN = "0px 0px 900px 0px";
@@ -32,7 +33,7 @@ const END_OF_GRID_MARGIN = "0px 0px 900px 0px";
 /** Where focus goes when the grid comes back: the film that was open, or its old place. */
 type ReturnFocus = { id: string; index: number };
 
-export function DiscoverScreen({ film, onOpenFilm, onCloseFilm, onExit }: DiscoverScreenProps) {
+export function DiscoverScreen({ film, searchRequest, onOpenFilm, onCloseFilm }: DiscoverScreenProps) {
   const [searchInput, setSearchInput] = useState("");
   const searchRef = useRef<HTMLInputElement | null>(null);
   const talkRef = useRef<HTMLInputElement | null>(null);
@@ -89,9 +90,10 @@ export function DiscoverScreen({ film, onOpenFilm, onCloseFilm, onExit }: Discov
     },
     [items, onOpenFilm],
   );
+  // Back on the grid is not handled here: like Back anywhere, it returns to the top bar.
   const gridHandlers = useMemo(
-    () => ({ onActivate: openFilm, onExitTop: () => focusRefine("last"), onExitBottom: focusFeedEnd, onBack: focusSearch }),
-    [openFilm, focusSearch, focusFeedEnd, focusRefine],
+    () => ({ onActivate: openFilm, onExitTop: () => focusRefine("last"), onExitBottom: focusFeedEnd }),
+    [openFilm, focusFeedEnd, focusRefine],
   );
   const { gridRef, activeIndex, setActiveIndex, handleKeyDown, focusItem, columns } = useGridNavigation(items.length, gridHandlers);
   const spotlight = items[activeIndex];
@@ -159,6 +161,20 @@ export function DiscoverScreen({ film, onOpenFilm, onCloseFilm, onExit }: Discov
     focusItem(index >= 0 ? index : Math.min(target.index, items.length - 1));
   }, [filmOpen, items, state.phase, focusItem, focusRefine]);
 
+  /**
+   * The top bar's search icon lands here: at the top of Discover with the field focused. It wins
+   * over returning focus to a film, because the viewer asked for search. Each request is carried
+   * out once, so closing a film later does not pull focus back to the field.
+   */
+  const handledSearch = useRef<number | null>(null);
+  useEffect(() => {
+    if (!searchRequest || filmOpen || handledSearch.current === searchRequest.id) return;
+    handledSearch.current = searchRequest.id;
+    returnFocus.current = null;
+    window.scrollTo({ top: 0 });
+    searchRef.current?.focus({ preventScroll: true });
+  }, [searchRequest, filmOpen]);
+
   /** "Not this one": the title leaves the grid now and never returns in this session. */
   const { reject } = refinement;
   const rejectFilm = useCallback(
@@ -179,21 +195,13 @@ export function DiscoverScreen({ film, onOpenFilm, onCloseFilm, onExit }: Discov
         <FilmPage
           providerId={openFilmId}
           seed={seed}
+          origin="discover"
           attributionFallback={attribution}
-          onBack={onCloseFilm}
           onReject={rejectFilm}
         />
       )}
       <main className="discover-shell" inert={filmOpen}>
-        <header className="discover-bar">
-          <button className="discover-brand" onClick={onExit}>
-            <span aria-hidden="true">✳</span> REVERIE
-          </button>
-          <p className="discover-eyebrow">DISCOVER</p>
-          <button className="discover-jam-link" onClick={onExit}>
-            Movie Jam <span aria-hidden="true">↗</span>
-          </button>
-        </header>
+        <TopBar current="discover" />
 
         <section className="discover-head">
           {spotlight?.backdropUrl && (
@@ -219,9 +227,14 @@ export function DiscoverScreen({ film, onOpenFilm, onCloseFilm, onExit }: Discov
                     event.preventDefault();
                     focusTalk();
                   }
-                  if (event.key === "Escape") {
-                    if (searchInput) setSearchInput("");
-                    else onExit();
+                  if (event.key === "ArrowUp") {
+                    event.preventDefault();
+                    focusTopBar();
+                  }
+                  // Escape first clears what was typed; on an empty field it is Back, for the app.
+                  if (event.key === "Escape" && searchInput) {
+                    event.preventDefault();
+                    setSearchInput("");
                   }
                 }}
               />
@@ -289,12 +302,7 @@ export function DiscoverScreen({ film, onOpenFilm, onCloseFilm, onExit }: Discov
           />
         )}
 
-        {response && items.length > 0 && (
-          <p className="discover-attribution">
-            <span className="discover-attribution-mark" aria-hidden="true">TMDB</span>
-            {attribution}
-          </p>
-        )}
+        {response && items.length > 0 && <TmdbAttribution text={attribution} />}
       </main>
     </>
   );
@@ -332,7 +340,7 @@ function FeedEnd({ feed, endRef, onRetry, onReturnToGrid }: { feed: Feed; endRef
       ref={endRef}
       aria-live="polite"
       onKeyDown={(event) => {
-        if (event.key === "ArrowUp" || event.key === "Escape") {
+        if (event.key === "ArrowUp") {
           event.preventDefault();
           onReturnToGrid();
         }
@@ -496,26 +504,5 @@ function Spotlight({ title, reason }: { title: CatalogueTitle; reason: string | 
       {reason && <p className="discover-spotlight-reason">Why it’s here: {reason}</p>}
       {title.synopsis && <p className="discover-spotlight-synopsis">{title.synopsis}</p>}
     </div>
-  );
-}
-
-function Artwork({ title }: { title: CatalogueTitle }) {
-  if (!title.posterUrl) {
-    return (
-      <span className="discover-card-art discover-card-art-empty" aria-hidden="true">
-        No artwork supplied
-      </span>
-    );
-  }
-  return (
-    <img
-      className="discover-card-art"
-      src={title.posterUrl}
-      alt={`Poster for ${title.title}`}
-      width={500}
-      height={750}
-      loading="lazy"
-      decoding="async"
-    />
   );
 }

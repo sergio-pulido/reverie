@@ -12,7 +12,7 @@
     "build": "pnpm typecheck && vite build",
     "start": "NODE_ENV=production tsx apps/server/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test \"tests/*.test.ts\"",
+    "test": "node --import tsx --test \"tests/*.test.ts\" \"tests/*.test.tsx\"",
     "verify:realtime": "node --env-file-if-exists=.env.local scripts/verify-realtime.mjs",
     "probe:vonage": "node --env-file-if-exists=.env.local --import tsx scripts/probe-vonage.mts",
     "verify:shortlist": "node --env-file-if-exists=.env.local scripts/verify-shortlist.mjs",
@@ -30,10 +30,12 @@
   },
   "devDependencies": {
     "@types/express": "4.17.25",
+    "@types/jsdom": "28.0.1",
     "@types/node": "22.20.2",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@types/ws": "8.5.14",
+    "jsdom": "29.1.1",
     "tsx": "4.23.13",
     "typescript": "5.9.3",
     "vite": "8.3.0"

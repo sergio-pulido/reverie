@@ -661,6 +661,143 @@ project (it was applied by hand, so no tracking table records it). Each run of
   them); `start`/`advance` are host-only in the contract and in the UI, but the Express routes
   carry no authorization; and these routes remain local-host only, not Vercel functions.
 
+## 2026-09-19 — One top bar on every screen, and a TV home
+
+- **One top bar** (`src/shell/TopBar.tsx`) is rendered at the top of every screen: the home,
+  Discover, a film page (inside its own layer) and every Movie Jam screen (registry, create,
+  script, join, studio, local preview). It carries the brand (a pointer link home, left out of the
+  remote's path), three destinations (`Home`, `Discover`, `Movie Jam` → `/jams`) and a search
+  icon, and holds no text field. The current destination is marked by an outline as well as
+  brighter text; a focused item fills light, gains a white ring and grows.
+- **Search** opens Discover with its search field focused: from any screen, in place on Discover,
+  and from a film page (which closes the way Back would before the field takes focus).
+- **Remote conventions** (`src/shell/useRemoteConventions.ts`, `src/shell/keys.ts`). Back anywhere
+  on a page scrolls to the top and focuses the bar; a film page scrolls its own layer and the
+  screen under it keeps its place. Back on the bar leaves for the screen's parent: Discover,
+  Movie Jam and join → home; create and studio → the registry; the script → its setup; a film
+  page → wherever it was opened from. History is stepped back only when the entry behind is that
+  parent; otherwise the entry is replaced, so repeated Back climbs to the home instead of
+  replaying the session. On the home, Back on the bar is left to the platform. Back is known by
+  name (`Escape`, `GoBack`, `BrowserBack`, `XF86Back`), by the key codes 461 and 10009, and as
+  Backspace outside a text field. Up from the first thing on a page reaches the bar. A held Back
+  never leaves, a held OK acts once, and a key pressed with nothing focused lands on the bar.
+- **No on-screen back buttons.** Removed `← Back to your jams`, `← Back to Reverie` (registry,
+  join), `← Back to setup`, `← All films` and the `Back to Reverie` buttons (join refused, studio
+  error, local preview). A film page that names no film no longer offers `Browse films`. The
+  studio keeps `Leave the room` (was `Leave`) as a room action.
+- **Discover** keeps its search, chips, conversation and grid; its own header (brand, `DISCOVER`,
+  a Movie Jam button) is replaced by the bar. Keys that changed: Back on the grid, on a rail, in an
+  empty search or in an empty conversation field now goes to the bar (it used to go to the search,
+  to the field above, or out of Discover). Escape still clears a typed search or draft first. Up
+  from the search field reaches the bar.
+- **Film pages** open with focus on the bar's current item, which names where the film was opened
+  from (`Home` or `Discover`): one Back, or OK, closes the page, and Down enters it. Up from the
+  first control returns to the bar and Back inside the page returns to the bar. A film opened from
+  the home is a layer over the home, which stays mounted and inert underneath; closing it puts
+  focus back on the card that opened it and reads nothing again. It offers no `Not this one`,
+  because there is no grid to take it out of.
+- **History records where each screen was opened from** (`src/shell/history.ts`): each entry the
+  app creates carries a key, and a pushed entry records the path and key of the entry behind it.
+  An entry replaced by leaving is remembered (for the tab session), so an entry reached again with
+  the browser's Forward whose opener has since been replaced closes to its parent by replacement,
+  not by stepping back into the wrong screen. A film counts as opened from the home by the screen
+  its opener path resolves to, so a home served at another path behaves the same.
+- **The home** (`/`, `src/home/`) replaces the marketing landing: a full-width hero, eight shelves
+  (Science fiction, Comedies, From the nineties, Animation, Thrillers, From the eighties,
+  Documentaries, From the 2010s) read through `search_catalogue_titles` with `includeGenres` or
+  `minYear`/`maxYear` and twelve titles each, and the Movie Jam spotlight after the second shelf.
+  The hero is the first title with a backdrop in the first shelf's own read, so it costs no
+  request, and it is not repeated in that shelf. Shelves run to the right edge so the last card
+  on screen is cut by it (7.3 across at 1920px, 2.4 at 375px). Posters are 2:3 boxes before they
+  load (the image fills the box and never sizes it), every card is exactly one card wide, and a
+  card's text is always two title lines and one meta line, so a shelf is the same height loading,
+  loaded or failed. The hero reserves the height of its tallest content (two title lines, one line
+  of facts, three of synopsis, the action), so it does not grow when its film arrives either.
+- **Focus on the home** is decided by the pure `rowMove` (`src/home/rowMove.ts`). Left and Right
+  move along a row and stop at its ends. Up and Down change row and land on the item last focused
+  there (the first, on a first visit). Up from the first row reaches the bar. A row still loading
+  holds focus rather than being skipped. A failed shelf keeps `Try again` focused while it retries
+  and hands focus to its first card when it loads. OK is handled by the app, once, instead of being
+  left to the browser's Enter.
+- **Cost.** Only the first two shelves are read when the home opens. Each later shelf is read when
+  it comes within 480px of the viewport or when focus enters the shelf above it, one read at a
+  time. A loaded shelf is kept for five minutes (coming back to the home shows it at once and
+  reads nothing), a read already in flight is joined, and failures are not kept. A home under a
+  film page reached by URL reads nothing until the page closes.
+- **Anonymous sign-in is single-flight** (`createIdentity` in `src/lib/session.ts`). Two reads
+  started together on a first visit (the home's two eager shelves) could each find no session and
+  sign in anonymously twice; they now share one attempt.
+- **The Movie Jam spotlight** is a full-width banner over a real film still (the last backdrop of
+  the second shelf, credited `Still from <title> (<year>)`) with two focusable actions: `Start a
+  Movie Jam` (→ `/jams/new`) and `Join with an invite` (→ `/join`). The illustration and the three
+  "how it works" cards moved to the create screen, beside and below the form (after the form on a
+  narrow screen).
+- **Focus is visible from across a room**: scale, a white ring and a dark-on-light swap on every
+  remote-driven control, including Discover's chips, fields and buttons, the film page's actions
+  and the Movie Jam screens' buttons and form fields (a ring, a lighter field and a slight lift).
+  With reduced motion, nothing scales and the page jumps instead of gliding. A remote gives the browser no reason to match `:focus-visible`, so the
+  root carries `data-input="pointer"` only after a pointer is used, and until then every focused
+  control is marked.
+- **TMDB attribution** is on the home as soon as a shelf has loaded, on every film page and on
+  Discover. Availability is still never rendered.
+- **Component tests.** `jsdom` 29.1.1 (dev only), `tests/dom.ts` and `tests/render.tsx` render
+  real screens and fail a test on any React or jsdom error. `pnpm test` now runs
+  `tests/*.test.ts` and `tests/*.test.tsx`. The home's shelves and the Discover grid read the
+  catalogue through `CatalogueReadProvider` (`src/discover/CatalogueReadContext.tsx`), which the
+  app leaves at `/api/catalogue` and a test replaces with its own titles, so App-level tests drive
+  real posters through the real code.
+
+### Verification
+
+- `pnpm test` (502/502, run twice), `pnpm typecheck`, `pnpm build`. New tests:
+  `tests/topBar.dom.test.tsx` (the bar on every screen, including a film page from each origin,
+  the script and the studio; no field in it; no back button anywhere, by visible text or accessible
+  name; search from the home, from Discover and from a film page; landing, Left/Right, OK),
+  `tests/home.dom.test.tsx` (two reads on open; a lazy shelf read once when it approaches or when
+  focus reaches the shelf above; no further read when the catalogue is not configured or the
+  first shelf is empty; the hero not repeated in its shelf; the spotlight's still and actions;
+  2:3 placeholders; attribution; Up from the hero reaches the bar and Down returns; Up from the
+  first shelf reaches the hero; Left/Right stay in the row; Up/Down land on the remembered item;
+  waiting on a loading shelf; OK once; Back from four rows down; Back by key code 461; Back on the
+  home's bar left to the platform; a retry keeps focus), `tests/app.dom.test.tsx` (through the
+  whole app over a test catalogue: two reads and landing on the hero; a film opened from a shelf
+  keeps the same home mounted and inert, closes by stepping back and returns focus to its card; a
+  home served at another path; no film shown under another film's address; Back from a Discover
+  poster; OK opens a poster but a held OK does not; a film reopened by Forward after its grid entry
+  was replaced; Down on a film page with nothing to focus moves the page),
+  `tests/backConvention.dom.test.tsx` (Discover's search, conversation and chips; Back on the bar
+  goes home with and without history; a film page closes with one Back or by choosing its
+  destination without adding history; Up and Back inside it; the Movie Jam screens' fields keep
+  Backspace, Up and a held Enter or Space; climbing to parents; held Back; held OK; the invite
+  panel), and the pure `tests/remoteKeys.test.ts`, `tests/rowMove.test.ts`,
+  `tests/homeShelves.test.ts`, `tests/identity.test.ts`. The availability check now scans every
+  component that draws a title. Fourteen deliberate regressions (Up from the hero, the eager
+  count, Back handling, the film page's bar, Left wrapping into another row, an extra lazy read, a
+  seed not tied to its film, the grid ignoring a held OK, a replaced opener, the origin by exact
+  path, Down on an empty page, the home unmounting under a film, the first landing reading a
+  shelf, the grid's Back going to search) each failed the suite.
+- An independent review in five areas (navigation, regressions, cost, tests, the brief's
+  constraints), each finding checked by a second reviewer trying to refute it, confirmed twenty
+  defects; all are fixed above, and seven findings were refuted.
+- In a browser against the live project. At 1920×1080: the home with two `/api/catalogue` reads
+  (`pageSize=12`), a third as focus reached the second shelf; a remote walk hero → shelves →
+  spotlight → shelves with each row fully on screen; Back from four rows down to the bar at the
+  top; a film opened from a shelf over the home with one `catalogue-title` read, closed back to its
+  card with the home unmoved and nothing read again; Discover, Back from the grid to the bar; the
+  registry and the create screen with the illustration and the steps; the bar legible over a
+  film's backdrop. Measured every 50 ms while the home loaded, the hero and the first three shelves
+  never changed height at 1920×1080 (605, 548.4), 1280×720 (466, 423.5), 960×540 (444, 487.8) or
+  375×812 (440, 363.2). At 375×812: the home, the spotlight, Discover, a film page and the create
+  screen (the illustration after the form), with no horizontal overflow and the bar fitting with a
+  16px margin. No console errors from the app.
+- **Not verified / known gaps:** nothing was run on a TV set, so the TV engines' own focus and key
+  behaviour is unproven. Some sets open their on-screen keyboard when a field is focused by script,
+  and Down from the bar on Discover focuses its search field. On webOS the app manifest must set
+  `disableBackHistoryAPI` for the Back layering to receive the key. The Movie Jam forms are reached
+  from the bar (Down lands on their first field) but are not arrow-navigable beyond it. The browser
+  used for these checks does not turn a synthetic Enter into a click, one reason OK is handled by
+  the app on the home, the bar and the grid.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

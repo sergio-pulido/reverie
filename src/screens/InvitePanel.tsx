@@ -4,6 +4,7 @@ import { describeInvite, inviteUrl, isInviteShareable, type JamInvite } from "..
 import { getJamInvite, revokeJamInvite, rotateJamInvite } from "../lib/invite";
 import { safeMessageOf } from "../lib/errors";
 import { Notice } from "../chrome";
+import { isBackKey } from "../shell/keys";
 
 /** Lifetimes the host can pick. `null` is an invite that does not expire. */
 const TTL_CHOICES: readonly { label: string; minutes: number | null }[] = [
@@ -20,7 +21,7 @@ type InvitePanelProps = {
 /**
  * Host-only. Shows the shareable link and a QR of the same URL, and owns rotation and
  * revocation. The panel never decides who gets in — it only renders what the database
- * says the invite currently is.
+ * says the invite currently is. Back inside the panel closes it before it does anything else.
  */
 export function InvitePanel({ jamId, onClose }: InvitePanelProps) {
   const [invite, setInvite] = useState<JamInvite | null>(null);
@@ -55,7 +56,12 @@ export function InvitePanel({ jamId, onClose }: InvitePanelProps) {
   const url = invite ? inviteUrl(window.location.origin, invite.slug, invite.code) : null;
   const shareable = invite ? isInviteShareable(invite) : false;
 
-  return <div className="invite-panel" role="dialog" aria-label="Invite people to this jam">
+  return <div className="invite-panel" role="dialog" aria-label="Invite people to this jam" onKeyDown={(event) => {
+    if (!event.defaultPrevented && isBackKey(event.key, false, event.keyCode)) {
+      event.preventDefault();
+      onClose();
+    }
+  }}>
     <div className="panel-heading">
       <div><p className="eyebrow">INVITE</p><h2>Share the room.</h2></div>
       <button className="button button-quiet" onClick={onClose}>Close</button>

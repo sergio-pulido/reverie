@@ -1,102 +1,31 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  catalogueResponseSchema,
-  CATALOGUE_LIMITS,
-  writeCatalogueFilters,
-  type CatalogueFilters,
-  type CatalogueOk,
-  type CatalogueResponse,
-} from "../catalogue/contract";
-import { JamError } from "../lib/errors";
+import { CATALOGUE_LIMITS, type CatalogueFilters } from "../catalogue/contract";
+import type { CatalogueRequest, CatalogueState } from "./catalogueClient";
+import { useCatalogueRead, type CatalogueRead } from "./CatalogueReadContext";
 import { createFeedController, EMPTY_FEED, seedFeed, type Feed, type PageResult } from "./pageFeed";
-import { ensureAccessToken } from "../lib/session";
 
-export type CatalogueState =
-  /** While a refined shortlist reloads, the previous one stays on screen instead of a spinner. */
-  | { phase: "loading"; previous?: CatalogueOk }
-  | { phase: "ready"; response: CatalogueOk }
-  | { phase: "not_configured"; missing: string[]; safeMessage: string }
-  | { phase: "error"; code: string; safeMessage: string; retryable: boolean };
-
-const SEARCH_DEBOUNCE_MS = 320;
-
-const NETWORK_FAILURE: Extract<CatalogueState, { phase: "error" }> = {
-  phase: "error",
-  code: "CATALOGUE_REQUEST_FAILED",
-  safeMessage: "Discover could not reach the catalogue service.",
-  retryable: true,
-};
-
-const NOT_SIGNED_IN: Extract<CatalogueState, { phase: "error" }> = {
-  phase: "error",
-  code: "CATALOGUE_UNAUTHENTICATED",
-  safeMessage: "Discover could not start a session to read the catalogue.",
-  retryable: true,
-};
-
-const BROWSER_NOT_CONFIGURED: Extract<CatalogueState, { phase: "not_configured" }> = {
-  phase: "not_configured",
-  missing: ["VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY"],
-  safeMessage: "Discover needs a configured Supabase project to read the catalogue. No catalogue data is invented.",
-};
-
-const UNREADABLE_RESPONSE: Extract<CatalogueState, { phase: "error" }> = {
-  phase: "error",
-  code: "CATALOGUE_INVALID_RESPONSE",
-  safeMessage: "Discover received a response it could not trust, so nothing is shown.",
-  retryable: false,
-};
-
-function toState(response: CatalogueResponse): CatalogueState {
-  if (response.status === "ok") return { phase: "ready", response };
-  if (response.status === "catalogue_not_configured") {
-    return { phase: "not_configured", missing: response.missing, safeMessage: response.safeMessage };
-  }
-  return { phase: "error", code: response.code, safeMessage: response.safeMessage, retryable: response.retryable };
-}
+export type { CatalogueState } from "./catalogueClient";
 
 /** Identifies one query and set of filters, as `loadedFor` reports them. */
 export function catalogueRequestKey(query: string, filters: CatalogueFilters | null): string {
   return `${query}|${filters ? JSON.stringify(filters) : ""}`;
 }
 
-type PageRequest = { query: string; page: number; filters: CatalogueFilters | null };
-
 /**
- * One catalogue request as the viewer's own Supabase session (anonymous sign-in if needed),
- * because the catalogue table is readable only by signed-in viewers. The payload is
- * re-validated in the browser, so an unexpected shape becomes an explicit error state instead
- * of a half-rendered title. Resolves to `null` when aborted.
+ * A request for the Discover grid: an unrefined browse pages through the default page size, a
+ * refined one reads a single shortlist.
  */
-async function requestCatalogue({ query, page, filters }: PageRequest, signal: AbortSignal): Promise<CatalogueState | null> {
-  const url = new URL("/api/catalogue", window.location.origin);
-  url.searchParams.set("query", query.slice(0, CATALOGUE_LIMITS.queryMaxLength));
-  url.searchParams.set("page", String(filters ? 1 : page));
-  url.searchParams.set("pageSize", String(filters ? CATALOGUE_LIMITS.shortlistSize : CATALOGUE_LIMITS.pageSizeDefault));
-  if (filters) writeCatalogueFilters(url.searchParams, filters);
-
-  try {
-    const accessToken = await ensureAccessToken("Browsing Discover").catch((error: unknown) => {
-      throw error instanceof JamError && error.code === "not_configured" ? BROWSER_NOT_CONFIGURED : NOT_SIGNED_IN;
-    });
-    const response = await fetch(url, {
-      signal,
-      headers: { Accept: "application/json", Authorization: `Bearer ${accessToken}` },
-    });
-    const parsed = catalogueResponseSchema.safeParse(await response.json());
-    if (signal.aborted) return null;
-    return parsed.success ? toState(parsed.data) : UNREADABLE_RESPONSE;
-  } catch (error: unknown) {
-    if (signal.aborted || (error instanceof Error && error.name === "AbortError")) return null;
-    if (error === BROWSER_NOT_CONFIGURED) return BROWSER_NOT_CONFIGURED;
-    if (error === NOT_SIGNED_IN) return NOT_SIGNED_IN;
-    return NETWORK_FAILURE;
-  }
+function gridRequest(query: string, page: number, filters: CatalogueFilters | null): CatalogueRequest {
+  return filters
+    ? { query, page: 1, pageSize: CATALOGUE_LIMITS.shortlistSize, filters }
+    : { query, page, pageSize: CATALOGUE_LIMITS.pageSizeDefault, filters: null };
 }
 
+const SEARCH_DEBOUNCE_MS = 320;
+
 /** A later page for the endless grid, as the feed expects it. */
-async function requestNextPage(request: PageRequest, signal: AbortSignal): Promise<PageResult> {
-  const state = await requestCatalogue(request, signal);
+async function requestNextPage(read: CatalogueRead, request: CatalogueRequest, signal: AbortSignal): Promise<PageResult> {
+  const state = await read(request, signal);
   if (state?.phase === "ready") return { ok: true, response: state.response };
   if (state?.phase === "error") return { ok: false, failure: { code: state.code, safeMessage: MORE_FAILED, retryable: state.retryable } };
   return { ok: false, failure: { code: "CATALOGUE_REQUEST_FAILED", safeMessage: MORE_FAILED, retryable: true } };
@@ -120,9 +49,12 @@ export function useCatalogue(query: string, filters: CatalogueFilters | null, en
   const [feed, setFeed] = useState<Feed>(EMPTY_FEED);
   const [attempt, setAttempt] = useState(0);
   const controllerRef = useRef<AbortController | null>(null);
-  const feedQuery = useRef<PageRequest>({ query: "", page: 1, filters: null });
+  const read = useCatalogueRead();
+  const readRef = useRef(read);
+  readRef.current = read;
+  const feedQuery = useRef<{ query: string; filters: CatalogueFilters | null }>({ query: "", filters: null });
   const [more] = useState(() =>
-    createFeedController((page, signal) => requestNextPage({ ...feedQuery.current, page }, signal), setFeed),
+    createFeedController((page, signal) => requestNextPage(readRef.current, gridRequest(feedQuery.current.query, page, feedQuery.current.filters), signal), setFeed),
   );
   const filtersKey = filters ? JSON.stringify(filters) : "";
 
@@ -141,10 +73,9 @@ export function useCatalogue(query: string, filters: CatalogueFilters | null, en
         return refined && previous ? { phase: "loading", previous } : { phase: "loading" };
       });
 
-      const request = { query, page: 1, filters: refined };
-      void requestCatalogue(request, controller.signal).then((next) => {
+      void readRef.current(gridRequest(query, 1, refined), controller.signal).then((next) => {
         if (!next || controller.signal.aborted) return;
-        feedQuery.current = request;
+        feedQuery.current = { query, filters: refined };
         setState(next);
         setLoadedFor(catalogueRequestKey(query, refined));
         if (next.phase === "ready") more.reset(seedFeed(next.response, !refined));

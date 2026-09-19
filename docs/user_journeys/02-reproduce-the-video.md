@@ -34,7 +34,7 @@ play and stop alone.
 ### 1. Create-screen defaults and validation
 
 - Do: `navigate_page` to `/jams/new`.
-- Expect: heading `Set the first scene.`; back link `← Back to your jams`; `Jam title`
+- Expect: heading `Set the first scene.`; the top bar with `Movie Jam` current; `Jam title`
   prefilled; `Story source` = `From scratch`; `Opening premise`, the `Script length` group,
   and `Who can join?` all present.
 - Do: clear `Jam title`, click `Write the script`.

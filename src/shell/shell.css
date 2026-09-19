@@ -1,0 +1,142 @@
+/* The top bar every screen shares, and the focus treatment every remote-driven control shares.
+   Focus must read from across a room, so it is never a colour change alone: the focused control
+   grows, gains a white ring, and swaps to dark-on-light.
+
+   A remote gives the browser no pointer and often no keyboard either, so its heuristics for
+   `:focus-visible` can leave a focused control unmarked. Until a pointer is used (the app marks
+   the root `data-input="pointer"` then), any focused control is marked. */
+
+.top-bar {
+  --bar-safe-x: max(24px, 5vw);
+  --bar-safe-y: max(18px, 3.5vh);
+  position: relative;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: clamp(14px, 2.2vw, 44px);
+  padding: var(--bar-safe-y) var(--bar-safe-x) 12px;
+  color: #f7f4ec;
+}
+.top-bar-brand {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  color: inherit;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: .25em;
+}
+.top-bar-brand-mark { color: #cfd7ff; font-size: 34px; line-height: 1; font-weight: 400; letter-spacing: 0; }
+.top-bar-destinations { display: flex; align-items: center; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.top-bar-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 56px;
+  padding: 8px 24px;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  color: #c3c6d4;
+  font-size: 22px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: transform .16s ease, background-color .16s ease, color .16s ease;
+}
+/* Where the viewer is shows as a shape (an outline) as well as brighter text. */
+.top-bar-item[aria-current="page"] { color: #fffdf8; border-color: rgba(207, 215, 255, .55); }
+.top-bar-item:hover { color: #fffdf8; }
+.top-bar-search { width: 56px; padding: 0; margin-left: auto; background: rgba(8, 11, 19, .45); }
+/* Over a film's backdrop, the bar keeps its own dark ground so every item stays legible. */
+.film-page .top-bar { background: linear-gradient(180deg, rgba(8, 11, 19, .88) 0%, rgba(8, 11, 19, .55) 65%, rgba(8, 11, 19, 0) 100%); }
+.top-bar-search-icon { display: block; }
+.top-bar-item:focus-visible, :root:not([data-input="pointer"]) .top-bar-item:focus {
+  outline: 4px solid #ffffff;
+  outline-offset: 4px;
+  border-color: #f6f4ee;
+  background: #f6f4ee;
+  color: #0b0f1a;
+  transform: scale(1.08);
+}
+
+/* Actions a remote lands on outside the poster rows: the hero, the spotlight, a retry. */
+.tv-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 60px;
+  padding: 12px 30px;
+  border: 3px solid rgba(207, 215, 255, .6);
+  border-radius: 10px;
+  background: rgba(8, 11, 19, .55);
+  color: #f7f4ec;
+  font-size: 23px;
+  font-weight: 700;
+  transition: transform .16s ease, background-color .16s ease, color .16s ease, box-shadow .16s ease;
+}
+.tv-action-primary { border-color: #f6f4ee; background: #f6f4ee; color: #10131d; }
+.tv-action:focus-visible, :root:not([data-input="pointer"]) .tv-action:focus {
+  outline: 5px solid #ffffff;
+  outline-offset: 5px;
+  border-color: #ffffff;
+  background: #ffffff;
+  color: #0b0f1a;
+  transform: scale(1.07);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, .55);
+}
+
+/* The Movie Jam screens take the same treatment on their own buttons and links. */
+.site-shell .button:focus-visible,
+.site-shell .jam-kind button:focus-visible,
+.site-shell a.button:focus-visible,
+:root:not([data-input="pointer"]) .site-shell .button:focus,
+:root:not([data-input="pointer"]) .site-shell .jam-kind button:focus,
+:root:not([data-input="pointer"]) .site-shell a.button:focus {
+  outline: 4px solid #ffffff;
+  outline-offset: 4px;
+  transform: scale(1.04);
+}
+.site-shell .button-quiet:focus-visible,
+.site-shell .jam-kind button:not(.active):focus-visible,
+:root:not([data-input="pointer"]) .site-shell .button-quiet:focus,
+:root:not([data-input="pointer"]) .site-shell .jam-kind button:not(.active):focus { background: #f6f4ee; border-color: #f6f4ee; color: #10131d; }
+
+/* A form field on a Movie Jam screen, reached from the bar by a remote, is marked the same way:
+   a ring, a lighter field and a slight lift. */
+.site-shell input:focus-visible,
+.site-shell textarea:focus-visible,
+.site-shell select:focus-visible,
+:root:not([data-input="pointer"]) .site-shell input:focus,
+:root:not([data-input="pointer"]) .site-shell textarea:focus,
+:root:not([data-input="pointer"]) .site-shell select:focus {
+  outline: 4px solid #ffffff;
+  outline-offset: 3px;
+  border-color: #ffffff;
+  background: #25325a;
+  transform: scale(1.015);
+}
+.site-shell input, .site-shell textarea, .site-shell select { transition: transform .16s ease, background-color .16s ease; }
+
+@media (max-width: 720px) {
+  .top-bar { gap: 6px; padding: 12px 16px 8px; }
+  .top-bar-brand-name { display: none; }
+  .top-bar-brand-mark { font-size: 26px; }
+  .top-bar-destinations { gap: 0; min-width: 0; }
+  .top-bar-item { min-height: 44px; padding: 6px 8px; border-width: 2px; font-size: 14px; }
+  .top-bar-search { flex: none; width: 44px; }
+  .top-bar-search-icon { width: 22px; height: 22px; }
+  .tv-action { min-height: 48px; padding: 10px 18px; font-size: 18px; }
+}
+/* On the narrowest phones the destinations need the brand mark's room. */
+@media (max-width: 350px) {
+  .top-bar-brand { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Returning to the top, or to a row, jumps rather than glides. */
+  html { scroll-behavior: auto; }
+  .site-shell input, .site-shell textarea, .site-shell select { transition: none; transform: none !important; }
+  .top-bar-item, .tv-action { transition: none; }
+  .top-bar-item:focus-visible, .tv-action:focus-visible, .site-shell .button:focus-visible, :root:not([data-input="pointer"]) .top-bar-item:focus, :root:not([data-input="pointer"]) .tv-action:focus, :root:not([data-input="pointer"]) .site-shell .button:focus { transform: none; }
+}

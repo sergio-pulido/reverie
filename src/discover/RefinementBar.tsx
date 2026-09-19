@@ -13,7 +13,7 @@ type RefinementBarProps = {
   onWithdraw: (item: ActiveRefinement) => void;
   onRestore: () => void;
   onReset: () => void;
-  /** Up or Back from the first rail. */
+  /** Up from the first rail. */
   onExitUp: () => void;
   /** Down from the last rail. */
   onExitDown: () => void;
@@ -22,7 +22,8 @@ type RefinementBarProps = {
 /**
  * Things the viewer can say to Discover, as a rail of chips, and a second rail of everything
  * currently shaping the result, each removable. Rails navigate like the grid: Left/Right within
- * a rail, Up/Down between rails, so a remote reaches every chip.
+ * a rail, Up/Down between rails, so a remote reaches every chip. Back is left to the app, which
+ * returns it to the top bar.
  */
 export function RefinementBar(props: RefinementBarProps) {
   const { state, notice, matchCount, barRef, onChoose, onUnchoose, onWithdraw, onRestore, onReset } = props;
@@ -157,12 +158,6 @@ function handleRailKey(event: React.KeyboardEvent<HTMLElement>, props: Refinemen
       const below = rails[railIndex + 1];
       if (below) focusNearest(below, target);
       else props.onExitDown();
-      return;
     }
-    case "Escape":
-    case "GoBack":
-    case "BrowserBack":
-      event.preventDefault();
-      props.onExitUp();
   }
 }

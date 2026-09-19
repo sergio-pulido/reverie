@@ -1,3 +1,5 @@
+import { isBackKey } from "../shell/keys";
+
 export type GridPosition = { index: number; columns: number; count: number };
 
 export type GridIntent =
@@ -7,8 +9,6 @@ export type GridIntent =
   | { kind: "exitBottom" }
   | { kind: "back" };
 
-/** Keys a TV remote or keyboard sends for "back"; `GoBack` and `BrowserBack` come from remotes. */
-const BACK_KEYS = new Set(["Escape", "GoBack", "BrowserBack", "Backspace"]);
 const ACTIVATE_KEYS = new Set(["Enter", " "]);
 
 /**
@@ -19,7 +19,7 @@ const ACTIVATE_KEYS = new Set(["Enter", " "]);
 export function gridMove(key: string, { index, columns, count }: GridPosition): GridIntent | null {
   if (count === 0) return null;
   if (ACTIVATE_KEYS.has(key)) return { kind: "activate", index };
-  if (BACK_KEYS.has(key)) return { kind: "back" };
+  if (isBackKey(key)) return { kind: "back" };
 
   const last = count - 1;
   const width = Math.max(1, columns);

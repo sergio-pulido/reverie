@@ -83,6 +83,8 @@ test("the film page renders facts only through these helpers and keeps the TMDB 
   assert.equal(/\.availability\b/.test(page), false, "availability is never rendered");
   assert.equal(/where to watch/i.test(page), false);
   assert.equal(/unknown|"—"|"0"/i.test(page), false, "no placeholder text in the page");
-  assert.match(page, /discover-attribution/);
+  const attribution = readFileSync(new URL("../src/discover/TmdbAttribution.tsx", import.meta.url), "utf8");
+  assert.match(page, /\{film && <TmdbAttribution /, "whenever a film is shown");
+  assert.match(attribution, /discover-attribution/);
   assert.match(page, /film-actions/, "the page has a place for actions");
 });

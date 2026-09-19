@@ -14,45 +14,6 @@
   color: var(--ink);
 }
 
-.discover-bar {
-  position: relative;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  flex-wrap: wrap;
-  padding: var(--safe-y) var(--safe-x) 16px;
-}
-.discover-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 14px;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font-size: 26px;
-  font-weight: 700;
-  letter-spacing: .25em;
-}
-.discover-brand span { color: #cfd7ff; font-size: 34px; line-height: 1; font-weight: 400; }
-.discover-eyebrow {
-  margin: 0;
-  color: var(--muted);
-  font-family: "DM Mono", monospace;
-  font-size: 18px;
-  letter-spacing: .18em;
-}
-.discover-jam-link {
-  border: 2px solid #5a6384;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--ink);
-  padding: 14px 24px;
-  font-size: 22px;
-  font-weight: 600;
-}
-
 /* The head pairs the search with a spotlight of the focused poster over its own backdrop. */
 .discover-head {
   position: relative;
@@ -225,25 +186,56 @@
   border-radius: 6px;
 }
 
-.discover-card:focus-visible { outline: none; transform: scale(1.07); z-index: 1; }
-.discover-card:focus-visible .discover-card-poster {
+.discover-card:focus-visible, :root:not([data-input="pointer"]) .discover-card:focus { outline: none; transform: scale(1.07); z-index: 1; }
+.discover-card:focus-visible .discover-card-poster, :root:not([data-input="pointer"]) .discover-card:focus .discover-card-poster {
   outline: 6px solid var(--focus);
   outline-offset: 5px;
   box-shadow: 0 18px 50px rgba(0, 0, 0, .7);
 }
-.discover-card:focus-visible .discover-card-cue { display: flex; }
-.discover-card:focus-visible .discover-card-title { text-decoration: underline; text-decoration-thickness: 3px; text-underline-offset: 6px; }
+.discover-card:focus-visible .discover-card-cue, :root:not([data-input="pointer"]) .discover-card:focus .discover-card-cue { display: flex; }
+.discover-card:focus-visible .discover-card-title, :root:not([data-input="pointer"]) .discover-card:focus .discover-card-title { text-decoration: underline; text-decoration-thickness: 3px; text-underline-offset: 6px; }
 
-.discover-jam-link:focus-visible,
-.discover-brand:focus-visible,
 .discover-retry:focus-visible,
-.film-back:focus-visible,
 .film-action:focus-visible,
 .film-external a:focus-visible,
 .discover-chip:focus-visible,
-.discover-search input:focus-visible {
+.discover-search input:focus-visible,
+:root:not([data-input="pointer"]) .discover-retry:focus,
+:root:not([data-input="pointer"]) .film-action:focus,
+:root:not([data-input="pointer"]) .film-external a:focus,
+:root:not([data-input="pointer"]) .discover-chip:focus,
+:root:not([data-input="pointer"]) .discover-search input:focus {
   outline: 5px solid var(--focus);
   outline-offset: 5px;
+}
+/* Focus is never an outline alone: a focused button or chip also grows and turns dark-on-light,
+   and a focused field also grows and lightens. */
+.discover-retry, .film-action, .film-external a, .discover-chip, .discover-search input, .discover-talk-field input, .discover-talk-send {
+  transition: transform .16s ease, background-color .16s ease, color .16s ease;
+}
+.film-action:focus-visible,
+.film-external a:focus-visible,
+.discover-chip:focus-visible,
+.discover-retry:focus-visible,
+.discover-talk-send:focus-visible,
+:root:not([data-input="pointer"]) .film-action:focus,
+:root:not([data-input="pointer"]) .film-external a:focus,
+:root:not([data-input="pointer"]) .discover-chip:focus,
+:root:not([data-input="pointer"]) .discover-retry:focus,
+:root:not([data-input="pointer"]) .discover-talk-send:focus {
+  transform: scale(1.06);
+  border-color: #ffffff;
+  background: #ffffff;
+  color: #0b0f1a;
+}
+.film-external a:focus-visible, :root:not([data-input="pointer"]) .film-external a:focus { display: inline-block; padding: 4px 12px; border-radius: 6px; }
+.discover-search input:focus-visible,
+.discover-talk-field input:focus-visible,
+:root:not([data-input="pointer"]) .discover-search input:focus,
+:root:not([data-input="pointer"]) .discover-talk-field input:focus {
+  transform: scale(1.015);
+  border-color: #ffffff;
+  background: #2b3560;
 }
 
 .discover-state {
@@ -287,6 +279,7 @@
   .discover-spinner { animation-duration: 4s; }
   .discover-card { transition: none; }
   .discover-backdrop { animation: none; }
+  .discover-retry, .film-action, .film-external a, .discover-chip, .discover-search input, .discover-talk-field input, .discover-talk-send { transition: none; transform: none !important; }
 }
 
 /* Always on screen while TMDB records are shown, as the TMDB terms require. */
@@ -335,7 +328,7 @@
   border-radius: 12px;
 }
 .discover-talk-field input::placeholder { color: #aab1d0; }
-.discover-talk-field input:focus-visible { outline: 5px solid var(--focus); outline-offset: 5px; }
+.discover-talk-field input:focus-visible, :root:not([data-input="pointer"]) .discover-talk-field input:focus { outline: 5px solid var(--focus); outline-offset: 5px; }
 .discover-talk-send {
   flex: 0 0 auto;
   min-width: 128px;
@@ -348,7 +341,7 @@
   font-weight: 700;
 }
 .discover-talk-send:disabled { opacity: .55; }
-.discover-talk-send:focus-visible { outline: 5px solid var(--focus); outline-offset: 5px; }
+.discover-talk-send:focus-visible, :root:not([data-input="pointer"]) .discover-talk-send:focus { outline: 5px solid var(--focus); outline-offset: 5px; }
 .discover-talk-log { display: grid; gap: 8px; max-width: 1100px; margin: 0; padding: 0; list-style: none; }
 .discover-talk-line { margin: 0; font-size: 21px; line-height: 1.4; overflow-wrap: anywhere; }
 .discover-talk-viewer { color: var(--muted); }
@@ -467,18 +460,6 @@ html.film-page-open { overflow: hidden; }
     linear-gradient(0deg, #0a0f1a 0%, rgba(10, 15, 26, .4) 30%, transparent 55%);
   pointer-events: none;
 }
-.film-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-  border: 2px solid #5a6384;
-  border-radius: 8px;
-  background: rgba(8, 11, 19, .6);
-  color: var(--ink);
-  padding: 14px 24px;
-  font-size: 22px;
-  font-weight: 600;
-}
 .film-hero {
   display: grid;
   grid-template-columns: minmax(220px, 360px) minmax(0, 1fr);
@@ -567,7 +548,6 @@ html.film-page-open { overflow: hidden; }
   .discover-note, .discover-search input, .discover-talk-field input { font-size: 18px; }
   .discover-talk-line, .discover-spotlight-reason { font-size: 17px; }
   .discover-talk-send { min-width: 88px; padding: 0 16px; font-size: 18px; }
-  .discover-eyebrow { font-size: 14px; }
   .discover-card-title { font-size: 18px; }
   .discover-card-meta, .discover-attribution { font-size: 15px; }
   .film-hero { grid-template-columns: minmax(0, 1fr); }

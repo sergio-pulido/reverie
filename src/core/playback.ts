@@ -4,6 +4,12 @@ import type { JamScript, Scene, ScenePortion } from "./script";
 // Server-owned playback state (docs/API_CONTRACTS.md, "Portion playback,
 // locking, and video generation"). The lock window is derived from the
 // cursor, never stored per portion.
+//
+// Two representations meet here and must not be confused:
+// - In memory, `currentPortionIndex` is `null` until the first portion starts.
+// - In Postgres, the persisted `jam_playback.current_portion_index` column is
+//   NOT NULL with a `-1` sentinel, so a row always has a comparable integer.
+// The store maps between them; playback semantics never see `-1`.
 export const playbackStateSchema = z.object({
   status: z.enum(["idle", "priming", "playing", "finished"]),
   currentPortionIndex: z.number().int().min(0).nullable(),
@@ -142,4 +148,15 @@ export function advancePlayback(
     currentPortionIndex: next,
     stateVersion: state.stateVersion + 1,
   };
+}
+
+/** Thrown by updatePlayback when expectedStateVersion is not current. */
+export class StaleStateVersionError extends Error {
+  constructor(
+    message: string,
+    readonly currentStateVersion: number,
+  ) {
+    super(message);
+    this.name = "StaleStateVersionError";
+  }
 }

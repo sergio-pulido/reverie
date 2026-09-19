@@ -123,7 +123,11 @@ Images, uploaded clips, and live camera are inputs to a shared creative turn, no
 
 ## 2026-09-19 — Script history is append-only full snapshots
 
-The live-edited script markdown is versioned as an append-only sequence of full snapshots behind the `JamStore` boundary. Undo restores an earlier revision as a new revision recording `restoredFromRevision`, so redo is just another restore and history is never rewritten; identical-content saves are ignored so autosave cannot flood the history. Full snapshots (≤30k chars, ≤500 revisions per jam) were chosen over diffs because a 4-minute script is small and restore must be trivial. The structured Zod-validated `JamScript` remains the generation-time authority; markdown revisions capture what the room edited afterwards. In Supabase this is `jam_scripts` (artifact) plus `jam_script_revisions` (history) hanging off the room row in `jams`, with no update/delete policies on revisions.
+The script is versioned as an append-only sequence of full snapshots behind the `JamStore` boundary. Undo restores an earlier revision as a new revision recording `restoredFromRevision`, so redo is just another restore and history is never rewritten; identical-content saves are ignored so autosave cannot flood the history. Full snapshots (≤500 revisions per jam) were chosen over diffs because a movie-jam script is small and restore must be trivial. In Supabase this is `jam_scripts` (artifact) plus `jam_script_revisions` (history) hanging off the room row in `jams`, with no update/delete policies on revisions. Amended same day: revisions snapshot the structured script, not markdown — see the next decision.
+
+## 2026-09-19 — Structured script is the editing source of truth
+
+Video playback needs portion-level locking (played portions immutable, the generation buffer pinned at a revision), which opaque markdown edits cannot support. Revisions therefore snapshot the structured `JamScript` and markdown became a deterministic per-revision render (it was never canonical — `renderScriptMarkdown` already varies per session). Edits are portion-scoped (`PATCH .../script/portions/:portionIndex`, flat zero-based index, structural edits forbidden in v1) and validate duration against the jam format's hard portion bounds only — the total-runtime tolerance is not re-enforced on live edits. The store stays persistence-only: edit and revert take a `minEditablePortionIndex` parameter wired by the router from the playback guard inside the same per-jam critical section (`withJamLock`), reverts that would change a locked portion are rejected outright (no partial reverts, so pinned text is immutable by construction), and playback state persists through `getPlayback`/`updatePlayback` under compare-and-swap while its semantics live in the playback module. Full contract: docs/API_CONTRACTS.md "Portion playback, locking, and video generation" (agreed with RV-06).
 
 ## 2026-09-19 — Start with one same-origin local development server
 
@@ -345,3 +349,31 @@ the existing `jam_sessions` remain language/ambientation skins over the one shar
 - **Chips are statements, not toggles on a hidden filter.** Each carries its sentence and cites
   quotes from it; withdrawing one is a turn whose transcript quotes what is withdrawn. A session
   holds twelve turns, after which the viewer is told to start over.
+
+## 2026-09-19 — One jam_playback table, reconciled by a stacked migration
+
+Two independent slices each created `public.jam_playback`: the portion-playback work
+(`20260919190000_structured_script_revisions.sql`) with `current_portion_index`, and the shared
+clock (`20260919230000_jam_playback_clock.sql`) with `started_at`/`paused_elapsed_ms`. They were
+merged without knowing about each other, and the collision is not merely cosmetic: `190000` sorts
+first, so on a **fresh** database it creates the table, the clock migration's `create table if not
+exists` then silently no-ops, and its `jam_playback_json` function fails to compile because
+`p_row.started_at` does not exist. On an **existing** database the reverse is true — the clock
+table is present and the cursor column is missing. A migration that only worked for one history
+would have left the other broken, and a fresh deploy is exactly the path CI and a new contributor
+take.
+
+Rather than edit either migration — databases have already applied them, and editing an applied
+migration means the file no longer describes the database — a stacked migration
+(`20260919225000_reconcile_jam_playback.sql`) sits between them and converges both histories on one
+table carrying both column sets. It is idempotent and backfills before enforcing `NOT NULL`, so no
+existing row can block it. `status` becomes the union `idle|priming|playing|paused|finished`, and
+the anchor invariant is restated for the union as `(status = 'playing') = (started_at is not null)`
+— priming and finished carry no anchor, which is correct because only a playing clock needs one.
+The two representations stay deliberately distinct: the cursor is a `-1`-sentinel integer in
+Postgres and `null` in memory, mapped at the store boundary so playback semantics never see `-1`.
+
+Verified by applying the whole migration set in sorted order to a clean Postgres (the clock
+functions compile and the table ends with all seven columns) and by applying it to the existing
+local stack (which converges to the same shape). `pnpm verify:realtime` remains 34/34, including
+the clock RPCs now running against the combined table.

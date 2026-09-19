@@ -60,7 +60,7 @@ test("refuses generation honestly when live providers are disabled", async () =>
   assert.equal(body.error.code, "generation_disabled");
 });
 
-test("imports a script without calling a live provider and preserves its markdown", async () => {
+test("imports a script without calling a live provider and projects it into the structured script", async () => {
   const jamId = randomUUID();
   const scriptMarkdown = [
     "# Signal House",
@@ -88,9 +88,14 @@ test("imports a script without calling a live provider and preserves its markdow
   assert.equal(body.jam.id, jamId);
   assert.equal(body.jam.source.kind, "imported-script");
 
+  // The structured script is the revision authority, so the served markdown is
+  // a deterministic render of the projection rather than the pasted text
+  // verbatim. The imported words survive inside the rendered portions.
   const markdown = await fetch(`${baseUrl}/api/jams/${jamId}/script.md`);
   assert.equal(markdown.status, 200);
-  assert.equal(await markdown.text(), scriptMarkdown);
+  const rendered = await markdown.text();
+  assert.ok(rendered.startsWith("# Signal House"));
+  assert.ok(rendered.includes("breakwater"));
 });
 
 test("returns 404 for an unknown jam", async () => {

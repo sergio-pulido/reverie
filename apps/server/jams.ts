@@ -3,21 +3,30 @@ import express, { type Response, type Router } from "express";
 import {
   createJamCommandSchema,
   revertJamScriptCommandSchema,
-  updateJamScriptCommandSchema,
+  updatePortionCommandSchema,
   type Jam,
 } from "../../src/core/jam";
 import { renderScriptMarkdown } from "../../src/core/scriptMarkdown";
 import { projectImportedScript, ScriptImportError } from "../../src/core/scriptImport";
 import {
+  applyPortionPatch,
   appendRevision,
   createInitialHistory,
   currentRevision,
   findRevision,
+  PortionLockedError,
   revertToRevision,
   ScriptHistoryError,
   type JamScriptHistory,
+  type PortionPatch,
   type ScriptRevision,
 } from "../../src/core/scriptHistory";
+import {
+  playbackStateSchema,
+  StaleStateVersionError,
+  type PlaybackState,
+} from "../../src/core/playback";
+import type { JamScript } from "../../src/core/script";
 import { resolveNebiusConfig, NebiusError } from "./providers/nebius";
 import { ScriptwriterError, writeJamScript } from "./scriptwriter";
 
@@ -27,29 +36,60 @@ const CREATIONS_PER_MINUTE_PER_IP = 5;
 
 // Persistence boundary: the router never owns jam data directly, so a
 // Supabase-backed store can replace the in-memory one without route changes.
-// Creating a jam also creates revision 1 of its script markdown (rendered
-// deterministically from the structured script); live edits and undos append
-// to that history, never rewrite it.
+// Creating a jam creates revision 1 of its structured script; portion edits
+// and reverts append to that history, never rewrite it. The store stays
+// persistence-only: lock enforcement takes minEditablePortionIndex as a
+// parameter (the router wires it from the playback guard), and playback
+// semantics live outside — the store only persists the record under CAS.
+// Contract: docs/API_CONTRACTS.md "Portion playback, locking, and video
+// generation". A Supabase implementation must serialize per-jam mutations
+// (updatePortion, revertScriptToRevision, updatePlayback) — e.g. a
+// transaction with a row lock on the jam's script row.
 export interface JamStore {
   createJam(jam: Jam, options?: { initialMarkdown?: string }): Promise<void>;
   getJam(id: string): Promise<Jam | null>;
-  appendScriptRevision(
+  updatePortion(
     jamId: string,
-    markdown: string,
+    portionIndex: number,
+    patch: PortionPatch,
+    minEditablePortionIndex: number,
     options?: RevisionOptions,
   ): Promise<ScriptRevision>;
   revertScriptToRevision(
     jamId: string,
     targetRevision: number,
+    minEditablePortionIndex: number,
     options?: RevisionOptions,
   ): Promise<ScriptRevision>;
   getScriptRevision(
     jamId: string,
     revision: number,
   ): Promise<ScriptRevision | null>;
+  /** Structured script at a revision — RV-06 reads pinned portion text here. */
+  getScriptAtRevision(jamId: string, revision: number): Promise<JamScript | null>;
   getCurrentScriptRevision(jamId: string): Promise<ScriptRevision | null>;
   listScriptRevisions(jamId: string): Promise<ScriptRevision[]>;
+  getPlayback(jamId: string): Promise<PlaybackState | null>;
+  updatePlayback(
+    jamId: string,
+    expectedStateVersion: number,
+    next: PlaybackState,
+  ): Promise<PlaybackState>;
 }
+
+// The playback guard is synchronous so the router can read it in the same
+// critical section (withJamLock) as the mutation it protects — the boundary
+// cannot move between check and write. RV-06's playback module provides the
+// real guard; the default leaves everything editable until it is wired.
+export type PlaybackGuard = (jamId: string) => {
+  minEditablePortionIndex: number;
+  stateVersion: number;
+};
+
+export const openPlaybackGuard: PlaybackGuard = () => ({
+  minEditablePortionIndex: 0,
+  stateVersion: 0,
+});
 
 export interface RevisionOptions {
   authorId?: string;
@@ -66,8 +106,37 @@ export class JamStoreError extends Error {
   }
 }
 
+// Per-jam critical section: guard reads and the mutation they protect run
+// under the same lock, and RV-06's playback advance must use it too so the
+// lock boundary can never move between check and write. In-process only; the
+// Supabase store carries this requirement into a transaction.
+const jamLockTails = new Map<string, Promise<void>>();
+
+export async function withJamLock<T>(
+  jamId: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  const previous = jamLockTails.get(jamId) ?? Promise.resolve();
+  const run = previous.then(work, work);
+  const settled = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  jamLockTails.set(jamId, settled);
+  void settled.then(() => {
+    if (jamLockTails.get(jamId) === settled) jamLockTails.delete(jamId);
+  });
+  return run;
+}
+
+interface JamEntry {
+  jam: Jam;
+  history: JamScriptHistory;
+  playback?: PlaybackState;
+}
+
 export class InMemoryJamStore implements JamStore {
-  private readonly jams = new Map<string, { jam: Jam; history: JamScriptHistory }>();
+  private readonly jams = new Map<string, JamEntry>();
 
   constructor(private readonly clock: () => Date = () => new Date()) {}
 
@@ -80,7 +149,7 @@ export class InMemoryJamStore implements JamStore {
       if (oldest) this.jams.delete(oldest);
     }
     const history = createInitialHistory(jam.id, {
-      markdown: options?.initialMarkdown ?? renderScriptMarkdown(jam.script, jam.source),
+      script: jam.script,
       createdAt: this.clock().toISOString(),
     });
     this.jams.set(jam.id, { jam, history });
@@ -90,14 +159,28 @@ export class InMemoryJamStore implements JamStore {
     return this.jams.get(id)?.jam ?? null;
   }
 
-  async appendScriptRevision(
+  async updatePortion(
     jamId: string,
-    markdown: string,
+    portionIndex: number,
+    patch: PortionPatch,
+    minEditablePortionIndex: number,
     options?: RevisionOptions,
   ): Promise<ScriptRevision> {
     const entry = this.requireEntry(jamId);
+    if (portionIndex < minEditablePortionIndex) {
+      throw new PortionLockedError(
+        `Portion ${portionIndex} has played or is locked for generation.`,
+        minEditablePortionIndex - 1,
+      );
+    }
+    const script = applyPortionPatch(
+      currentRevision(entry.history).script,
+      portionIndex,
+      patch,
+      entry.jam.format,
+    );
     entry.history = appendRevision(entry.history, {
-      markdown,
+      script,
       createdAt: this.clock().toISOString(),
       ...options,
     });
@@ -107,14 +190,41 @@ export class InMemoryJamStore implements JamStore {
   async revertScriptToRevision(
     jamId: string,
     targetRevision: number,
+    minEditablePortionIndex: number,
     options?: RevisionOptions,
   ): Promise<ScriptRevision> {
     const entry = this.requireEntry(jamId);
-    entry.history = revertToRevision(entry.history, targetRevision, {
-      createdAt: this.clock().toISOString(),
-      ...options,
-    });
+    entry.history = revertToRevision(
+      entry.history,
+      targetRevision,
+      minEditablePortionIndex,
+      {
+        createdAt: this.clock().toISOString(),
+        ...options,
+      },
+    );
     return currentRevision(entry.history);
+  }
+
+  async getPlayback(jamId: string): Promise<PlaybackState | null> {
+    return this.jams.get(jamId)?.playback ?? null;
+  }
+
+  async updatePlayback(
+    jamId: string,
+    expectedStateVersion: number,
+    next: PlaybackState,
+  ): Promise<PlaybackState> {
+    const entry = this.requireEntry(jamId);
+    const currentVersion = entry.playback?.stateVersion ?? 0;
+    if (expectedStateVersion !== currentVersion) {
+      throw new StaleStateVersionError(
+        `Playback state is at version ${currentVersion}, not ${expectedStateVersion}.`,
+        currentVersion,
+      );
+    }
+    entry.playback = playbackStateSchema.parse(next);
+    return entry.playback;
   }
 
   async getScriptRevision(
@@ -123,6 +233,13 @@ export class InMemoryJamStore implements JamStore {
   ): Promise<ScriptRevision | null> {
     const entry = this.jams.get(jamId);
     return entry ? (findRevision(entry.history, revision) ?? null) : null;
+  }
+
+  async getScriptAtRevision(
+    jamId: string,
+    revision: number,
+  ): Promise<JamScript | null> {
+    return (await this.getScriptRevision(jamId, revision))?.script ?? null;
   }
 
   async getCurrentScriptRevision(jamId: string): Promise<ScriptRevision | null> {
@@ -134,7 +251,7 @@ export class InMemoryJamStore implements JamStore {
     return this.jams.get(jamId)?.history.revisions ?? [];
   }
 
-  private requireEntry(jamId: string): { jam: Jam; history: JamScriptHistory } {
+  private requireEntry(jamId: string): JamEntry {
     const entry = this.jams.get(jamId);
     if (!entry) {
       throw new JamStoreError(
@@ -146,7 +263,10 @@ export class InMemoryJamStore implements JamStore {
   }
 }
 
-export function createJamsRouter(store: JamStore = new InMemoryJamStore()): Router {
+export function createJamsRouter(
+  store: JamStore = new InMemoryJamStore(),
+  guard: PlaybackGuard = openPlaybackGuard,
+): Router {
   const router = express.Router();
   const recentCreationsByIp = new Map<string, number[]>();
   let activeGenerations = 0;
@@ -243,33 +363,58 @@ export function createJamsRouter(store: JamStore = new InMemoryJamStore()): Rout
     response.json({ jam });
   });
 
-  // The live document is the current revision, not a re-render: the room can
-  // have edited the markdown past what the structured script generated.
+  // The live document is the current revision's script rendered to markdown;
+  // the structured script is the source of truth, markdown only a view.
   router.get("/api/jams/:id/script.md", async (request, response) => {
-    const current = await store.getCurrentScriptRevision(request.params.id);
-    if (!current) {
+    const [jam, current] = await Promise.all([
+      store.getJam(request.params.id),
+      store.getCurrentScriptRevision(request.params.id),
+    ]);
+    if (!jam || !current) {
       sendError(response, 404, "not_found", "This jam does not exist on this server.", false);
       return;
     }
-    response.type("text/markdown; charset=utf-8").send(current.markdown);
+    response
+      .type("text/markdown; charset=utf-8")
+      .send(renderScriptMarkdown(current.script, jam.source));
   });
 
-  router.put("/api/jams/:id/script", async (request, response) => {
-    const command = updateJamScriptCommandSchema.safeParse(request.body);
-    if (!command.success) {
-      sendError(response, 400, "invalid_command", "The script update is not valid.", false);
-      return;
-    }
-    try {
-      const revision = await store.appendScriptRevision(
-        request.params.id,
-        command.data.markdown,
-      );
-      response.json({ revision });
-    } catch (error) {
-      if (!handleStoreError(response, error)) throw error;
-    }
-  });
+  // Live edits are portion-scoped; the guard is read inside the same per-jam
+  // critical section as the mutation so the lock boundary cannot move
+  // between check and write.
+  router.patch(
+    "/api/jams/:id/script/portions/:portionIndex",
+    async (request, response) => {
+      const portionIndex = Number(request.params.portionIndex);
+      if (!Number.isInteger(portionIndex) || portionIndex < 0) {
+        sendError(response, 400, "invalid_command", "The portion index is not valid.", false);
+        return;
+      }
+      const command = updatePortionCommandSchema.safeParse(request.body);
+      if (!command.success) {
+        sendError(response, 400, "invalid_command", "The portion update is not valid.", false);
+        return;
+      }
+      try {
+        const revision = await withJamLock(request.params.id, async () => {
+          const boundary = guard(request.params.id);
+          try {
+            return await store.updatePortion(
+              request.params.id,
+              portionIndex,
+              command.data,
+              boundary.minEditablePortionIndex,
+            );
+          } catch (error) {
+            throw attachStateVersion(error, boundary.stateVersion);
+          }
+        });
+        response.json({ revision: revision });
+      } catch (error) {
+        if (!handleStoreError(response, error)) throw error;
+      }
+    },
+  );
 
   router.post("/api/jams/:id/script/revert", async (request, response) => {
     const command = revertJamScriptCommandSchema.safeParse(request.body);
@@ -278,17 +423,25 @@ export function createJamsRouter(store: JamStore = new InMemoryJamStore()): Rout
       return;
     }
     try {
-      const revision = await store.revertScriptToRevision(
-        request.params.id,
-        command.data.revision,
-      );
-      response.json({ revision });
+      const revision = await withJamLock(request.params.id, async () => {
+        const boundary = guard(request.params.id);
+        try {
+          return await store.revertScriptToRevision(
+            request.params.id,
+            command.data.revision,
+            boundary.minEditablePortionIndex,
+          );
+        } catch (error) {
+          throw attachStateVersion(error, boundary.stateVersion);
+        }
+      });
+      response.json({ revision: revision });
     } catch (error) {
       if (!handleStoreError(response, error)) throw error;
     }
   });
 
-  // Metadata only: full markdown snapshots are fetched one revision at a time.
+  // Metadata only: full structured snapshots are fetched one at a time.
   router.get("/api/jams/:id/script/revisions", async (request, response) => {
     const jam = await store.getJam(request.params.id);
     if (!jam) {
@@ -296,7 +449,7 @@ export function createJamsRouter(store: JamStore = new InMemoryJamStore()): Rout
       return;
     }
     const revisions = (await store.listScriptRevisions(request.params.id)).map(
-      ({ markdown, ...meta }) => ({ ...meta, markdownChars: markdown.length }),
+      ({ script, ...meta }) => meta,
     );
     response.json({ revisions });
   });
@@ -309,15 +462,20 @@ export function createJamsRouter(store: JamStore = new InMemoryJamStore()): Rout
         sendError(response, 400, "invalid_command", "The revision number is not valid.", false);
         return;
       }
-      const revision = await store.getScriptRevision(
-        request.params.id,
-        revisionNumber,
-      );
-      if (!revision) {
+      const [jam, revision] = await Promise.all([
+        store.getJam(request.params.id),
+        store.getScriptRevision(request.params.id, revisionNumber),
+      ]);
+      if (!jam || !revision) {
         sendError(response, 404, "not_found", "This revision does not exist.", false);
         return;
       }
-      response.json({ revision });
+      response.json({
+        revision: {
+          ...revision,
+          markdown: renderScriptMarkdown(revision.script, jam.source),
+        },
+      });
     },
   );
 
@@ -341,8 +499,31 @@ function handleCreateError(response: Response, error: unknown): void {
   throw error;
 }
 
+/** Marks a PortionLockedError with the guard's stateVersion for the reply. */
+function attachStateVersion(error: unknown, stateVersion: number): unknown {
+  if (error instanceof PortionLockedError) {
+    (error as PortionLockedError & { stateVersion?: number }).stateVersion =
+      stateVersion;
+  }
+  return error;
+}
+
 /** Maps store/history errors to safe responses; returns false if unhandled. */
 function handleStoreError(response: Response, error: unknown): boolean {
+  if (error instanceof PortionLockedError) {
+    response.status(409).json({
+      error: {
+        code: "portion_locked",
+        safeMessage: error.message,
+        retryable: false,
+        lockedIndex: error.lockedIndex,
+        stateVersion:
+          (error as PortionLockedError & { stateVersion?: number })
+            .stateVersion ?? 0,
+      },
+    });
+    return true;
+  }
   if (error instanceof JamStoreError) {
     sendError(
       response,

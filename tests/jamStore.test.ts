@@ -1,11 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { randomUUID } from "node:crypto";
-import { InMemoryJamStore, JamStoreError } from "../apps/server/jams";
-import { renderScriptMarkdown } from "../src/core/scriptMarkdown";
-import type { Jam } from "../src/core/jam";
+import {
+  InMemoryJamStore,
+  JamStoreError,
+  withJamLock,
+} from "../apps/server/jams";
+import { PortionLockedError } from "../src/core/scriptHistory";
+import { StaleStateVersionError } from "../src/core/playback";
 import { DEFAULT_SCRIPT_FORMAT } from "../src/core/script";
+import type { Jam } from "../src/core/jam";
 import { buildScript } from "./helpers";
+
+const EVERYTHING_EDITABLE = 0;
 
 function buildJam(): Jam {
   return {
@@ -20,13 +27,14 @@ function buildJam(): Jam {
   };
 }
 
-test("creating a jam creates revision 1 from the rendered script", async () => {
+test("creating a jam creates revision 1 from the structured script", async () => {
   const store = new InMemoryJamStore();
   const jam = buildJam();
   await store.createJam(jam);
   const current = await store.getCurrentScriptRevision(jam.id);
   assert.equal(current?.revision, 1);
-  assert.equal(current?.markdown, renderScriptMarkdown(jam.script, jam.source));
+  assert.deepEqual(current?.script, jam.script);
+  assert.deepEqual(await store.getScriptAtRevision(jam.id, 1), jam.script);
 });
 
 test("rejects creating the same jam id twice", async () => {
@@ -40,28 +48,110 @@ test("rejects creating the same jam id twice", async () => {
   );
 });
 
-test("live edits append revisions and undo restores earlier markdown", async () => {
+test("portion edits append revisions and undo restores earlier content", async () => {
   const store = new InMemoryJamStore();
   const jam = buildJam();
   await store.createJam(jam);
-  const original = (await store.getCurrentScriptRevision(jam.id))!.markdown;
 
-  await store.appendScriptRevision(jam.id, "# Edited live");
-  const reverted = await store.revertScriptToRevision(jam.id, 1);
+  const edited = await store.updatePortion(
+    jam.id,
+    3,
+    { action: "The lamp gutters." },
+    EVERYTHING_EDITABLE,
+    { authorId: "host" },
+  );
+  assert.equal(edited.revision, 2);
+  assert.equal(edited.authorId, "host");
 
+  const reverted = await store.revertScriptToRevision(
+    jam.id,
+    1,
+    EVERYTHING_EDITABLE,
+  );
   assert.equal(reverted.revision, 3);
-  assert.equal(reverted.markdown, original);
   assert.equal(reverted.restoredFromRevision, 1);
+  assert.deepEqual(reverted.script, jam.script);
   assert.equal((await store.listScriptRevisions(jam.id)).length, 3);
-  assert.equal((await store.getScriptRevision(jam.id, 2))?.markdown, "# Edited live");
 });
 
-test("raises jam_not_found for revisions of unknown jams", async () => {
+test("rejects edits and reverts below the lock boundary", async () => {
+  const store = new InMemoryJamStore();
+  const jam = buildJam();
+  await store.createJam(jam);
+
+  await assert.rejects(
+    store.updatePortion(jam.id, 1, { action: "Too late." }, 2),
+    (error: unknown) =>
+      error instanceof PortionLockedError && error.lockedIndex === 1,
+  );
+
+  await store.updatePortion(jam.id, 1, { action: "Edited early." }, 0);
+  await assert.rejects(
+    store.revertScriptToRevision(jam.id, 1, 2),
+    PortionLockedError,
+  );
+});
+
+test("persists playback under compare-and-swap on stateVersion", async () => {
+  const store = new InMemoryJamStore();
+  const jam = buildJam();
+  await store.createJam(jam);
+  assert.equal(await store.getPlayback(jam.id), null);
+
+  const first = await store.updatePlayback(jam.id, 0, {
+    status: "priming",
+    currentPortionIndex: null,
+    stateVersion: 1,
+  });
+  assert.equal(first.stateVersion, 1);
+
+  await assert.rejects(
+    store.updatePlayback(jam.id, 0, {
+      status: "playing",
+      currentPortionIndex: 0,
+      stateVersion: 1,
+    }),
+    (error: unknown) =>
+      error instanceof StaleStateVersionError &&
+      error.currentStateVersion === 1,
+  );
+
+  const second = await store.updatePlayback(jam.id, 1, {
+    status: "playing",
+    currentPortionIndex: 0,
+    stateVersion: 2,
+  });
+  assert.equal((await store.getPlayback(jam.id))?.stateVersion, 2);
+  assert.equal(second.status, "playing");
+});
+
+test("raises jam_not_found for unknown jams", async () => {
   const store = new InMemoryJamStore();
   assert.equal(await store.getCurrentScriptRevision(randomUUID()), null);
   await assert.rejects(
-    store.appendScriptRevision(randomUUID(), "# Nope"),
+    store.updatePortion(randomUUID(), 0, { action: "Nope." }, 0),
     (error: unknown) =>
       error instanceof JamStoreError && error.code === "jam_not_found",
   );
+});
+
+test("withJamLock serializes work per jam", async () => {
+  const order: string[] = [];
+  const slow = withJamLock("jam-a", async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    order.push("slow");
+  });
+  const fast = withJamLock("jam-a", async () => {
+    order.push("fast");
+  });
+  const other = withJamLock("jam-b", async () => {
+    order.push("other");
+  });
+  await Promise.all([slow, fast, other]);
+  assert.deepEqual(
+    order.filter((name) => name !== "other"),
+    ["slow", "fast"],
+  );
+  // Other jams are not serialized behind jam-a's lock.
+  assert.equal(order[0], "other");
 });

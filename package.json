@@ -1,0 +1,32 @@
+{
+  "name": "reverie-movie-jam",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.30.0",
+  "engines": { "node": ">=22.17.1" },
+  "scripts": {
+    "dev": "tsx apps/server/index.ts",
+    "build": "pnpm typecheck && vite build",
+    "start": "NODE_ENV=production tsx apps/server/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "express": "4.22.3",
+    "qrcode.react": "4.2.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "ws": "8.18.3",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/express": "4.17.25",
+    "@types/node": "22.20.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/ws": "8.5.14",
+    "tsx": "4.23.13",
+    "typescript": "5.9.3",
+    "vite": "8.3.0"
+  }
+}

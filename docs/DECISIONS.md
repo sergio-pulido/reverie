@@ -11,3 +11,7 @@ Nebius, SLNG, fal.ai, Titan, and any confirmed HackBarna sponsor capability are 
 ## 2026-09-19 — Server owns collaborative story state
 
 The server is authoritative for membership, queue ordering, votes, story versions, accepted scenes, and budgets. Clients render snapshots/events and can show pending feedback, but cannot commit a scene independently.
+
+## 2026-09-19 — Start with one same-origin local development server
+
+The first runnable baseline serves the Vite client through the Node/Express process at `127.0.0.1:4317`. This keeps browser-to-server contracts, future WebSocket upgrades, and provider credentials on one trusted origin during early development. It is a local development baseline, not a public deployment configuration.

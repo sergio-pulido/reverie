@@ -25,7 +25,9 @@ import { supabase } from "./supabase";
 const MESSAGE_PAGE = 200;
 const PROPOSAL_PAGE = 200;
 
-const JAM_COLUMNS = "id, slug, title, premise, visibility, status, host_id, invite_code";
+// invite_code is deliberately absent: the database revokes that column from members,
+// and the host reads it through get_jam_invite.
+const JAM_COLUMNS = "id, slug, title, premise, visibility, status, host_id";
 const MEMBER_COLUMNS = "jam_id, user_id, display_name, role, status, joined_at";
 
 function parseList<T>(schema: { safeParse: (value: unknown) => { success: boolean; data?: T } }, rows: unknown[]): T[] {

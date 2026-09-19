@@ -10,7 +10,8 @@ export type { JamRoom };
 type CreateJamInput = Pick<JamRoom, "title" | "premise" | "visibility">;
 type CreatedJam = { jam: JamRoom; persistence: JamPersistence };
 
-const JAM_COLUMNS = "id, slug, title, premise, visibility, status, host_id, invite_code";
+// invite_code is deliberately absent: it is host-only and read through get_jam_invite.
+const JAM_COLUMNS = "id, slug, title, premise, visibility, status, host_id";
 
 function createSlug(title: string) {
   const base = title.toLowerCase().trim()

@@ -47,3 +47,58 @@ export function normalizeDisplayName(raw: string): Normalized<string> {
 export function inviteUrl(origin: string, slug: string, code: string) {
   return `${origin.replace(/\/+$/, "")}/join?jam=${encodeURIComponent(slug)}&code=${encodeURIComponent(code)}`;
 }
+
+/** Lifecycle of the room-level invite, mirroring `public.jam_invite_state`. */
+export type InviteState = "active" | "expired" | "revoked";
+
+/** Minutes a host can choose for a rotated invite; `null` means it does not expire. */
+export const INVITE_TTL_MIN_MINUTES = 5;
+export const INVITE_TTL_MAX_MINUTES = 1440;
+
+export type JamInvite = {
+  jamId: string;
+  slug: string;
+  code: string;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  state: InviteState;
+};
+
+/**
+ * Recomputes the state from the timestamps rather than trusting the stored `state`,
+ * because an invite that was active when it was fetched expires while the panel is open.
+ * Revocation outranks expiry: a revoked invite never comes back by waiting.
+ */
+export function inviteState(invite: Pick<JamInvite, "expiresAt" | "revokedAt">, now = Date.now()): InviteState {
+  if (invite.revokedAt) return "revoked";
+  if (!invite.expiresAt) return "active";
+  const expiry = Date.parse(invite.expiresAt);
+  if (Number.isNaN(expiry)) return "active";
+  return expiry <= now ? "expired" : "active";
+}
+
+/** Host-facing description of an invite. Never used to decide access; the database does that. */
+export function describeInvite(invite: Pick<JamInvite, "expiresAt" | "revokedAt">, now = Date.now()): string {
+  const state = inviteState(invite, now);
+  if (state === "revoked") return "This invite was revoked. Rotate it to let anyone else in.";
+  if (state === "expired") return "This invite has expired. Rotate it to let anyone else in.";
+  if (!invite.expiresAt) return "This invite does not expire. Revoke it when the room is full.";
+
+  const minutes = Math.max(1, Math.round((Date.parse(invite.expiresAt) - now) / 60_000));
+  if (minutes < 60) return `This invite works for another ${minutes} minute${minutes === 1 ? "" : "s"}.`;
+  const hours = Math.round(minutes / 60);
+  return `This invite works for about another ${hours} hour${hours === 1 ? "" : "s"}.`;
+}
+
+export function isInviteShareable(invite: Pick<JamInvite, "expiresAt" | "revokedAt">, now = Date.now()): boolean {
+  return inviteState(invite, now) === "active";
+}
+
+/** Validates the host's chosen lifetime before it reaches the database. */
+export function normalizeInviteMinutes(raw: number | null): Normalized<number | null> {
+  if (raw === null) return { ok: true, value: null };
+  if (!Number.isInteger(raw) || raw < INVITE_TTL_MIN_MINUTES || raw > INVITE_TTL_MAX_MINUTES) {
+    return invalid(`An invite lasts between ${INVITE_TTL_MIN_MINUTES} minutes and 24 hours.`);
+  }
+  return { ok: true, value: raw };
+}

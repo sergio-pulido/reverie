@@ -1,5 +1,5 @@
-import type { Configuration } from "../preferences/schema";
-import { GENRES, type GenreDimensionKey, type GenreSlug } from "./genres";
+import type { Configuration } from "../preferences/schema.js";
+import { GENRES, type GenreDimensionKey, type GenreSlug } from "./genres.js";
 
 /**
  * The vocabulary the preference engine may use for the film catalogue, and nothing else.

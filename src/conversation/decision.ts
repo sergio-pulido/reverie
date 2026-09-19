@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { YEAR_ATTRIBUTE, RUNTIME_ATTRIBUTE, genreDimension, genreOfDimension, genreOfTag, genreLabel } from "../catalogue/domain";
-import { GENRES } from "../catalogue/genres";
-import { CONSTRAINT_IDS, describePredicate, nextTurnId } from "../catalogue/refinements";
-import { MAX_QUOTE_CHARS, type Constraint, type Evidence, type PreferenceState, type TurnInput } from "../preferences/schema";
+import { YEAR_ATTRIBUTE, RUNTIME_ATTRIBUTE, genreDimension, genreOfDimension, genreOfTag, genreLabel } from "../catalogue/domain.js";
+import { GENRES } from "../catalogue/genres.js";
+import { CONSTRAINT_IDS, describePredicate, nextTurnId } from "../catalogue/refinements.js";
+import { MAX_QUOTE_CHARS, type Constraint, type Evidence, type PreferenceState, type TurnInput } from "../preferences/schema.js";
 
 /**
  * What the model returns when it interprets one viewer message. It never sees the catalogue:

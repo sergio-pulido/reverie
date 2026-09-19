@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { turnRequestSchema, type TurnOk } from "../../src/conversation/contract";
-import { MAX_TURNS_PER_SESSION } from "../../src/preferences/schema";
-import { interpretMessage } from "../_lib/discover-assistant";
+import { turnRequestSchema, type TurnOk } from "../../src/conversation/contract.js";
+import { MAX_TURNS_PER_SESSION } from "../../src/preferences/schema.js";
+import { interpretMessage } from "../_lib/discover-assistant.js";
 import {
   abortOnDisconnect,
   admit,
@@ -15,8 +15,8 @@ import {
   resolveProvider,
   withSlot,
   type DiscoverEndpointOptions,
-} from "../_lib/discover-http";
-import { sendJson } from "../_lib/http";
+} from "../_lib/discover-http.js";
+import { sendJson } from "../_lib/http.js";
 
 const REQUESTS_PER_MINUTE = 20;
 const MAX_BODY_BYTES = 80_000;

@@ -1,7 +1,7 @@
-import type { Evidence, PreferenceState, Predicate, TurnInput } from "../preferences/schema";
-import { RUNTIME_ATTRIBUTE, YEAR_ATTRIBUTE, genreDimension, genreLabel, genreOfTag } from "./domain";
-import type { GenreSlug } from "./genres";
-import { wantedGenres } from "./shortlistFilters";
+import type { Evidence, PreferenceState, Predicate, TurnInput } from "../preferences/schema.js";
+import { RUNTIME_ATTRIBUTE, YEAR_ATTRIBUTE, genreDimension, genreLabel, genreOfTag } from "./domain.js";
+import type { GenreSlug } from "./genres.js";
+import { wantedGenres } from "./shortlistFilters.js";
 
 /**
  * Refinement chips: short things a viewer can say to Discover, each carrying the sentence it

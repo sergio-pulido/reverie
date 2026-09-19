@@ -1,4 +1,4 @@
-import { PreferenceError, parseOrThrow } from "./errors";
+import { PreferenceError, parseOrThrow } from "./errors.js";
 import {
   MAX_REJECTED_CANDIDATES,
   MAX_TURNS_PER_SESSION,
@@ -10,7 +10,7 @@ import {
   type Constraint,
   type PreferenceState,
   type TurnInput,
-} from "./schema";
+} from "./schema.js";
 
 export function newState(sessionId: string): PreferenceState {
   return parseOrThrow(

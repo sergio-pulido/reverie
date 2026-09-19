@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { decideLiveAccess, liveTokenRequestSchema } from "../../src/core/liveMedia";
+import { decideLiveAccess, liveTokenRequestSchema } from "../../src/core/liveMedia.js";
 import {
   authenticate,
   callRpc,
@@ -8,7 +8,7 @@ import {
   readSupabaseConfig,
   RestError,
   type SupabaseRestOptions,
-} from "../_lib/supabase-rest";
+} from "../_lib/supabase-rest.js";
 import {
   clientAuthId,
   createVideoSession,
@@ -17,8 +17,8 @@ import {
   readVonageAuth,
   TOKEN_TTL_SECONDS,
   type VonageAuth,
-} from "../_lib/vonage-video";
-import { clientKey, createRateLimiter, isSameOrigin, sendJson } from "../_lib/http";
+} from "../_lib/vonage-video.js";
+import { clientKey, createRateLimiter, isSameOrigin, sendJson } from "../_lib/http.js";
 
 const RATE_LIMIT_REQUESTS = 10;
 const RATE_LIMIT_WINDOW_MS = 60_000;

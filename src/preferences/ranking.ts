@@ -1,6 +1,6 @@
-import { isEligible } from "./eligibility";
-import { PreferenceError, parseOrThrow } from "./errors";
-import { SHORTLIST_SIZE, rankingSchema, type Candidate, type PreferenceState } from "./schema";
+import { isEligible } from "./eligibility.js";
+import { PreferenceError, parseOrThrow } from "./errors.js";
+import { SHORTLIST_SIZE, rankingSchema, type Candidate, type PreferenceState } from "./schema.js";
 
 /**
  * The validation boundary for a proposed ranking, not a sort. `input` is untrusted: every id it

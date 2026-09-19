@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { catalogueTitleSchema } from "../catalogue/contract";
-import { turnInputSchema } from "../preferences/schema";
-import { MAX_ASSISTANT_LINE_CHARS, MAX_MESSAGE_CHARS } from "./decision";
+import { catalogueTitleSchema } from "../catalogue/contract.js";
+import { turnInputSchema } from "../preferences/schema.js";
+import { MAX_ASSISTANT_LINE_CHARS, MAX_MESSAGE_CHARS } from "./decision.js";
 
 /**
  * Wire shapes of the two conversational endpoints. The browser holds the preference state and

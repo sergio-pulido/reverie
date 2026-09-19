@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { rankRequestSchema, type RankOk } from "../../src/conversation/contract";
-import { eligibleRankCandidates, rankCandidates } from "../_lib/discover-assistant";
+import { rankRequestSchema, type RankOk } from "../../src/conversation/contract.js";
+import { eligibleRankCandidates, rankCandidates } from "../_lib/discover-assistant.js";
 import {
   abortOnDisconnect,
   admit,
@@ -14,8 +14,8 @@ import {
   resolveProvider,
   withSlot,
   type DiscoverEndpointOptions,
-} from "../_lib/discover-http";
-import { sendJson } from "../_lib/http";
+} from "../_lib/discover-http.js";
+import { sendJson } from "../_lib/http.js";
 
 const REQUESTS_PER_MINUTE = 30;
 const MAX_BODY_BYTES = 96_000;

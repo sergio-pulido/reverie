@@ -1,9 +1,9 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { catalogueProviderIdSchema } from "../src/catalogue/contract";
-import type { CatalogueAdapterOptions } from "./_lib/supabase-catalogue";
-import { fetchCatalogueTitle } from "./_lib/supabase-catalogue-title";
-import { readBearerToken } from "./_lib/supabase-rest";
-import { clientKey, createRateLimiter, isSameOrigin, requestUrl, sendJson } from "./_lib/http";
+import { catalogueProviderIdSchema } from "../src/catalogue/contract.js";
+import type { CatalogueAdapterOptions } from "./_lib/supabase-catalogue.js";
+import { fetchCatalogueTitle } from "./_lib/supabase-catalogue-title.js";
+import { readBearerToken } from "./_lib/supabase-rest.js";
+import { clientKey, createRateLimiter, isSameOrigin, requestUrl, sendJson } from "./_lib/http.js";
 
 const RATE_LIMIT_REQUESTS = 60;
 const RATE_LIMIT_WINDOW_MS = 60_000;

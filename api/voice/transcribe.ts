@@ -1,9 +1,9 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { resolveSlngConfig, SlngError, transcribe, type SlngConfig, type Transcription } from "../../apps/server/providers/slng";
-import { MAX_MESSAGE_CHARS } from "../../src/conversation/decision";
-import { acceptedContentType, VOICE_LIMITS, type VoiceOk, type VoiceUnavailable } from "../../src/voice/contract";
-import { abortOnDisconnect, admit, createGuard, fail, isSignedIn, readAccessToken, type DiscoverEndpointOptions } from "../_lib/discover-http";
-import { sendJson } from "../_lib/http";
+import { resolveSlngConfig, SlngError, transcribe, type SlngConfig, type Transcription } from "../../apps/server/providers/slng.js";
+import { MAX_MESSAGE_CHARS } from "../../src/conversation/decision.js";
+import { acceptedContentType, VOICE_LIMITS, type VoiceOk, type VoiceUnavailable } from "../../src/voice/contract.js";
+import { abortOnDisconnect, admit, createGuard, fail, isSignedIn, readAccessToken, type DiscoverEndpointOptions } from "../_lib/discover-http.js";
+import { sendJson } from "../_lib/http.js";
 
 const REQUESTS_PER_MINUTE = 20;
 const MAX_CONCURRENT_CALLS = 4;

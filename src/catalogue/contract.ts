@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { GENRES, type GenreSlug } from "./genres";
+import { GENRES, type GenreSlug } from "./genres.js";
 
 /**
  * Catalogue contract shared by the privileged catalogue adapter and the Discover UI.

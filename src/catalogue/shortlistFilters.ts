@@ -1,7 +1,7 @@
-import type { PreferenceState, Predicate } from "../preferences/schema";
-import { CATALOGUE_ID_PREFIX, CATALOGUE_LIMITS, type CatalogueFilters } from "./contract";
-import { RUNTIME_ATTRIBUTE, YEAR_ATTRIBUTE, genreOfDimension, genreOfTag } from "./domain";
-import type { GenreSlug } from "./genres";
+import type { PreferenceState, Predicate } from "../preferences/schema.js";
+import { CATALOGUE_ID_PREFIX, CATALOGUE_LIMITS, type CatalogueFilters } from "./contract.js";
+import { RUNTIME_ATTRIBUTE, YEAR_ATTRIBUTE, genreOfDimension, genreOfTag } from "./domain.js";
+import type { GenreSlug } from "./genres.js";
 
 type NumberPredicate = Extract<Predicate, { kind: "number" }>;
 type Bounds = { min?: number; max?: number };

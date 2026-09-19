@@ -1,15 +1,15 @@
 import { z } from "zod";
-import { NebiusError, type CompletionOptions } from "../../apps/server/providers/nebius";
-import { toCandidates, type CatalogueCandidate } from "../../src/catalogue/candidates";
-import { CATALOGUE_CONFIGURATION } from "../../src/catalogue/domain";
-import { CONVERSATION_LIMITS, type RankCandidate, type Unavailable, type UnavailableCode } from "../../src/conversation/contract";
-import { decisionSchema, decisionToTurn, type Interpretation } from "../../src/conversation/decision";
-import { isEligible } from "../../src/preferences/eligibility";
-import { PreferenceError } from "../../src/preferences/errors";
-import { acceptFullRanking } from "../../src/preferences/ranking";
-import { SHORTLIST_SIZE, type PreferenceState, type RankingEntry } from "../../src/preferences/schema";
-import { applyTurn } from "../../src/preferences/state";
-import { INTERPRET_SYSTEM, RANK_SYSTEM, interpretUser, rankUser } from "./discover-prompts";
+import { NebiusError, type CompletionOptions } from "../../apps/server/providers/nebius.js";
+import { toCandidates, type CatalogueCandidate } from "../../src/catalogue/candidates.js";
+import { CATALOGUE_CONFIGURATION } from "../../src/catalogue/domain.js";
+import { CONVERSATION_LIMITS, type RankCandidate, type Unavailable, type UnavailableCode } from "../../src/conversation/contract.js";
+import { decisionSchema, decisionToTurn, type Interpretation } from "../../src/conversation/decision.js";
+import { isEligible } from "../../src/preferences/eligibility.js";
+import { PreferenceError } from "../../src/preferences/errors.js";
+import { acceptFullRanking } from "../../src/preferences/ranking.js";
+import { SHORTLIST_SIZE, type PreferenceState, type RankingEntry } from "../../src/preferences/schema.js";
+import { applyTurn } from "../../src/preferences/state.js";
+import { INTERPRET_SYSTEM, RANK_SYSTEM, interpretUser, rankUser } from "./discover-prompts.js";
 
 /**
  * The two model calls behind Discover's conversation, each bounded: a token ceiling, a

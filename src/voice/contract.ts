@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MAX_MESSAGE_CHARS } from "../conversation/decision";
+import { MAX_MESSAGE_CHARS } from "../conversation/decision.js";
 
 /**
  * Wire shape of `POST /api/voice/transcribe`. The browser uploads one recording of the viewer

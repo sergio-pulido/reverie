@@ -1,10 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { completeJson, NebiusError, resolveNebiusConfig } from "../../apps/server/providers/nebius";
-import type { Unavailable } from "../../src/conversation/contract";
-import { preferenceStateSchema, type PreferenceState } from "../../src/preferences/schema";
-import { unavailable, type Completion } from "./discover-assistant";
-import { clientKey, createRateLimiter, isSameOrigin, sendJson } from "./http";
-import { authenticate, readBearerToken, readSupabaseConfig, RestError, type SupabaseRestOptions } from "./supabase-rest";
+import { completeJson, NebiusError, resolveNebiusConfig } from "../../apps/server/providers/nebius.js";
+import type { Unavailable } from "../../src/conversation/contract.js";
+import { preferenceStateSchema, type PreferenceState } from "../../src/preferences/schema.js";
+import { unavailable, type Completion } from "./discover-assistant.js";
+import { clientKey, createRateLimiter, isSameOrigin, sendJson } from "./http.js";
+import { authenticate, readBearerToken, readSupabaseConfig, RestError, type SupabaseRestOptions } from "./supabase-rest.js";
 
 /**
  * Guards shared by the conversational endpoints. Every model call is made here, on the server,

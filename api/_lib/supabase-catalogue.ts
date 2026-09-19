@@ -10,8 +10,8 @@ import {
   type CatalogueQuery,
   type CatalogueResponse,
   type CatalogueTitle,
-} from "../../src/catalogue/contract";
-import { callRpc, readSupabaseConfig, RestError } from "./supabase-rest";
+} from "../../src/catalogue/contract.js";
+import { callRpc, readSupabaseConfig, RestError } from "./supabase-rest.js";
 
 /**
  * Serves Discover from `public.catalogue_titles`, a curated snapshot of the TMDB dataset held

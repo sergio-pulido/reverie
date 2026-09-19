@@ -1,7 +1,7 @@
-import { GENRES } from "../../src/catalogue/genres";
-import type { RankCandidate } from "../../src/conversation/contract";
-import { summarizeState } from "../../src/conversation/decision";
-import type { PreferenceState } from "../../src/preferences/schema";
+import { GENRES } from "../../src/catalogue/genres.js";
+import type { RankCandidate } from "../../src/conversation/contract.js";
+import { summarizeState } from "../../src/conversation/decision.js";
+import type { PreferenceState } from "../../src/preferences/schema.js";
 
 /**
  * Prompts for the two conversational calls. The first sees the viewer's words and a summary of

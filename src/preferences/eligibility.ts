@@ -1,4 +1,4 @@
-import type { Candidate, PreferenceState, Predicate } from "./schema";
+import type { Candidate, PreferenceState, Predicate } from "./schema.js";
 
 /**
  * True when the candidate has not been rejected and satisfies every constraint. Fails closed:

@@ -7,7 +7,7 @@ import {
   type CatalogueTitleDetail,
   type CatalogueTitleNotFound,
   type CatalogueTitleResponse,
-} from "../../src/catalogue/contract";
+} from "../../src/catalogue/contract.js";
 import {
   errorResponse,
   languageOf,
@@ -21,8 +21,8 @@ import {
   truncate,
   UNAUTHENTICATED_RESPONSE,
   type CatalogueAdapterOptions,
-} from "./supabase-catalogue";
-import { callRpc, readSupabaseConfig } from "./supabase-rest";
+} from "./supabase-catalogue.js";
+import { callRpc, readSupabaseConfig } from "./supabase-rest.js";
 
 /**
  * Serves one film's page from `get_catalogue_title`: exactly one row, by primary key, read as

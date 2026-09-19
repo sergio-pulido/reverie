@@ -1,7 +1,7 @@
-import type { Candidate } from "../preferences/schema";
-import type { CatalogueTitle } from "./contract";
-import { RUNTIME_ATTRIBUTE, YEAR_ATTRIBUTE, languageTag } from "./domain";
-import { parseGenres, toGenreDimensions } from "./genres";
+import type { Candidate } from "../preferences/schema.js";
+import type { CatalogueTitle } from "./contract.js";
+import { RUNTIME_ATTRIBUTE, YEAR_ATTRIBUTE, languageTag } from "./domain.js";
+import { parseGenres, toGenreDimensions } from "./genres.js";
 
 /** A catalogue title as the preference engine sees it, still carrying the title it came from. */
 export interface CatalogueCandidate extends Candidate {

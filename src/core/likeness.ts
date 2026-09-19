@@ -26,7 +26,19 @@ export const MAX_LIKENESS_REFERENCES = 3;
 
 /** An approved frame, bounded so a request body cannot grow without limit. */
 export const MAX_FRAME_BYTES = 512 * 1_024;
-export const FRAME_CONTENT_TYPE = "image/jpeg";
+export const FRAME_CONTENT_TYPES = ["image/jpeg", "image/png"] as const;
+export const FRAME_CONTENT_TYPE = FRAME_CONTENT_TYPES[0];
+
+/**
+ * The provider refuses a reference below 256×256 — measured, not read off a page.
+ *
+ * The upper bound is ours, and it is a spend decision: the provider includes 4,096 reference
+ * tokens in every request and charges beyond them, and a 1024×1024 image is 1,024 tokens.
+ * Three references of at most 1024×1024 stay inside the included allowance, so appearing in
+ * the film costs the room the clip and nothing on top of it.
+ */
+export const MIN_FRAME_PIXELS = 256;
+export const MAX_FRAME_PIXELS = 1_024;
 
 export function isLikenessRef(assetRef: string): boolean {
   return assetRef.startsWith(LIKENESS_REF_PREFIX) && assetRef.length > LIKENESS_REF_PREFIX.length;

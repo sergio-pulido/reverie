@@ -15,6 +15,7 @@
     "test": "node --import tsx --test \"tests/*.test.ts\" \"tests/*.test.tsx\"",
     "verify:realtime": "node --env-file-if-exists=.env.local scripts/verify-realtime.mjs",
     "probe:vonage": "node --env-file-if-exists=.env.local --import tsx scripts/probe-vonage.mts",
+    "probe:beat-video": "node --env-file-if-exists=.env.local --import tsx scripts/probe-beat-video.mts",
     "verify:shortlist": "node --env-file-if-exists=.env.local scripts/verify-shortlist.mjs",
     "verify:conversation": "node --env-file-if-exists=.env.local --import tsx scripts/verify-conversation.mts",
     "backfill:accessibility": "node --env-file-if-exists=.env.local --import tsx apps/backfill/accessibility.ts"

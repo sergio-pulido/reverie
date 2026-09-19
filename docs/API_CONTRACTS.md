@@ -100,6 +100,8 @@ Pinning needs no store API: an advance commits the new cursor via `updatePlaybac
 
 **Delivery.** The server downloads each finished clip into its own storage and serves it at `GET /api/jams/:id/portions/:index/video` with Range support. Storage limits: at most `MAX_PORTIONS` (48) clips per jam, a per-clip size cap, and eviction of all clips on jam close or store eviction.
 
+`GET /api/jams/:id/playback` as a polling surface is an interim mechanism only, until the `portion.locked` / `media.*` events ride Supabase Realtime; do not build on polling as the contract — the events above are the contract.
+
 ## Planned Supabase mutation and Realtime contracts
 
 Supabase Realtime carries authenticated room notifications over its managed WebSocket transport. Durable chat/proposals/votes use RLS-protected database writes; multi-row admission and scene transitions use constrained transactional RPCs. Broadcast cannot grant membership or accept a scene. The HTTP routes above remain design candidates, not available endpoints; admission may be implemented as an authenticated RPC instead. Each command has `schemaVersion`, `requestId`, `expectedStateVersion`, `type`, and typed payload. Events have `eventId`, `roomId`, `stateVersion`, `occurredAt`, `type`, and payload. Vercel functions handle privileged operations such as issuing Vonage session tokens and calling providers.

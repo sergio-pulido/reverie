@@ -1373,6 +1373,85 @@ Nothing about the engine, the turn snapshots, the two preview actions or the rem
 changed. Verified in Chrome at 360×800 and 390×844, and held by DOM tests at 360 that read the
 real stylesheet at that width (`tests/searchPhone.dom.test.tsx`).
 
+## 2026-09-20 — A Director session: one person, one film, at /director/:slug
+
+- **A screen of its own, under Movie Jam.** `/director/:slug` is a `director`
+  screen in `src/lib/routes.ts` whose Back parent is `/jams`
+  (`src/shell/keys.ts`) and whose top-bar destination is `jam`. **No sixth
+  destination was added**: `BAR_DESTINATIONS` still holds five, and they still
+  fit 360px. The Movie Jam list gains the second way to start — **With
+  people** (the Studio) or **Alone** (the Director session) — which is where
+  the choice belongs. See `docs/DECISIONS.md` for why.
+- **Three zones.** *The stage* in three states: empty (it asks for the first
+  shot), generating (the live stream, the seconds it has produced and the beat
+  it is on), and still (the finished session held as a frame, with the room's
+  shared playback clock under it, a playhead and a tick at each beat
+  boundary). *The timeline*: every beat with its number, start, duration and
+  phrase, in one of five states — written (dashed), generating (solid accent),
+  ready (outlined), locked (solid muted) and blocked (marked differently
+  again). The closing rule is `src/core/directorBeats.ts`'s, asked through
+  `isBeatLocked` rather than restated. *The direction column*: the session's
+  turns, each carrying the beat it steered in that beat's own treatment, with
+  hover and focus in either direction lighting the other.
+- **The shared playback clock now has a client.** The four security-definer
+  functions and their migration have existed since the playback work and were
+  exercised by `verify:realtime`, but nothing in the app read them.
+  `src/lib/playbackClock.ts` and `src/core/playbackClock.ts` bind them: the
+  database stays the authority, and a browser only advances the reading it was
+  given by time it measured locally.
+- **Spend is real.** Director session responses carry `spend`, and
+  `GET /api/jams/:id/director/budget` answers before a paid session exists,
+  with `configured` alongside it. The session figure is derived from the
+  seconds the provider generated, honours fal's 60-second per-session minimum,
+  is capped at the session's reservation, and is shown in USD against
+  `FAL_ASSET_BUDGET_USD` — never converted, never a placeholder. When the
+  budget left cannot pay for a beat's seconds that beat is blocked on the
+  timeline and the composer says so on its own line.
+- **The composer** is press-and-hold to speak (the app's existing SLNG relay,
+  recorder and partial merge, with a `hold` gesture added to the shared voice
+  control), a text field, and attach. Direct sends each finished transcript on
+  its own; Review is stopped and closes the microphone.
+- **Deliverables**, in a drawer, each in its real state: the script as
+  markdown (served, ready when this server holds a script), the timed script
+  (written in the browser from the outline's own offsets), the audio
+  description (**not made — nothing in this build writes one**) and the video
+  file (absent, then generating while a session runs, then the session's
+  recording). A row that is not ready carries no control at all.
+- **Built for 1920, 1440 and 390.** Two columns on a desk with the direction
+  column at its own measure; one column on a phone with the composer sticky at
+  the bottom and the beats running off the gutter. The remote's focus model is
+  the app's own (`useRows`, moved from `src/search/` to `src/shell/` because it
+  is the app's axis convention, not Discover's).
+- **Not implemented, and drawn as absent rather than faked:** per-beat stills
+  (the stream is recorded whole and never sampled per beat), per-beat variants
+  (nothing generates a second take), a reference library, and the audio
+  description. **Attach fans out its four intents for real and then stops**:
+  there is no upload route and no reference store, so nothing can carry an
+  image or clip to the film, and the composer says so
+  (`docs/specs/multimodal-creative-turns.md`).
+- **Verified.** `npx tsc --noEmit` clean; `pnpm test` 870/870 (was 776),
+  including the beat states and the turn-to-beat link, the spend arithmetic and
+  the server's spend responses, the deliverables' states, the route and its
+  Back parent, and the screen itself at 1920, 1440 and 390 against the real
+  stylesheet.
+- **Measured in a browser** at 1920×1080, 1440×900 and 390×844 against the
+  hosted Supabase project, on a jam created through the app from an imported
+  script (6 beats, 0:30): `document.documentElement.scrollWidth -
+  window.innerWidth` is `0` or negative at all three; the timeline's row
+  scrolls inside its zone (356px visible of 874px at 390) instead of widening
+  its column; the deliverables drawer served
+  `/api/jams/<id>/script.md`; and the attach flow produced its four labels and
+  then the "no reference store" line. `GET .../director/budget` answered
+  `{"configured":false,...,"budgetUsd":20}` — this machine has
+  `FAL_ASSET_BUDGET_USD` set and no director credential — so the stage said
+  "The live director is not configured on this server" and refused to open a
+  session.
+- **Not verified:** a live Director stream. No fal director credential is
+  configured here, so no session has been opened, no frame generated and no
+  recording written from this screen. The generating and still stage states,
+  the live beat states, the turn trail and the video deliverable are exercised
+  by tests against a fake server, not against fal.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

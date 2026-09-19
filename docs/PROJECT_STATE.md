@@ -635,6 +635,79 @@ project (it was applied by hand, so no tracking table records it). Each run of
   their decisions are pure functions that are tested, and the browser tool again could not submit with Enter, so the Ask button was clicked. A
   chip shows as pressed when the assistant inferred the same genre.
 
+## 2026-09-19 — Discover takes voice: press to talk through SLNG
+
+- A **Speak** control sits left of the conversation field. From the field, Left reaches it; OK
+  starts recording, OK again stops (20 s at most). While recording it turns red, counts down and
+  shows a live level bar; while the microphone opens, OK again cancels. The recording is uploaded to
+  `POST /api/voice/transcribe`, which sends it to SLNG and returns the **final transcript only**. The
+  transcript lands in the field, focused, after anything already typed, and is **not sent**: the
+  viewer reads it, corrects it and presses OK. A transcript therefore enters Discover through the
+  exact path a typed message does, and the engine's grounding rule (every quote must be a literal
+  substring of the message) applies to the text the viewer actually sent.
+- Where SLNG sits: browser microphone → MediaRecorder (Opus/WebM, 32 kbps) → our same-origin
+  endpoint (Supabase-verified viewer, rate limit, size and time bounds) → SLNG
+  `https://us-east.api.slng.ai/v1/stt/slng/deepgram/nova:3-en` → transcript → conversation field →
+  `POST /api/discover/turn` (Nebius) → engine → shortlist. The SLNG key is used only in
+  `apps/server/providers/slng.ts`; a scan of every file in `dist/` found neither the key, its name,
+  its `slng_cu_` prefix nor any SLNG host.
+- Audio is the viewer's media contribution, for one purpose: the transcript. It stays in memory in
+  the browser until uploaded and on the server for the length of the call, and is never stored or
+  logged.
+- Failure never blocks typing: refused permission, no microphone, a microphone that does not open
+  within 15 s, no network, SLNG disabled, rejected or slow, and an empty transcript each end in a
+  plain notice under the field and the idle control. Nothing is ever put in the field or sent unless
+  SLNG returned words.
+- Provider facts, checked on 2026-09-19 against SLNG's live `GET /v1/catalog/models` and the API
+  reference: `slng/deepgram/nova:3-en` is SLNG-hosted in the US (east, west, central), Australia and
+  India, not in the EU. Over HTTP, any request option makes the upstream model default to "latest",
+  which it rejects (`400 The requested model (Some("latest")) was not found`); naming
+  `model=nova-3-general` fixes it, so the adapter always sends it with `punctuate=true`.
+- **Measurements (stage 1, HTTP), 2026-09-19.** Method: Google Chrome from a separate profile on
+  this Mac, whose microphone was fed a speech clip (macOS `say`, six Discover requests, 1.1–2.7 s of
+  speech with 0.4 s of silence before it and 1.5 s after) through Chrome's fake capture device; the
+  page was driven by DevTools key events (Left, OK, wait until 0.5 s after the speech ended, OK),
+  against `pnpm dev` and the live SLNG API. "Stop → transcript" is the app's own User Timing measure,
+  from the OK that stops recording to the transcript arriving in the browser; "provider" is the
+  server's own time for the SLNG call. The machine is in Barcelona and the model runs in us-east.
+  - 15 runs, none failed outright: stop → transcript 600, 610, 697, 715, 734, 759, 794, 794, 799, 823, 843, 976,
+    1,025, 1,038 and 3,185 ms — median 794 ms, mean 959 ms, 14 of 15 under 1.1 s. Provider 419–762 ms
+    (median 509 ms), except the 3,185 ms run, whose provider call took 3,036 ms. The difference,
+    about 150–300 ms, is the browser finishing the recording and the upload.
+  - Transcripts were exact in 13 of 15 runs, including punctuation. Two runs of the first clip
+    ("Something light and funny for a Friday night.") came back as "Something" and "Something like":
+    both were the first launch of a batch, and the recording carried only 0.90 s and 1.02 s of audio,
+    so the fake capture device stopped supplying sound; three reruns of the same clip captured
+    3.24–3.30 s and transcribed it exactly. They are counted in the 15 above as runs, not as
+    transcription errors.
+  - Audio sent: 6,618–11,140 bytes for 2.0–3.4 s, **2.5–3.5 KB/s (20–28 kbps)**, Opus in WebM at a
+    48 kHz capture rate, mono, requested at 32 kbps. Chosen because Opus holds speech clearly at that
+    rate and is about an eighth of the 32 KB/s of 16 kHz 16-bit PCM, and because the browser's own
+    recorder produces it, with no encoding code in the page.
+  - A spoken turn end to end: "Something light and funny for a Friday night." was spoken into the
+    page, transcribed in 2,134 ms (provider 518 ms; the rest went before the upload, most likely the
+    page's first session check, which was not timed separately), sent with OK, accepted by the engine (Nebius acknowledged "Something
+    lighthearted and funny for Friday night."), and narrowed Discover to 13,204 titles ranked by the
+    assistant, with Comedy, Family and Romance active.
+  - Cost: SLNG's published API price for `slng/deepgram/nova:3-en` is **$0.0065 per audio minute**
+    (model catalogue, docs.slng.ai/models/catalog/speech-to-text). A typical Discover request is 2–4 s
+    of audio, **about $0.0002–$0.0004 per spoken turn**, so 1,000 spoken turns cost about $0.33. This
+    assumes per-second billing; SLNG does not state a per-request minimum. The live catalogue API
+    reports `min_price: 41` `microdollars_per_min` for the same model, which disagrees with the
+    published table; the published price is the one used here.
+- Code: `apps/server/providers/slng.ts`, `api/voice/transcribe.ts`, `src/voice/`
+  (`contract`, `recorder`, `voiceClient`, `voiceState`, `useVoiceInput`),
+  `src/discover/VoiceButton.tsx`, the field and its Left key in `ConversationBar.tsx`.
+- Verified: `pnpm test` (422/422, with `tests/voiceTranscribe.test.ts` and `tests/voiceState.test.ts`),
+  `pnpm typecheck`, `pnpm build`. In the built-in browser pane, where microphone access is blocked,
+  Speak showed "Microphone access was refused. Type what you want instead…" and the field kept
+  working.
+- **Known gaps:** no person has spoken into it yet; the audio came from synthesised speech through
+  Chrome's fake microphone, so room noise, distance from a TV and accents are untested. The
+  recorder, level meter and hook are checked in the browser, not by automated tests; their decisions
+  (`voiceState`) are pure functions that are tested. The rate limit and concurrency cap are per
+  instance.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

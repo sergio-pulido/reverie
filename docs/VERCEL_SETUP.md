@@ -31,7 +31,7 @@ In another terminal:
 node scripts/smoke.mjs
 ```
 
-After deployment, run `SMOKE_BASE_URL=https://YOUR-DEPLOYMENT node scripts/smoke.mjs` against the assigned HTTPS domain. Check `/api/missing` returns 404, confirm `/api/catalogue` answers `ok` or `catalogue_not_configured` and never invented titles, open `/discover` and `/jams/new` directly, create a room, reload its URL in the same browser, and verify the record in Supabase. A second browser must not read an invite-only room under the current host-only policies. Admission is a future milestone; do not weaken policies to bypass that restriction.
+After deployment, run `SMOKE_BASE_URL=https://YOUR-DEPLOYMENT node scripts/smoke.mjs` against the assigned HTTPS domain. Check `/api/missing` returns 404, confirm `/api/catalogue` answers `ok` or `catalogue_not_configured` and never invented titles, open `/discover` and `/jams/new` directly, create a room, reload its URL in the same browser, and verify the record in Supabase. A second browser must not read an invite-only room from its URL alone; it needs the invite code and waits until the host admits it. Do not weaken RLS policies to bypass that flow.
 
 A healthy endpoint proves only the function is reachable. It does not prove Supabase, Realtime, Titan or providers work. Deployment/account configuration and the live database migration have not been performed by this foundation change.
 

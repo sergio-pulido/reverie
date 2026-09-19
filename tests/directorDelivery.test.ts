@@ -378,3 +378,120 @@ test("the archive gets a segmenter even with live delivery switched off", async 
   assert.equal(playlist.status, 503);
   assert.equal((await playlist.json()).error.code, "live_delivery_disabled");
 });
+
+/**
+ * Races around the handshake window and the two ways to be a viewer.
+ *
+ * Both of these are spend bugs rather than display bugs: one strands a paid
+ * stream outside the ledger, the other ends a stream somebody is watching or
+ * leaves one billing with nobody on it.
+ */
+let releaseHandshake: (() => void) | null = null;
+let viewerClosers: (() => void)[] = [];
+let raced: { server: Server; baseUrl: string };
+
+before(async () => {
+  raced = await listenWith({
+    liveDelivery: true,
+    startSession: async () => {
+      // Stands in for the fal handshake plus ICE gathering: seconds wide in
+      // production, and the window the attach poll lands in.
+      await new Promise<void>((resolve) => {
+        releaseHandshake = resolve;
+      });
+      return "v=0\r\nanswer\r\n";
+    },
+    attachViewer: async (_stream, _sdp, onClosed) => {
+      viewerClosers.push(() => onClosed?.());
+      return { answerSdp: "v=0\r\nviewer\r\n", close() {} };
+    },
+  });
+});
+
+after(async () => {
+  await new Promise<void>((resolve) => raced.server.close(() => resolve()));
+});
+
+test("a poll during the handshake cannot release the stream being opened", async () => {
+  const jam: Jam = {
+    id: randomUUID(),
+    createdAt: new Date().toISOString(),
+    source: { kind: "from-scratch", prompt: "A lighthouse keeper finds a door." },
+    format: { totalSeconds: 20, portionMinSeconds: 5, portionMaxSeconds: 5 },
+    script: buildScript(5, 2, 2),
+  };
+  await store.createJam(jam);
+  const url = `${raced.baseUrl}/api/jams/${jam.id}/director/session`;
+
+  // The host presses Start. The handshake is held open.
+  const starting = fetch(url, { method: "POST" });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  // A participant's 3s auto-attach poll lands mid-handshake. The session is in
+  // the ledger but not yet in the stream map, which used to look exactly like
+  // an orphaned reservation and get refunded out from under the host.
+  const polled = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ attachOnly: true }),
+  });
+  assert.equal(polled.status, 409);
+  const refusal = await polled.json();
+  assert.equal(refusal.error.code, "stream_starting");
+  assert.equal(refusal.error.retryable, true);
+
+  releaseHandshake?.();
+  const started = await starting;
+  assert.equal(started.status, 201);
+  const host = await started.json();
+
+  // The session survived intact: it is still the ledger's, so it can be
+  // renewed, found by configuration, and ended. Before the fix the reservation
+  // was gone — renew answered 404 while fal kept billing.
+  assert.equal(typeof host.viewerId, "string");
+  const renewed = await fetch(`${url}/${host.sessionId}/renew`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ viewerId: host.viewerId }),
+  });
+  assert.equal(renewed.status, 204);
+
+  // And the configuration is still held, so a second Start cannot open a
+  // second paid stream for the same room.
+  const second = await fetch(url, { method: "POST" });
+  assert.equal(second.status, 200);
+  assert.equal((await second.json()).sessionId, host.sessionId);
+});
+
+test("a relay peer dropping does not end a stream counted viewers are on", async () => {
+  const jam: Jam = {
+    id: randomUUID(),
+    createdAt: new Date().toISOString(),
+    source: { kind: "from-scratch", prompt: "A lighthouse keeper finds a door." },
+    format: { totalSeconds: 20, portionMinSeconds: 5, portionMaxSeconds: 5 },
+    script: buildScript(5, 2, 2),
+  };
+  await store.createJam(jam);
+  const url = `${raced.baseUrl}/api/jams/${jam.id}/director/session`;
+
+  const starting = fetch(url, { method: "POST" });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  releaseHandshake?.();
+  const host = await (await starting).json();
+
+  viewerClosers = [];
+  const watch = await fetch(`${url}/${host.sessionId}/watch`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ sdp: "v=0\r\noffer\r\n" }),
+  });
+  assert.equal(watch.status, 201);
+
+  // The relay peer flaps — one ICE disconnect. The host is still a counted
+  // viewer, so the film must keep running for them.
+  viewerClosers.forEach((close) => close());
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const alive = await fetch(`${url}/${host.sessionId}`);
+  assert.equal(alive.status, 200, "a relay drop must not settle a watched session");
+});

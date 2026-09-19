@@ -146,13 +146,21 @@ export function endDirectorSession(
   });
 }
 
-/** Best-effort keepalive; a missed renewal only risks the session being reclaimed. */
+/**
+ * Best-effort keepalive; a missed renewal only risks the session being
+ * reclaimed.
+ *
+ * Goes through `call` like every other request here, so anything that is ever
+ * added to it — headers, a base URL, error normalization — reaches the
+ * keepalive too. The failure is swallowed rather than surfaced: this is the
+ * one request whose job is to be repeated.
+ */
 export function renewDirectorSession(
   jamId: string,
   sessionId: string,
   viewerId?: string,
 ): void {
-  void fetch(`/api/jams/${jamId}/director/session/${sessionId}/renew`, {
+  void call<void>(`/api/jams/${jamId}/director/session/${sessionId}/renew`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(viewerId ? { viewerId } : {}),

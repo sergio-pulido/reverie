@@ -55,15 +55,19 @@ function buildJam(): Jam {
   };
 }
 
-async function openJamSession(): Promise<{ jam: Jam; sessionId: string }> {
+async function openJamSession(): Promise<{
+  jam: Jam;
+  sessionId: string;
+  viewerId: string;
+}> {
   const jam = buildJam();
   await store.createJam(jam);
   const response = await fetch(`${baseUrl}/api/jams/${jam.id}/director/session`, {
     method: "POST",
   });
   assert.equal(response.status, 201);
-  const { sessionId } = await response.json();
-  return { jam, sessionId };
+  const { sessionId, viewerId } = await response.json();
+  return { jam, sessionId, viewerId };
 }
 
 function endSession(jamId: string, sessionId: string) {
@@ -624,7 +628,7 @@ test("a malformed viewer offer never reaches the forwarder", async () => {
 
 test("the last viewer leaving stops the session, because nobody is watching", async () => {
   viewerClosers = [];
-  const { jam, sessionId } = await openJamSession();
+  const { jam, sessionId, viewerId } = await openJamSession();
   const watch = () =>
     fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/watch`, {
       method: "POST",
@@ -634,6 +638,15 @@ test("the last viewer leaving stops the session, because nobody is watching", as
 
   assert.equal((await (await watch()).json()).viewers, 1);
   assert.equal((await (await watch()).json()).viewers, 2);
+
+  // Opening the session counted its opener as a viewer too, so the relay peers
+  // are not the whole audience until that one leaves. Watching by either route
+  // keeps the stream: the rule is "nobody is watching", not "no relay peers".
+  await fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/end`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ viewerId }),
+  });
 
   // One of two leaving is not the last one; the session keeps running.
   viewerClosers[0]();

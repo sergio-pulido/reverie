@@ -186,8 +186,14 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
   useEffect(
     () => () => {
       const open = active.current;
-      if (open) {
-        void endDirectorSession(jamId, open.sessionId, open.viewerId ?? undefined).catch(
+      // Leaving is always a detach, never an outright end. An `/end` with no
+      // viewer id stops the stream for the whole room, and closing a tab is
+      // not a claim to do that — only the host's deliberate Stop is. Before
+      // auto-attach, participants never held a session and never reached this
+      // path; now everyone does, so a viewer with nothing to detach must send
+      // nothing rather than end the film everyone else is watching.
+      if (open?.viewerId) {
+        void endDirectorSession(jamId, open.sessionId, open.viewerId).catch(
           () => undefined,
         );
       }

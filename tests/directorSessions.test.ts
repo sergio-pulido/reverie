@@ -254,3 +254,33 @@ test("viewer ids are issued by the server and never collide", () => {
   assert.equal(ids.size, 50);
   assert.equal(ledger.viewerCount(session.sessionId), 50);
 });
+
+test("a dropped viewer's renewal does not keep the session's own clock alive", () => {
+  const now = { value: 1_000 };
+  const closed: string[] = [];
+  const ledger = new DirectorSessionLedger(
+    { budgetUsd: 20, usdPerSecond: 0.08, maxConcurrentSessions: 1, maxSessionSeconds: 60 },
+    () => now.value,
+    (sessionId) => closed.push(sessionId),
+  );
+  const session = ledger.open("jam:en|") as { sessionId: string };
+  const viewer = ledger.attach(session.sessionId) as string;
+
+  // The viewer goes silent long enough to be dropped — a backgrounded mobile
+  // tab whose renew timer was throttled past the cutoff.
+  now.value += SESSION_IDLE_TIMEOUT_MS + 1;
+  ledger.expireIdle();
+  assert.deepEqual(closed, [session.sessionId]);
+
+  // It wakes and keeps renewing with the id it still holds. The route answers
+  // 404 and the client ignores it — but if that call refreshed the session
+  // clock, a viewerless stream would never be reclaimed and would bill on.
+  const revived = ledger.open("jam:en|") as { sessionId: string };
+  const stale = ledger.attach(revived.sessionId) as string;
+  ledger.detach(revived.sessionId, stale);
+  now.value += 10_000;
+  assert.equal(ledger.renew(revived.sessionId, stale), false);
+  now.value += SESSION_IDLE_TIMEOUT_MS - 9_000;
+  ledger.expireIdle();
+  assert.equal(ledger.openCount, 0, "a stale renewal must not postpone reclaim");
+});

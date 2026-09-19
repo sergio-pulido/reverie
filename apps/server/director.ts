@@ -119,6 +119,23 @@ export class DirectorStreamRegistry {
   }
 }
 
+/**
+ * A viewer naming itself on a shared stream.
+ *
+ * Validated rather than hand-read because this id decides whether a paid
+ * session keeps running: every other participant-supplied body in this file
+ * goes through a schema, and the one that moves money should not be the
+ * exception.
+ */
+const viewerSchema = z
+  .object({ viewerId: z.string().trim().min(1).max(200).optional() })
+  .optional();
+
+function readViewerId(body: unknown): string | undefined {
+  const parsed = viewerSchema.safeParse(body);
+  return parsed.success ? parsed.data?.viewerId : undefined;
+}
+
 export interface DirectorRouterOptions {
   config?: DirectorConfig | null;
   limits?: DirectorSessionLimits;
@@ -175,6 +192,16 @@ export function createDirectorRouter(
   const viewers = new Map<string, Set<ViewerPeer>>();
   /** Teardowns in flight, so a session is released once however it ends. */
   const releasing = new Map<string, Promise<void>>();
+  /**
+   * Stream keys whose session is in the ledger but whose handshake has not
+   * finished, so nothing is in `streams` for them yet.
+   *
+   * Without this, the two are indistinguishable from an orphaned reservation,
+   * and the window is seconds wide — a fal handshake plus up to five seconds of
+   * ICE gathering — while every participant's browser polls to attach every
+   * three seconds.
+   */
+  const opening = new Set<string>();
 
   /**
    * Is anyone still watching, by either route?
@@ -288,8 +315,24 @@ export function createDirectorRouter(
         });
         return;
       }
-      // Ledger and stream map disagree: the session is not really serving
-      // anyone, so release it rather than attach a viewer to nothing.
+      if (opening.has(streamKey)) {
+        // The stream exists in the ledger and is mid-handshake. It is neither
+        // attachable yet nor orphaned, and releasing it here would refund and
+        // delete the reservation for a paid session that is about to go live —
+        // leaving fal billing for a stream this server no longer tracks, and
+        // letting the next Start open a second one for the same room.
+        sendError(
+          response,
+          409,
+          "stream_starting",
+          "That stream is still starting. Try again in a moment.",
+          true,
+        );
+        return;
+      }
+      // Ledger and stream map disagree and nothing is opening: the session is
+      // not really serving anyone, so release it rather than attach a viewer to
+      // nothing.
       ledger.release(existing.sessionId);
     }
 
@@ -350,6 +393,7 @@ export function createDirectorRouter(
       startSession: options.startSession,
       createPeer: options.createPeer,
     });
+    opening.add(streamKey);
     try {
       await stream.open();
     } catch (error) {
@@ -361,6 +405,11 @@ export function createDirectorRouter(
         return;
       }
       throw error;
+    } finally {
+      // Cleared here rather than after `streams.set` only because nothing
+      // awaits in between: the two run in one synchronous step, so no request
+      // can observe the key as neither opening nor open.
+      opening.delete(streamKey);
     }
     streams.set(session.sessionId, stream);
     if (live && segmenter) delivery.set(session.sessionId, { live, segmenter });
@@ -477,7 +526,9 @@ export function createDirectorRouter(
           // Nobody is watching a stream that still bills by the second. A
           // session that HAD an audience and lost it is different from one
           // nobody has joined yet, and only the first should stop itself.
-          if (watching.size === 0) void endSession(sessionId);
+          // Not `watching.size === 0`: a relay peer dropping must not end a
+          // session that counted viewers are still on. One rule, both paths.
+          if (!stillWatched(sessionId)) void endSession(sessionId);
         },
       );
     } catch {
@@ -507,7 +558,7 @@ export function createDirectorRouter(
    * was watching it and bills for the silence.
    */
   router.post("/api/jams/:id/director/session/:sessionId/renew", (request, response) => {
-    const viewerId = typeof request.body?.viewerId === "string" ? request.body.viewerId : undefined;
+    const viewerId = readViewerId(request.body);
     if (!ledger.renew(request.params.sessionId, viewerId)) {
       sendError(response, 404, "not_found", "That director session is not open.", false);
       return;
@@ -527,7 +578,7 @@ export function createDirectorRouter(
    */
   router.post("/api/jams/:id/director/session/:sessionId/end", async (request, response) => {
     const sessionId = request.params.sessionId;
-    const viewerId = typeof request.body?.viewerId === "string" ? request.body.viewerId : undefined;
+    const viewerId = readViewerId(request.body);
     if (viewerId) {
       ledger.detach(sessionId, viewerId);
       if (stillWatched(sessionId)) {

@@ -200,14 +200,21 @@ export class DirectorSessionLedger {
     const session = this.sessions.get(sessionId);
     if (!session) return false;
     const at = this.now();
-    session.lastSeenAt = at;
     if (viewerId !== undefined) {
       // An unknown viewer id is not re-admitted here: attaching is what admits
       // a viewer, and silently recreating one would resurrect a viewer that
       // was dropped as stale.
+      //
+      // The session clock is refreshed only AFTER that check, and the order is
+      // the whole point. A backgrounded tab whose timer was throttled past the
+      // cutoff keeps calling renew with an id that has been dropped; bumping
+      // `lastSeenAt` first would let those calls hold a viewerless session
+      // open through the very fallback that exists to reclaim it, and bill for
+      // it indefinitely.
       if (!session.viewers.has(viewerId)) return false;
       session.viewers.set(viewerId, at);
     }
+    session.lastSeenAt = at;
     return true;
   }
 

@@ -96,6 +96,8 @@ export class DirectorSegmenter implements DirectorTrackConsumer {
   private negotiated: string | null = null;
   private published = 0;
   private closed: Promise<void> | null = null;
+  /** Unsubscribers for the track listeners, so they can be released. */
+  private readonly listeners: (() => void)[] = [];
 
   constructor(options: DirectorSegmenterOptions = {}) {
     this.sinks = options.sinks ?? [];
@@ -166,7 +168,12 @@ export class DirectorSegmenter implements DirectorTrackConsumer {
 
     for (const [index, track] of this.tracks.entries()) {
       // The only work this thread does per packet: serialize and hand over.
-      track.onReceiveRtp.subscribe((packet) => {
+      const subscription = track.onReceiveRtp.subscribe((packet) => {
+        // Nothing is serialized once there is nowhere for it to go: after stop
+        // (including the up-to-2s worker shutdown grace) or once the muxer has
+        // refused or died. Serializing every packet of a session into a worker
+        // that is gone is pure main-thread cost for no output.
+        if (this.stopped || this.refusal) return;
         const bytes = packet.serialize();
         if (this.inlineMuxer) {
           this.inlineMuxer.write(index, bytes);
@@ -174,6 +181,10 @@ export class DirectorSegmenter implements DirectorTrackConsumer {
         }
         this.send({ type: "rtp", track: index, packet: bytes });
       });
+      // werift hands back an unsubscriber and it has to be kept: the closure
+      // holds this segmenter, so discarding it leaves the muxer reachable —
+      // and still being fed — for the rest of the session.
+      this.listeners.push(() => subscription.unSubscribe());
     }
   }
 
@@ -185,6 +196,7 @@ export class DirectorSegmenter implements DirectorTrackConsumer {
     });
     worker.on("message", (event: SegmentWorkerEvent) => this.onWorkerEvent(event));
     const died = () => {
+      this.releaseListeners();
       // The muxer thread died. Live delivery stops; the session, the recording
       // and the route that ends the spend are all untouched, which is the point
       // of it being a separate thread in the first place.
@@ -263,8 +275,22 @@ export class DirectorSegmenter implements DirectorTrackConsumer {
       clearTimeout(this.startTimer);
       this.startTimer = null;
     }
+    // Released before anything is awaited, so the shutdown grace is not spent
+    // serializing packets into a worker that is on its way out.
+    this.releaseListeners();
     this.closed = this.shutdown();
     await this.closed;
+  }
+
+  private releaseListeners(): void {
+    for (const release of this.listeners.splice(0)) {
+      try {
+        release();
+      } catch {
+        // An already-closed track throws on unsubscribe; the aim is only that
+        // nothing reaches this segmenter afterwards.
+      }
+    }
   }
 
   /**

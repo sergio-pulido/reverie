@@ -177,6 +177,50 @@ happened, about code that no longer exists.
 is one session's stream, kept under `director/<jamId>/<sessionId>.webm`, and the durable
 reproduction of a jam is RV-18's work. Until then, stopping a stream is the only way to keep it,
 and a server without a service-role key keeps it only in memory.
+## 2026-09-19 — A director session reproduces from durable rows, not from a closing process (RV-18)
+
+The archive is written as the session runs and read back by reconstruction, not
+written once at the end.
+
+**One segmenter, two sinks** (agreed with RV-19). `DirectorStream` owns the track and
+feeds a single muxer; the live HLS sink and this archive sink consume the same
+numbered segments. Two independent muxers were rejected because they produce two
+timelines for one session, and the audit trail records which beat and script offset
+each direction landed on — if the audit describes one timeline and the archive is
+another, the join drifts silently and a reproduction can no longer be explained.
+
+**Segments, not one file at stop.** Each segment is uploaded as produced and its row
+written only after that upload succeeds. A crash therefore costs the segment in
+flight, not the session; and a reader can trust that every indexed segment exists,
+because nothing is indexed before its bytes land. The previous design held a temp
+file and persisted at `stop()`, which lost everything if the process died — the
+failure that has actually been observed.
+
+**Nothing reproduction needs is written at the end.** The segmenter delivers
+`finish()` fire-and-forget and does not await it, so `/end` can return, and the
+process exit, before any closing write completes. The playlist is therefore BUILT
+FROM `jam_director_segments` when requested rather than uploaded at close, and
+`complete` stays false for a session that died. A partial archive is reported as
+partial.
+
+**The record lives in Postgres, the bytes in Storage.** `jam_director_sessions`
+carries the configuration key and script revision — a `<jamId>/<sessionId>` pair
+does not say what was being watched, since streams are keyed by jam AND
+configuration. This is the container server's first Postgres write path; it holds a
+service-role key, which the Vercel functions deliberately never do. The tables carry
+RLS with no policies and grants only to `service_role`, so no browser identity
+reaches them.
+
+Consequence worth stating: every reproduction route is a plain read of durable state,
+with no in-process stream map and no container-local file, so reproducing a session
+could run as a serverless function even though the live director cannot.
+
+Verified 2026-09-19 against the local stack's real Postgres and real Storage: session,
+segments and audit round-tripped, the API reported `durable: true`, and archived bytes
+were served by our own route. **Not** verified against hosted Supabase, and no real
+director media has been through this path — capture is off by default
+(`REVERIE_DIRECTOR_RECORD`) until it runs off the main thread.
+
 ## 2026-09-19 — The local stack runs Storage, and it found two broken paths (RV-18)
 
 `docker/compose.yaml` had no Storage service. Postgres, Auth, PostgREST and Realtime

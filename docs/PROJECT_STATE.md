@@ -13,6 +13,18 @@
 - The initial Movie Jam landing screen presents the host and invite entry points. Those controls intentionally communicate their next implementation step; no room, provider, or live collaboration behavior exists yet.
 - Package installation, type checking, production build, and local health route have been verified.
 
+## 2026-09-19 — Multimodal direction specified
+
+- The public product now specifies text, voice, image, video clip, and opt-in live camera contributions as first-class creative turns.
+- Vonage Video API is selected as the intended live-media integration for WebRTC rooms, broadcast/watch, archive, captions, and signaling; fal.ai remains the intended visual transformation layer.
+- This is documentation only. No Vonage credentials, package, provider probe, upload pipeline, or live camera behavior has been added yet.
+
+## 2026-09-19 — Titan real-catalogue direction specified
+
+- Titan's supplied movie catalogue is the source for the TV-first Discover experience and real-title recommendations.
+- Movie Jam generated work remains separate from catalogue records and must be explicitly labelled as generated.
+- No Titan catalogue credentials, API contract, or real catalogue data has been added yet.
+
 ## Next milestone
 
 Implement an independently testable local Jam room: server-owned room state, name/admission flow, shared WebSocket presence and chat, proposal queue, vote state, and a host-controlled scene transition. Provider adapters remain disabled until their individual probes pass.

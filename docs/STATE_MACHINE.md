@@ -22,3 +22,9 @@ Only an active participant can submit proposals or votes. The host is an active 
 `collecting → voting → accepted → generating → ready → collecting`
 
 While a scene is `generating`, new inputs continue entering the next queue. One accepted turn is committed atomically with its new story version. A failed provider call leaves the committed creative direction intact, marks media as delayed/failed, and offers an explicit retry; it never fabricates a generated scene.
+
+## Media-reference lifecycle
+
+`selected → consented → uploading | live → normalized → available → expired | removed`
+
+An image, clip, or live camera frame becomes available to the story only after its owner declares its purpose and the server validates its type and size. Leaving a live session ends its use as a current reference. Recording or export requires a separate explicit room-level consent state.

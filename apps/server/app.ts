@@ -8,6 +8,7 @@ import discoverRank from "../../api/discover/rank";
 import voiceTranscribe from "../../api/voice/transcribe";
 import { createJamsRouter, InMemoryJamStore, type JamStore } from "./jams";
 import { createPlaybackRouter } from "./playback";
+import { createDirectorRouter } from "./director";
 import { createSessionsRouter } from "./sessions";
 
 /**
@@ -41,6 +42,7 @@ export function createApiApp(store: JamStore = new InMemoryJamStore()): Express 
   app.use(createJamsRouter(store));
   app.use(createSessionsRouter(store));
   app.use(createPlaybackRouter(store));
+  app.use(createDirectorRouter(store));
   app.use("/api", (_request, response) => {
     response.status(404).json({ code: "NOT_FOUND", safeMessage: "API route not found." });
   });

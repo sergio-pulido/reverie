@@ -4,6 +4,7 @@ import { Footer, Header, LiveScene, Notice } from "../chrome";
 import { InvitePanel } from "./InvitePanel";
 import { useAccessStatus } from "./useAccessStatus";
 import { useJamRoom } from "./useJamRoom";
+import { LiveStage } from "../live/LiveStage";
 
 const CONNECTION_LABEL: Record<ConnectionState, string> = {
   idle: "NOT CONNECTED",
@@ -82,6 +83,8 @@ export function Studio({ slug, onExit }: { slug: string; onExit: () => void }) {
               <Composer placeholder="Add a character, twist, shot, or feeling…" maxLength={280} disabled={!contributionAllowed} label="Propose" onSubmit={actions.addProposal} />
               <p className="form-note">Accepting a proposal into a scene needs the versioned transactional contract that is not implemented yet.</p>
             </div>
+
+            <LiveStage jamId={jam.id} userId={self.user_id} members={members} canJoin={contributionAllowed} />
 
             <Roster members={activeMembers} onlineIds={onlineIds} selfId={self.user_id} isHost={isHost} onRemove={actions.remove} />
             {isHost && <Lobby waiting={waitingMembers} onAdmit={actions.admit} onRemove={actions.remove} />}

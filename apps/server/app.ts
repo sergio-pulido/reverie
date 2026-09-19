@@ -1,5 +1,6 @@
 import express, { type Express } from "express";
 import health from "../../api/health";
+import catalogue from "../../api/catalogue";
 import { createJamsRouter, InMemoryJamStore, type JamStore } from "./jams";
 import { createSessionsRouter } from "./sessions";
 
@@ -11,6 +12,9 @@ export function createApiApp(store: JamStore = new InMemoryJamStore()): Express 
   const app = express();
 
   app.get("/api/health", health);
+  app.get("/api/catalogue", (request, response) => {
+    void catalogue(request, response);
+  });
   app.use(createJamsRouter(store));
   app.use(createSessionsRouter(store));
   app.use("/api", (_request, response) => {

@@ -6,6 +6,11 @@ These are Reverie application contracts, not provider API endpoints.
 
 - `GET /api/health`: `{ "status": "ok", "service": "reverie-movie-jam" }`, in local Express and a Vercel Node function. This reports process health, not database or provider readiness.
 - Browser calls Supabase Auth for anonymous sign-in, then inserts/selects `jams` under RLS. A database trigger creates the active host membership.
+- `GET /api/catalogue?query=&page=&pageSize=`: TV-first Discover reads real catalogue records through a privileged server adapter. Same-origin only, `GET`/`HEAD` only, Zod-validated query (`query` ≤ 120 chars, `page` 1–100, `pageSize` 1–48, default 24), per-instance rate limit of 30 requests per minute, bounded upstream body, and an upstream timeout.
+  - `200 { "status": "ok", "source": "titan", "items": [...], "page", "pageSize", "total", "hasMore", "attribution" }` — every record comes from the authorized upstream. Catalogue identifiers are namespaced `cat:` so they can never be confused with generated Jam artifacts.
+  - `200 { "status": "catalogue_not_configured", "code": "CATALOGUE_NOT_CONFIGURED", "safeMessage", "missing": [...] }` — no authorized catalogue endpoint/credential is configured. The UI states this; it does not invent titles.
+  - `4xx/5xx { "status": "error", "code", "safeMessage", "retryable" }` — codes are `INVALID_QUERY`, `METHOD_NOT_ALLOWED`, `CROSS_ORIGIN_BLOCKED`, `RATE_LIMITED`, `CATALOGUE_TIMEOUT`, `CATALOGUE_UNREACHABLE`, `CATALOGUE_UNAUTHORIZED`, `CATALOGUE_RATE_LIMITED`, `CATALOGUE_UPSTREAM_ERROR`, `CATALOGUE_REQUEST_REJECTED`, `CATALOGUE_INVALID_RESPONSE`, `CATALOGUE_RESPONSE_TOO_LARGE`. They never carry the credential, the upstream URL or the upstream body.
+  - The upstream contract the adapter expects, and the `TITAN_CATALOGUE_URL` / `TITAN_API_KEY` / `TITAN_CATALOGUE_TIMEOUT_MS` configuration, are specified in `docs/specs/discover-titan-catalogue.md`. No Titan catalogue endpoint is published or supplied today, so this route answers `catalogue_not_configured`.
 - No HTTP room API, join/admission RPC, Realtime subscriber or provider endpoint is implemented yet.
 
 ## Planned privileged HTTP interfaces
@@ -13,7 +18,6 @@ These are Reverie application contracts, not provider API endpoints.
 | Route | Purpose |
 | --- | --- |
 
-| `GET /api/catalogue` | Read validated, real-title catalogue records allowed by the Titan integration |
 | `POST /api/discover/turns` | Apply a natural-language discovery refinement to real catalogue results |
 | `POST /api/jams` | Create a jam and generate its script from scratch or from an existing movie |
 | `GET /api/jams/:id` | Read a generated jam snapshot |

@@ -61,6 +61,17 @@ export type SessionRefusal =
 export interface OpenSession {
   sessionId: string;
   /**
+   * Viewer id to the last time that viewer checked in.
+   *
+   * A stream is shared, so "is anyone still watching?" cannot be answered by a
+   * single timestamp: with one clock, any one viewer's renewal keeps the stream
+   * alive for a room that has emptied, and the last viewer leaving does not end
+   * it — it stops being renewed and is reclaimed 90 seconds later, billing the
+   * whole time. Counting viewers is what makes the shared stream's lifetime
+   * match the audience it actually has.
+   */
+  viewers: Map<string, number>;
+  /**
    * `<jamId>:<configurationKey>`. One paid stream per distinct configuration
    * in a room, not one per viewer — everyone on the same configuration shares
    * it (docs/specs/configuration-keyed-streams.md).
@@ -79,6 +90,13 @@ export class DirectorSessionLedger {
   constructor(
     private readonly limits: DirectorSessionLimits,
     private readonly now: () => number = () => Date.now(),
+    /**
+     * Called for every session the ledger reclaims or settles, so the caller
+     * can stop the stream it was paying for. Reclaim happens inside `open` and
+     * `findByStreamKey` as well as on an explicit sweep, and a stream left
+     * running after its session is gone keeps billing with nobody watching.
+     */
+    private readonly onClosed: (sessionId: string) => void = () => {},
   ) {}
 
   /** Worst-case cost of a session that runs to its allowed limit. */
@@ -128,17 +146,68 @@ export class DirectorSessionLedger {
       startedAt: at,
       lastSeenAt: at,
       reservedUsd,
+      viewers: new Map(),
     };
     this.spentUsd += reservedUsd;
     this.sessions.set(session.sessionId, session);
     return session;
   }
 
-  /** Keeps a live session from being reclaimed as abandoned. */
-  renew(sessionId: string): boolean {
+  /**
+   * Registers one viewer on a stream and returns the id it checks in under.
+   *
+   * Viewers are identified by the server, not by the browser: an id a client
+   * chose could collide with another viewer's and make two people look like
+   * one, which would end a stream somebody was still watching.
+   */
+  attach(sessionId: string): string | undefined {
+    const session = this.sessions.get(sessionId);
+    if (!session) return undefined;
+    this.counter += 1;
+    const at = this.now();
+    const viewerId = `v${at.toString(36)}-${this.counter.toString(36)}`;
+    session.viewers.set(viewerId, at);
+    session.lastSeenAt = at;
+    return viewerId;
+  }
+
+  /**
+   * Stops counting one viewer, and reports whether anyone is left.
+   *
+   * The last viewer leaving is the signal to settle: waiting for the idle
+   * timeout instead would bill 90 seconds of a stream nobody is watching.
+   */
+  detach(sessionId: string, viewerId: string): { remaining: number } | undefined {
+    const session = this.sessions.get(sessionId);
+    if (!session) return undefined;
+    session.viewers.delete(viewerId);
+    return { remaining: session.viewers.size };
+  }
+
+  /** How many viewers are currently counted on a session. */
+  viewerCount(sessionId: string): number {
+    return this.sessions.get(sessionId)?.viewers.size ?? 0;
+  }
+
+  /**
+   * Keeps a live session from being reclaimed as abandoned.
+   *
+   * A viewer id renews that viewer specifically; without one this only refreshes
+   * the session, which is what a caller with no viewer of its own — the server
+   * itself, sending a direction — should do.
+   */
+  renew(sessionId: string, viewerId?: string): boolean {
     const session = this.sessions.get(sessionId);
     if (!session) return false;
-    session.lastSeenAt = this.now();
+    const at = this.now();
+    session.lastSeenAt = at;
+    if (viewerId !== undefined) {
+      // An unknown viewer id is not re-admitted here: attaching is what admits
+      // a viewer, and silently recreating one would resurrect a viewer that
+      // was dropped as stale.
+      if (!session.viewers.has(viewerId)) return false;
+      session.viewers.set(viewerId, at);
+    }
     return true;
   }
 
@@ -170,6 +239,7 @@ export class DirectorSessionLedger {
     const billed = Math.min(session.reservedUsd, this.billedUsd(ranSeconds));
     this.spentUsd = this.spentUsd - session.reservedUsd + billed;
     this.sessions.delete(session.sessionId);
+    this.onClosed(session.sessionId);
   }
 
   /**
@@ -180,7 +250,17 @@ export class DirectorSessionLedger {
   expireIdle(): void {
     const cutoff = this.now() - SESSION_IDLE_TIMEOUT_MS;
     for (const session of [...this.sessions.values()]) {
-      if (session.lastSeenAt <= cutoff) this.sessions.delete(session.sessionId);
+      for (const [viewerId, seenAt] of [...session.viewers]) {
+        if (seenAt <= cutoff) session.viewers.delete(viewerId);
+      }
+      // One viewer still checking in keeps the stream, because somebody is
+      // still watching it. A session with none falls back to its own clock,
+      // which covers the moment between opening and the first viewer attaching.
+      if (session.viewers.size > 0) continue;
+      if (session.lastSeenAt <= cutoff) {
+        this.sessions.delete(session.sessionId);
+        this.onClosed(session.sessionId);
+      }
     }
   }
 

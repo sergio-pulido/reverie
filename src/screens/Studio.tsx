@@ -8,6 +8,8 @@ import { useAccessStatus } from "./useAccessStatus";
 import { useJamRoom } from "./useJamRoom";
 import { readJamConfiguration } from "../lib/jamConfiguration";
 import { LiveStage } from "../live/LiveStage";
+import { AppearInFilm } from "../live/AppearInFilm";
+import { useConsentRegister } from "../live/useConsentRegister";
 
 const CONNECTION_LABEL: Record<ConnectionState, string> = {
   idle: "NOT CONNECTED",
@@ -30,6 +32,9 @@ export function Studio({ slug, onLeave }: { slug: string; onLeave: () => void })
   const jamId = state.snapshot?.jam.id ?? null;
   // Hooks run before the early returns below.
   const configuration = useMemo(() => (jamId ? readJamConfiguration(jamId) : null), [jamId]);
+  // One register for the room: the live stage and the film read the same rows, so the two
+  // panels can never disagree about what somebody agreed to.
+  const register = useConsentRegister(jamId, contributionAllowed);
 
   if (state.phase === "loading") {
     return <Shell><section className="studio-header"><div><p className="eyebrow">MOVIE JAM</p><h1>Opening the room…</h1></div></section></Shell>;
@@ -99,7 +104,16 @@ export function Studio({ slug, onLeave }: { slug: string; onLeave: () => void })
               <p className="form-note">Accepting a proposal into a scene needs the versioned transactional contract that is not implemented yet.</p>
             </div>
 
-            <LiveStage jamId={jam.id} userId={self.user_id} members={members} canJoin={contributionAllowed} />
+            <LiveStage jamId={jam.id} userId={self.user_id} members={members} canJoin={contributionAllowed} register={register} />
+
+            <AppearInFilm
+              jamId={jam.id}
+              userId={self.user_id}
+              members={members}
+              canAppear={contributionAllowed}
+              consents={register.consents}
+              onChanged={register.reload}
+            />
 
             <Roster members={activeMembers} selfId={self.user_id} isHost={isHost} onRemove={actions.remove} />
             {isHost && <Lobby waiting={waitingMembers} onAdmit={actions.admit} onRemove={actions.remove} />}

@@ -262,3 +262,41 @@ footer { width: 100%; max-width: 1410px; margin: 0 auto; padding: 24px 48px; bor
 .live-consents li {
   align-items: flex-start;
 }
+
+/* Appearing in the film: the camera, the frame under review, and who has agreed. */
+.likeness-capture {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* The camera and the picture under review are the same size and in the same place, so
+   what a person approves is plainly the frame they just saw. */
+.likeness-preview {
+  width: 100%;
+  max-width: 320px;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.35);
+  transform: scaleX(-1);
+}
+
+.likeness-capture input {
+  padding: 0.6rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  font: inherit;
+}
+
+.likeness-roster li {
+  align-items: flex-start;
+}
+
+/* Withdrawing is one press and never hides behind a menu or a confirmation step. */
+.appear-in-film .studio-actions {
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}

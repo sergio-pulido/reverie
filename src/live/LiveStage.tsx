@@ -11,6 +11,9 @@ import {
 import { authorName, type JamMember } from "../core/room";
 import { Notice } from "../chrome";
 import { useLiveStage } from "./useLiveStage";
+import type { useConsentRegister } from "./useConsentRegister";
+
+type ConsentRegister = ReturnType<typeof useConsentRegister>;
 
 const CONNECTION_LABEL: Record<string, string> = {
   idle: "NOT ON STAGE",
@@ -25,20 +28,21 @@ const CONNECTION_LABEL: Record<string, string> = {
  * The live stage panel. Nothing here publishes on its own: a track starts only after its
  * owner has declared a purpose, and stops the moment that consent is withdrawn or expires.
  */
-export function LiveStage({ jamId, userId, members, canJoin }: {
+export function LiveStage({ jamId, userId, members, canJoin, register }: {
   jamId: string;
   userId: string;
   members: readonly JamMember[];
   canJoin: boolean;
+  register: ConsentRegister;
 }) {
-  const { state, permitted, joined, refs, actions } = useLiveStage(jamId, userId, canJoin);
+  const { state, permitted, joined, refs, actions } = useLiveStage(jamId, userId, canJoin, register);
   const [kind, setKind] = useState<LiveTrackKind>("camera");
   const [purpose, setPurpose] = useState("");
 
   const now = Date.now();
   // Only what this panel can actually publish. A likeness grant lives in its own panel and
   // must never be listed here, where every row reads as something going out on the stage.
-  const active = state.consents.filter(
+  const active = register.consents.filter(
     (consent) => isTrackKind(consent.kind) && isConsentEffective(consent, now),
   );
 
@@ -63,7 +67,7 @@ export function LiveStage({ jamId, userId, members, canJoin }: {
           is for, and nothing is recorded: this slice has no archive, export or transformation.
         </p>}
 
-    {state.error && <Notice>{state.error}</Notice>}
+    {(state.error ?? register.error) && <Notice>{state.error ?? register.error}</Notice>}
 
     <div className="studio-actions">
       {joined

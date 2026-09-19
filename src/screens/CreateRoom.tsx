@@ -86,6 +86,9 @@ function ScenarioPicker({ scenarios, scenarioId, notice, onChoose }: {
       type="button"
       role="radio"
       aria-checked={scenarioId === scenario.id}
+      // The card's name is its title: the logline and the goal are inside it
+      // as text, but a radio with no accessible name is announced as nothing.
+      aria-label={scenario.title}
       className={`scenario-card${scenarioId === scenario.id ? " active" : ""}`}
       onClick={() => onChoose(scenario.id)}
     >

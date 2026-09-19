@@ -100,6 +100,27 @@ export function voteForProposal(jamId: string, proposalId: string): Promise<Esca
   });
 }
 
+/**
+ * The bytes of one generated segment.
+ *
+ * A `<video src>` cannot carry a bearer token, and these routes check who is
+ * asking — so the clip is fetched with the viewer's own authorization like
+ * every other call here, and handed to the element as an object URL. The
+ * alternative was a credential in a URL, or a route that trusted an
+ * unguessable id; neither is worth the two dozen lines this costs.
+ */
+export async function fetchSegment(src: string): Promise<Blob> {
+  const accessToken = await ensureAccessToken("Playing the room");
+  let response: Response;
+  try {
+    response = await fetch(src, { headers: { authorization: `Bearer ${accessToken}` } });
+  } catch {
+    throw new JamError("unavailable", "That shot could not be loaded.", true);
+  }
+  if (!response.ok) throw await asJamError(response);
+  return response.blob();
+}
+
 /** Closes the vote. Host-only on the server, whatever this browser thinks. */
 export function settleTurn(
   jamId: string,

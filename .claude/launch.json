@@ -37,6 +37,19 @@
         "apps/server/index.ts"
       ],
       "port": 4337
+    },
+    {
+      "name": "reverie-escape-room",
+      "runtimeExecutable": "/usr/bin/env",
+      "runtimeArgs": [
+        "PORT=4327",
+        "node",
+        "--env-file-if-exists=.env.local",
+        "--import",
+        "tsx",
+        "apps/server/index.ts"
+      ],
+      "port": 4327
     }
   ]
 }

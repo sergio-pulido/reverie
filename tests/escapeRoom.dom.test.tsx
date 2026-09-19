@@ -1,12 +1,19 @@
+import { playCalls } from "./dom";
 import { cleanup, click, render, rerender } from "./render";
 import assert from "node:assert/strict";
-import { afterEach, describe, it } from "node:test";
+import { after, afterEach, beforeEach, describe, it } from "node:test";
 import { act } from "react";
 import { EscapeRoom } from "../src/screens/EscapeRoom";
 import type { BeatView, EscapeSnapshot, SegmentView } from "../src/core/escape/session";
 import type { EscapeRoomActions } from "../src/screens/useEscapeRoom";
 
 afterEach(cleanup);
+beforeEach(() => {
+  fetched.length = 0;
+  revoked.length = 0;
+  playCalls.length = 0;
+  clips.clear();
+});
 
 /**
  * The panel draws the server's snapshot and nothing else. What these check is
@@ -76,6 +83,34 @@ const NOTHING: EscapeRoomActions = {
   settle: async () => {},
 };
 
+/** Every clip this panel asks for, and what it was handed back. */
+const fetched: string[] = [];
+const clips = new Map<string, string>();
+let nextClip = 0;
+
+/**
+ * Stands in for the authorized download. A video element sends no bearer
+ * token, so the real panel fetches the bytes and plays an object URL; jsdom
+ * has neither, so the path is exchanged for a stable stand-in here.
+ */
+async function fakeClip(path: string): Promise<Blob> {
+  fetched.push(path);
+  nextClip += 1;
+  const url = `blob:clip-${nextClip}`;
+  clips.set(path, url);
+  return { path, url } as unknown as Blob;
+}
+
+const originalCreate = URL.createObjectURL;
+const originalRevoke = URL.revokeObjectURL;
+const revoked: string[] = [];
+URL.createObjectURL = ((blob: unknown) => (blob as { url: string }).url) as typeof URL.createObjectURL;
+URL.revokeObjectURL = ((url: string) => void revoked.push(url)) as typeof URL.revokeObjectURL;
+after(() => {
+  URL.createObjectURL = originalCreate;
+  URL.revokeObjectURL = originalRevoke;
+});
+
 function show(state: EscapeSnapshot, options: { isHost?: boolean; actions?: EscapeRoomActions } = {}) {
   return <EscapeRoom
     snapshot={state}
@@ -85,6 +120,7 @@ function show(state: EscapeSnapshot, options: { isHost?: boolean; actions?: Esca
     busy={false}
     failure={null}
     actions={options.actions ?? NOTHING}
+    fetchClip={fakeClip}
   />;
 }
 
@@ -93,8 +129,10 @@ describe("the escape room panel", () => {
     await render(show(snapshot()));
     const loop = document.querySelector<HTMLVideoElement>('[data-testid="escape-loop"]');
     assert.ok(loop, "the loop is on screen");
-    assert.equal(loop.getAttribute("src"), READY.src);
+    assert.equal(loop.getAttribute("src"), clips.get(READY.src!));
+    assert.deepEqual(fetched, [READY.src], "the clip is fetched with the viewer's own authorization");
     assert.ok(loop.hasAttribute("loop"), "and it loops");
+    assert.deepEqual(playCalls, [loop], "and it is asked to play, not left on a still frame");
     assert.equal(document.querySelector('[data-testid="escape-beat"]'), null);
     assert.match(document.body.textContent ?? "", /the reading room/);
   });
@@ -103,7 +141,7 @@ describe("the escape room panel", () => {
     await render(show(snapshot({ beats: [beat()] })));
     const clip = document.querySelector<HTMLVideoElement>('[data-testid="escape-beat"]');
     assert.ok(clip, "the beat cut in");
-    assert.equal(clip.getAttribute("src"), "/api/jams/j/escape-room/segments/beat-1");
+    assert.equal(clip.getAttribute("src"), clips.get("/api/jams/j/escape-room/segments/beat-1"));
     assert.equal(document.querySelector('[data-testid="escape-loop"]'), null);
     assert.match(document.body.textContent ?? "", /The hatch lifts without complaint/);
 
@@ -220,3 +258,57 @@ describe("the escape room panel", () => {
 function closeVote(): Element | null {
   return [...document.querySelectorAll("button")].find((button) => button.textContent === "Close the vote") ?? null;
 }
+
+describe("loading a clip the room is authorized to see", () => {
+  it("holds the loop while a beat's bytes are still arriving", async () => {
+    let release: ((blob: Blob) => void) | null = null;
+    const slow = (path: string) =>
+      path.includes("beat")
+        ? new Promise<Blob>((resolve) => {
+            release = resolve;
+          })
+        : fakeClip(path);
+    await render(<EscapeRoom
+      snapshot={snapshot({ beats: [beat()] })}
+      isHost={false}
+      displayName="Ada"
+      canContribute
+      busy={false}
+      failure={null}
+      actions={NOTHING}
+      fetchClip={slow}
+    />);
+    assert.ok(
+      document.querySelector('[data-testid="escape-loop"]'),
+      "the loop still has the screen while the beat downloads",
+    );
+    assert.equal(document.querySelector('[data-testid="escape-beat"]'), null);
+    assert.ok(release, "the beat was asked for");
+  });
+
+  it("starts the clip again when the tab comes back", async () => {
+    await render(show(snapshot()));
+    const loop = document.querySelector('[data-testid="escape-loop"]')!;
+    playCalls.length = 0;
+    // A hidden tab pauses its video and nothing resumes it on its own.
+    Object.defineProperty(document, "hidden", { configurable: true, value: false });
+    await act(async () => {
+      document.dispatchEvent(new window.Event("visibilitychange"));
+    });
+    assert.deepEqual(playCalls, [loop]);
+
+    playCalls.length = 0;
+    Object.defineProperty(document, "hidden", { configurable: true, value: true });
+    await act(async () => {
+      document.dispatchEvent(new window.Event("visibilitychange"));
+    });
+    assert.deepEqual(playCalls, [], "and it is left alone while the tab is away");
+  });
+
+  it("gives back each clip when it is done with it", async () => {
+    await render(show(snapshot()));
+    const loopUrl = clips.get(READY.src!);
+    await cleanup();
+    assert.ok(revoked.includes(loopUrl!), "the object URL is revoked when the panel goes away");
+  });
+});

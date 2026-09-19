@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Notice } from "../chrome";
 import type { BeatView, EscapeSnapshot, SegmentView } from "../core/escape/session";
 import type { EscapeRoomActions } from "./useEscapeRoom";
+import { useSegmentSource, type FetchClip } from "./useSegmentSource";
 
 /**
  * The escape room, drawn inside the jam screen.
@@ -32,6 +33,7 @@ export function EscapeRoom({
   busy,
   failure,
   actions,
+  fetchClip,
 }: {
   snapshot: EscapeSnapshot;
   isHost: boolean;
@@ -40,11 +42,29 @@ export function EscapeRoom({
   busy: boolean;
   failure: string | null;
   actions: EscapeRoomActions;
+  /** Injected in tests; production reads the clip with the viewer's token. */
+  fetchClip?: FetchClip;
 }) {
   const [draft, setDraft] = useState("");
   const [showing, setShowing] = useState<Showing>({ kind: "loop" });
   /** Beats whose clip this viewer has already been shown, so none repeats. */
   const played = useRef(new Set<string>());
+  /** Whichever clip is on screen, so it can be restarted when the tab returns. */
+  const screen = useRef<HTMLVideoElement | null>(null);
+
+  /**
+   * A hidden tab pauses its video and nothing resumes it, so a viewer who
+   * looks away and comes back would find the room frozen on one frame. Asking
+   * again when the tab is visible is the whole fix; it was found by watching
+   * the real thing stop at 3.7 seconds of a 5.2-second loop.
+   */
+  useEffect(() => {
+    const resume = () => {
+      if (!document.hidden) startPlaying(screen.current);
+    };
+    document.addEventListener("visibilitychange", resume);
+    return () => document.removeEventListener("visibilitychange", resume);
+  }, []);
 
   // A finished beat cuts in exactly once, the moment its clip exists.
   useEffect(() => {
@@ -60,6 +80,11 @@ export function EscapeRoom({
   const beat = showing.kind === "beat"
     ? snapshot.beats.find((candidate) => candidate.id === showing.beatId) ?? null
     : null;
+  // The loop is held the whole time, not swapped out when a beat is chosen:
+  // a beat's bytes still have to arrive, and dropping the loop during that
+  // download is exactly the blank frame this design exists to avoid.
+  const beatSource = useSegmentSource(beat?.media.src ?? null, fetchClip);
+  const loopSource = useSegmentSource(snapshot.loop.src, fetchClip);
 
   return <div className="player-card escape-room" aria-label="Escape room">
     <div className="panel-heading">
@@ -73,20 +98,24 @@ export function EscapeRoom({
     </div>
 
     <div className="player-frame">
-      {beat?.media.src
+      {beat && beatSource
         ? <video
             key={beat.id}
-            src={beat.media.src}
+            src={beatSource}
+            ref={hold(screen)}
+            onCanPlay={(event) => startPlaying(event.currentTarget)}
             autoPlay
             muted
             playsInline
             data-testid="escape-beat"
             onEnded={() => setShowing({ kind: "loop" })}
           />
-        : snapshot.loop.src
+        : loopSource
           ? <video
               key={`loop-${snapshot.location.id}`}
-              src={snapshot.loop.src}
+              src={loopSource}
+              ref={hold(screen)}
+              onCanPlay={(event) => startPlaying(event.currentTarget)}
               autoPlay
               muted
               loop
@@ -162,6 +191,34 @@ export function EscapeRoom({
     <Spend snapshot={snapshot} />
     {failure && <Notice>{failure}</Notice>}
   </div>;
+}
+
+/**
+ * Asks the element to play as soon as it exists.
+ *
+ * `autoPlay` on a muted video is meant to be enough, and measured in a real
+ * browser it was not: the element sat on its first frame, which is exactly
+ * the dead screen this design exists to avoid. So it is asked twice — when
+ * the element appears, and again when it says it can play, since the first
+ * ask can land on a source that has not loaded or an element React is about
+ * to re-attach. Asking an already-playing element to play does nothing.
+ *
+ * The rejection is ignored: a browser that refuses autoplay is showing the
+ * first frame, not raising an error worth saying out loud.
+ */
+/** Records the element that currently has the screen, and starts it. */
+function hold(screen: { current: HTMLVideoElement | null }) {
+  return (element: HTMLVideoElement | null) => {
+    screen.current = element;
+    startPlaying(element);
+  };
+}
+
+function startPlaying(element: HTMLVideoElement | null): void {
+  // `play()` returns a promise in a browser and nothing at all in a document
+  // that does not implement playback, so neither is assumed here.
+  const played = element?.play() as Promise<void> | undefined;
+  if (played) void played.catch(() => undefined);
 }
 
 /** What has been found and what is still shut, counted from scenario state. */

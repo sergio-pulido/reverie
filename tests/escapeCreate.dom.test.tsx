@@ -91,6 +91,11 @@ describe("starting a jam from an escape room", () => {
     await render(show({ sourceKind: "escape-room", onScenarioId: (id) => picked.push(id) }));
     const cards = [...document.querySelectorAll(".scenario-card")];
     assert.equal(cards.length, 2);
+    assert.deepEqual(
+      cards.map((card) => card.getAttribute("aria-label")),
+      ["The Night Audit", "Cold Sill"],
+      "a radio with no accessible name is announced as nothing",
+    );
     assert.match(cards[0].textContent ?? "", /The Night Audit/);
     assert.match(cards[0].textContent ?? "", /Marit Kessel · 3 locations/);
     assert.match(cards[0].textContent ?? "", /Get the sealed ledger out/);

@@ -1040,8 +1040,9 @@ could run as a serverless function even though the live director cannot.
 Verified 2026-09-19 against the local stack's real Postgres and real Storage: session,
 segments and audit round-tripped, the API reported `durable: true`, and archived bytes
 were served by our own route. **Not** verified against hosted Supabase, and no real
-director media has been through this path — capture is off by default
-(`REVERIE_DIRECTOR_RECORD`) until it runs off the main thread.
+director media has been through this path. The segmenter that feeds the archive is
+off by default (`REVERIE_DIRECTOR_HLS`) pending one real session's measurement; the
+off-thread muxing it depends on is built, not pending.
 
 
 ## 2026-09-19 — A jam is live, then playing, then ended, and ended is terminal (RV-18)
@@ -1084,9 +1085,13 @@ change to what is stored.
 Verified by tests, including the reopened-tab case, and end to end against the local
 stack's real Postgres: a session opened, a direction reached `jam_director_audit` as
 it was sent, and the room read `live` then `playing` then `ended`. **Not** verified
-with real director media: capture is still off by default
-(`REVERIE_DIRECTOR_RECORD`) until it runs off the main thread, so the archive has
-only been exercised with synthetic segments.
+with real director media: the archive has only been exercised with synthetic
+segments, because the segmenter that feeds it is off by default
+(`REVERIE_DIRECTOR_HLS`) pending one real session confirming `/end` answers while the
+muxer worker is mid-segment. The off-thread work itself is done, not pending —
+`SegmentMuxer` runs in a worker thread. Note this is a DIFFERENT flag from
+`REVERIE_DIRECTOR_RECORD`, which gates the in-thread WebM recorder and is off because
+that one pins the event loop.
 
 **A live route answers an ended room with `409 jam_ended` and a pointer, not `404`.**
 The room exists and so does its recording; only the live stream is gone, and a

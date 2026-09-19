@@ -63,6 +63,12 @@
 - `POST /api/jams` accepts an optional `jamId` so a script can be created under the client-created Supabase room row instead of a second server-minted id.
 - `supabase/migrations/20260919180000_jam_scripts.sql` adds `jam_scripts` and `jam_script_revisions` under host-scoped RLS; it has not been applied to a live Supabase project yet, and the working store remains the in-memory implementation. A Supabase-backed `JamStore` is the next storage milestone.
 
+## 2026-09-19 — Script editing becomes portion-scoped over structured revisions
+
+- Revisions now snapshot the structured script; markdown is rendered per revision on demand. `PUT /api/jams/:id/script` (whole-markdown, never consumed by any client) is replaced by `PATCH /api/jams/:id/script/portions/:portionIndex`, which edits one portion's content fields and validates duration against the jam format's hard bounds. Structural edits are forbidden in v1, keeping flat portion indices stable.
+- Lock enforcement per the RV-06 contract: edit and revert operations take `minEditablePortionIndex`, wired by the router from a playback guard inside the same per-jam critical section; below-boundary edits and reverts that would change locked portions return `portion_locked` with the locked index and playback `stateVersion`. The guard defaults to fully open until the playback module lands.
+- `JamStore` also persists playback state (`getPlayback`/`updatePlayback` compare-and-swap on `stateVersion`, `stale_state_version` on mismatch) and exposes `getScriptAtRevision` for pinned portion reads. Migration `20260919190000_structured_script_revisions.sql` swaps the revisions markdown column for `script jsonb` and adds host-readable, server-written `jam_playback`; still not applied to a live project, and the in-memory store remains the working implementation.
+
 ## 2026-09-19 — Deployment and documentation aligned
 
 - Vercel config defines the Vite build/output and SPA routing that excludes API paths; `/api/health` has a Node handler shared with local Express.

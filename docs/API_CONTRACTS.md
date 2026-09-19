@@ -94,11 +94,11 @@ code — both go through the host-only functions above, which run as owner.
 | `POST /api/discover/turns` | Apply a natural-language discovery refinement to real catalogue results |
 | `POST /api/jams` | Register a jam and either generate its script from scratch/from a movie or import an existing script |
 | `GET /api/jams/:id` | Read a generated jam snapshot |
-| `GET /api/jams/:id/script.md` | Read the current script markdown (the latest revision, including live edits) |
-| `PUT /api/jams/:id/script` | Append a live markdown edit as a new script revision |
-| `POST /api/jams/:id/script/revert` | Restore an earlier revision as a new revision (undo/redo) |
-| `GET /api/jams/:id/script/revisions` | List revision metadata (no markdown bodies) |
-| `GET /api/jams/:id/script/revisions/:revision` | Read one full revision including its markdown |
+| `GET /api/jams/:id/script.md` | Read the current revision rendered as markdown (a view; the structured script is the source of truth) |
+| `PATCH /api/jams/:id/script/portions/:portionIndex` | Edit one portion's content (`action`, `dialogue`, `visualDirection`, `durationSeconds`) as a new revision; rejected with `portion_locked` at or below the lock boundary |
+| `POST /api/jams/:id/script/revert` | Restore an earlier revision as a new revision (undo/redo); rejected with `portion_locked` if a played or locked portion would change |
+| `GET /api/jams/:id/script/revisions` | List revision metadata (no script bodies) |
+| `GET /api/jams/:id/script/revisions/:revision` | Read one full revision: structured script plus its rendered markdown |
 | `POST /api/jams/:id/sessions` | Attach a user session to a jam; returns the session plus a one-time owner token |
 | `GET /api/jams/:id/sessions` | List a jam's sessions (public projections, never owner tokens) |
 | `GET /api/sessions/:id` | Read one session |
@@ -125,6 +125,18 @@ The **shared playback clock** is a separate, room-wide position that every viewe
 | `reset_jam_playback(p_jam_id)` | Host-only. Returns the clock to `idle` at zero. |
 
 The position is derived, never stored as a mutable counter: `elapsedMs = paused_elapsed_ms + (now() - started_at)` while playing, and `paused_elapsed_ms` otherwise. `serverNow` lets a browser correct for clock skew — it anchors to `elapsedMs` and advances with its own monotonic clock (`performance.now()`), so no participant's wall clock can move the room. Reads poll every 2.5s as an interim transport; the contract is Realtime events, so the poll interval is a single named constant a later slice replaces. The clock row is created by a trigger on `jams` and backfilled for existing rooms; the table has RLS enabled with no policies, so only the security-definer functions are reachable.
+
+**One table, both representations.** `public.jam_playback` was introduced twice — once by the portion-playback work (`20260919190000`, cursor) and once by the clock work (`20260919230000`, anchor) — and `20260919225000_reconcile_jam_playback.sql` converges every database on a single table:
+
+| Column | Meaning |
+| --- | --- |
+| `status` | Union vocabulary `idle｜priming｜playing｜paused｜finished`. `priming`/`finished` come from portion playback, `paused` from the clock. |
+| `current_portion_index` | Portion cursor, `-1` until the first portion plays (the store maps this to in-memory `null`). |
+| `started_at` | Wall-clock anchor, set exactly while `status = 'playing'`; enforced by `(status = 'playing') = (started_at is not null)`. |
+| `paused_elapsed_ms` | Time accumulated before the current playing segment. |
+| `state_version` | Compare-and-swap guard, shared by both. |
+
+The reconciliation is idempotent and backfills before enforcing `NOT NULL`. It is required because `190000` sorts before `230000`: on a fresh database the cursor migration creates the table first, so the clock migration's `create table if not exists` no-ops and its `jam_playback_json` function would fail to compile against the missing `started_at` column.
 
 `POST /api/jams` accepts an optional `format` object (`totalSeconds`, `portionMinSeconds`, `portionMaxSeconds`); omitted fields default to a 4-minute script of 10–20 second portions. The jam stores its format and all generation and validation follow it.
 

@@ -195,6 +195,20 @@ the lock, then take the critical section once and write every portion together, 
 contract requires. The honest cost is that a cascade in a fast-playing room can be paid for and
 then discarded; that is preferred over a half-rewritten story or a frozen room.
 
+**That atomicity is not yet real, and this spec must not be read as saying it is.** The critical
+section available today is `withJamLock` (`apps/server/jams.ts`), an in-process mutex, and the
+script it protects lives in `InMemoryJamStore` in the same process. That is sound in the local
+Express host and serializes nothing once those routers are deployed as Vercel functions, where
+many instances run at once. An outline commit is therefore *specified* as all-or-nothing and
+*implemented* only as far as one process can enforce it.
+
+`docs/specs/transactional-scene-contract.md` states the prerequisite in full and instructs that
+the path not be implemented, or described as atomic, until one of its exits is chosen and
+recorded in `docs/DECISIONS.md`. The same instruction governs this document: **the edit queue
+below must not be built on `withJamLock` alone.** The exit that moves the script into Postgres
+gives the cascade a real transaction and a real cross-instance row lock, and is the reason that
+work is sequenced before the queue rather than after it.
+
 ## The outline drives the live director too
 
 A beat is also the direction text for the live director (`apps/server/directorStream.ts`, RV-16).

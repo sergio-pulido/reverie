@@ -1111,3 +1111,38 @@ shift while it grows.
    `requestId`, and serialized scene acceptance. Generation only after that contract exists.
 4. `pnpm probe:vonage` passes with the application credentials; next, verify the live stage in
    two browsers against the migrated Supabase project.
+
+## 2026-09-19 — The story outline: a centralized artifact the room steers (RV-17)
+
+- An **outline** sits between the script and the reader: one brief phrase (a **beat**) per
+  portion, ordered and coherent, so a participant sees what is coming without reading four
+  minutes of screenplay. It is called the outline, not "history", because `scriptHistory.ts`
+  already owns that word for the revision log.
+- It is centralized because the product goal is **several ways to modify the story** — up/down
+  votes on future beats, chat, polls, direct rewrites, and more later. Each is an **input
+  adapter** producing one typed intent (`set` or `reroll`) against one beat; validation, locking,
+  serialization, the script rewrite and the cost all happen once behind a single boundary instead
+  of once per mechanism. Rationale and the full decision set are in
+  `docs/specs/story-outline.md` and `docs/DECISIONS.md`.
+- A beat is the portion's own `summary` field, not a parallel store, so it cannot drift from the
+  portion it describes and versions with the existing append-only revisions for free. The flat
+  portion index stays the single address shared with edits, playback, the lock window and
+  generation job keys. `summary` is optional: revisions written before the outline can never gain
+  one and must be rendered honestly as missing.
+- Editing a beat re-derives every later beat in **one** completion (not one per portion), rewrites
+  text only — never `durationSeconds`, so the runtime cannot drift — and never changes scene or
+  portion structure. The lock window applies unchanged; because it is a prefix and a cascade runs
+  forward, only the edited beat needs checking. A cascade is computed outside the per-jam critical
+  section and committed atomically inside it, refused with `portion_locked` if playback advanced
+  into its range meanwhile.
+- The same beat is the live director's direction text (RV-16's `DirectionRequest`), so one edited
+  phrase drives both the rewritten script and the stream. Only the current or imminent beat is
+  sent; the queue never opens or holds a billed director session.
+- Implemented and verified locally on `codex/rv-17-story-outline`: the `summary` field, the
+  outline projection with cumulative offsets, stream-offset lookup, and the cascade prompt, schema
+  and application — all provider-free and tested offline. `pnpm typecheck` clean, `pnpm test`
+  426/426 including 9 new tests.
+- **Not implemented:** the edit queue, the edit intent type, provider wiring, every input
+  mechanism (direct, vote, poll, chat), the outline routes, the client surface, and delivery into
+  the director seam. No provider call has been made for a cascade, so cascade quality is specified
+  and unit-tested at its pure boundaries, not demonstrated.

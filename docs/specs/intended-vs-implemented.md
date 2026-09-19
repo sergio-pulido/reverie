@@ -42,6 +42,11 @@ behaviour works.
 | Proposals carrying references | Not implemented | `jam_proposals.body` is text 1–280 chars (`supabase/migrations/20260919190000_jam_collaboration.sql`) | No column or join table for attachments, and no policy scoping an attachment to a reference the author owns |
 | Capturing a frame from the live stage as a stored reference | Not implemented | Live publish + consent only: `docs/specs/jam-live-media-vonage.md`, `jam_live_consents` | No capture action and no retention consent distinct from the publish consent |
 | Cross-instance serialization of script mutations | **Gap, unowned** | `withJamLock` (`apps/server/jams.ts:104`) wraps the portion-edit and revert routes at `:366` and `:393` | An in-process mutex. Correct while the routers are local-Express-only; once deployed as Vercel functions each instance holds its own map and concurrent edits race silently. Narrowed but not closed by the portion pipeline's deletion — it still guards exactly the mutations the lock boundary protects |
+| Story outline projection (beats over the script) | Implemented | `src/core/outline.ts` (`buildOutline`, `beatAtOffset`); `summary` on the portion schema, `src/core/script.ts` | No route serves it; no client surface renders it |
+| Outline cascade (re-derive the tail from an edited beat) | Implemented, no provider wiring | `src/core/outlineCascade.ts` (prompt, reply schema, `applyCascade`) — pure and tested offline | Nothing calls a provider with the prompt; no completion is wired, so no cascade has ever run |
+| Outline edit queue (serialized, envelope-guarded) | Not implemented | None | No queue, no edit intent type, no `expectedStateVersion` handling, no atomic commit against the lock boundary |
+| Ways to modify the outline (direct, vote, poll, chat) | Not implemented | None | No adapter of any kind exists. Each produces one `set`/`reroll` intent; the gate that admits one is the acceptance contract above (`docs/specs/transactional-scene-contract.md`), and `jam_proposals` remains append-only with no update policy |
+| Beat delivered as live director direction | Not implemented | Consumer exists (`apps/server/directorStream.ts`, RV-16, unmerged); `beatAtOffset` computes the current beat | Nothing calls `direct` with a beat; no producer is wired |
 
 ## Deployment gap (important for agents)
 

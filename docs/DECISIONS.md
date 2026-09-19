@@ -44,6 +44,10 @@ The Discover experience renders Titan-provided real films and series faithfully.
 
 Images, uploaded clips, and live camera are inputs to a shared creative turn, not opaque prompt attachments. Each has an owner, consent state, declared purpose, lifetime, and server-issued asset reference. Live media uses Vonage for room transport and fal.ai only for explicitly permitted creative transformation.
 
+## 2026-09-19 — Script history is append-only full snapshots
+
+The live-edited script markdown is versioned as an append-only sequence of full snapshots behind the `JamStore` boundary. Undo restores an earlier revision as a new revision recording `restoredFromRevision`, so redo is just another restore and history is never rewritten; identical-content saves are ignored so autosave cannot flood the history. Full snapshots (≤30k chars, ≤500 revisions per jam) were chosen over diffs because a 4-minute script is small and restore must be trivial. The structured Zod-validated `JamScript` remains the generation-time authority; markdown revisions capture what the room edited afterwards. In Supabase this is `jam_scripts` (artifact) plus `jam_script_revisions` (history) hanging off the room row in `jams`, with no update/delete policies on revisions.
+
 ## 2026-09-19 — Start with one same-origin local development server
 
 The first runnable baseline serves the Vite client through the Node/Express process at `127.0.0.1:4317`. This keeps browser-to-server contracts and provider boundaries easy to iterate on locally. It is a local development baseline, not the public deployment configuration.

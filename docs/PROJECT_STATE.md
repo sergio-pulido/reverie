@@ -57,6 +57,12 @@
 - Sessions live in-memory behind a `SessionStore` interface beside `JamStore`; the Supabase migration `20260919170000_script_format_and_sessions.sql` mirrors the format columns and an owner-scoped `jam_sessions` table (RLS, one session per user per jam) for the persistent path.
 - Actual translated/re-ambiented playback generation (provider calls per session) is intentionally not implemented yet; sessions currently record and expose the parameters that will drive it.
 
+## 2026-09-19 — Script markdown gains persistent revision history
+
+- The `JamStore` boundary now versions the script markdown: creating a jam records revision 1 (the rendered script), `PUT /api/jams/:id/script` appends live edits, and `POST /api/jams/:id/script/revert` restores an earlier revision as a new one (undo/redo without rewriting history). Revision metadata and full snapshots are served by the new revision routes, and `script.md` serves the latest revision rather than a re-render.
+- `POST /api/jams` accepts an optional `jamId` so a script can be created under the client-created Supabase room row instead of a second server-minted id.
+- `supabase/migrations/20260919170000_jam_scripts.sql` adds `jam_scripts` and `jam_script_revisions` under host-scoped RLS; it has not been applied to a live Supabase project yet, and the working store remains the in-memory implementation. A Supabase-backed `JamStore` is the next storage milestone.
+
 ## 2026-09-19 — Deployment and documentation aligned
 
 - Vercel config defines the Vite build/output and SPA routing that excludes API paths; `/api/health` has a Node handler shared with local Express.

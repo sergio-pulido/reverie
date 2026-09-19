@@ -17,7 +17,11 @@ These are Reverie application contracts, not provider API endpoints.
 | `POST /api/discover/turns` | Apply a natural-language discovery refinement to real catalogue results |
 | `POST /api/jams` | Create a jam and generate its script from scratch or from an existing movie |
 | `GET /api/jams/:id` | Read a generated jam snapshot |
-| `GET /api/jams/:id/script.md` | Read the generated jam script rendered as markdown |
+| `GET /api/jams/:id/script.md` | Read the current script markdown (the latest revision, including live edits) |
+| `PUT /api/jams/:id/script` | Append a live markdown edit as a new script revision |
+| `POST /api/jams/:id/script/revert` | Restore an earlier revision as a new revision (undo/redo) |
+| `GET /api/jams/:id/script/revisions` | List revision metadata (no markdown bodies) |
+| `GET /api/jams/:id/script/revisions/:revision` | Read one full revision including its markdown |
 | `POST /api/jams/:id/sessions` | Attach a user session to a jam; returns the session plus a one-time owner token |
 | `GET /api/jams/:id/sessions` | List a jam's sessions (public projections, never owner tokens) |
 | `GET /api/sessions/:id` | Read one session |

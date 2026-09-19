@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { jamScriptSchema, scriptFormatSchema } from "./script";
-import { MAX_SCRIPT_MARKDOWN_CHARS } from "./scriptHistory";
+import { portionPatchSchema } from "./scriptHistory";
 
 // A jam starts either from scratch (a short prompt seeds the script) or from
 // an existing movie the room wants to riff on. Catalogue titles are source
@@ -56,9 +56,9 @@ export const createJamCommandSchema = z.preprocess((value) => {
   return value;
 }, createJamCommandUnion);
 
-export const updateJamScriptCommandSchema = z.object({
-  markdown: z.string().min(1).max(MAX_SCRIPT_MARKDOWN_CHARS),
-});
+// Live edits are portion-scoped: the structured script is the source of
+// truth, and free-form whole-document edits are not expressible.
+export const updatePortionCommandSchema = portionPatchSchema;
 
 export const revertJamScriptCommandSchema = z.object({
   revision: z.number().int().min(1),
@@ -75,6 +75,6 @@ export const jamSchema = z.object({
 export type JamSource = z.infer<typeof jamSourceSchema>;
 export type GeneratedJamSource = z.infer<typeof generatedJamSourceSchema>;
 export type CreateJamCommand = z.infer<typeof createJamCommandSchema>;
-export type UpdateJamScriptCommand = z.infer<typeof updateJamScriptCommandSchema>;
+export type UpdatePortionCommand = z.infer<typeof updatePortionCommandSchema>;
 export type RevertJamScriptCommand = z.infer<typeof revertJamScriptCommandSchema>;
 export type Jam = z.infer<typeof jamSchema>;

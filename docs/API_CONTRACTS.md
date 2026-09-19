@@ -94,11 +94,11 @@ code — both go through the host-only functions above, which run as owner.
 | `POST /api/discover/turns` | Apply a natural-language discovery refinement to real catalogue results |
 | `POST /api/jams` | Register a jam and either generate its script from scratch/from a movie or import an existing script |
 | `GET /api/jams/:id` | Read a generated jam snapshot |
-| `GET /api/jams/:id/script.md` | Read the current script markdown (the latest revision, including live edits) |
-| `PUT /api/jams/:id/script` | Append a live markdown edit as a new script revision |
-| `POST /api/jams/:id/script/revert` | Restore an earlier revision as a new revision (undo/redo) |
-| `GET /api/jams/:id/script/revisions` | List revision metadata (no markdown bodies) |
-| `GET /api/jams/:id/script/revisions/:revision` | Read one full revision including its markdown |
+| `GET /api/jams/:id/script.md` | Read the current revision rendered as markdown (a view; the structured script is the source of truth) |
+| `PATCH /api/jams/:id/script/portions/:portionIndex` | Edit one portion's content (`action`, `dialogue`, `visualDirection`, `durationSeconds`) as a new revision; rejected with `portion_locked` at or below the lock boundary |
+| `POST /api/jams/:id/script/revert` | Restore an earlier revision as a new revision (undo/redo); rejected with `portion_locked` if a played or locked portion would change |
+| `GET /api/jams/:id/script/revisions` | List revision metadata (no script bodies) |
+| `GET /api/jams/:id/script/revisions/:revision` | Read one full revision: structured script plus its rendered markdown |
 | `POST /api/jams/:id/sessions` | Attach a user session to a jam; returns the session plus a one-time owner token |
 | `GET /api/jams/:id/sessions` | List a jam's sessions (public projections, never owner tokens) |
 | `GET /api/sessions/:id` | Read one session |

@@ -258,7 +258,8 @@
 .discover-state p { margin: 0 0 14px; color: #c2c4d0; font-size: 22px; line-height: 1.55; }
 .discover-state-title { font-size: 30px; font-weight: 600; color: #f7f4ec; }
 .discover-state-detail { font-family: "DM Mono", monospace; font-size: 18px; color: #a7abbf; }
-.discover-state-detail code { color: #cbd5ff; }
+/* An env-var name has no break opportunity and ran off the edge on a narrow screen. */
+.discover-state-detail code { color: #cbd5ff; overflow-wrap: anywhere; }
 .discover-state-notice { border-color: #4b5a86; }
 .discover-state-error { border-color: #8a5566; }
 .discover-retry {

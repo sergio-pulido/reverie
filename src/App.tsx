@@ -5,6 +5,11 @@ import { DiscoverScreen } from "./discover/DiscoverScreen";
 import { FilmPage } from "./discover/FilmPage";
 import { TMDB_ATTRIBUTION_FALLBACK } from "./discover/TmdbAttribution";
 import { HomeScreen } from "./home/HomeScreen";
+import {
+  DEFAULT_PORTION_MAX_SECONDS,
+  DEFAULT_PORTION_MIN_SECONDS,
+  DEFAULT_TOTAL_SECONDS,
+} from "./core/script";
 import { safeMessageOf } from "./lib/errors";
 import { createJam as createJamRoom, type JamPersistence, type JamRoom, type JamVisibility } from "./lib/jams";
 import {
@@ -69,9 +74,12 @@ export function App() {
   const [persistence, setPersistence] = useState<JamPersistence>(hasSupabaseConfiguration() ? "remote" : "preview");
   const [sourceKind, setSourceKind] = useState<SourceKind>("from-scratch");
   const [importedScript, setImportedScript] = useState("");
-  const [totalMinutes, setTotalMinutes] = useState(4);
-  const [portionMinSeconds, setPortionMinSeconds] = useState(10);
-  const [portionMaxSeconds, setPortionMaxSeconds] = useState(20);
+  // Seeded from the format defaults rather than repeated here: when the
+  // model's limits moved, a second copy of them in this form is what silently
+  // started posting jams the server refuses.
+  const [totalSeconds, setTotalSeconds] = useState(DEFAULT_TOTAL_SECONDS);
+  const [portionMinSeconds, setPortionMinSeconds] = useState(DEFAULT_PORTION_MIN_SECONDS);
+  const [portionMaxSeconds, setPortionMaxSeconds] = useState(DEFAULT_PORTION_MAX_SECONDS);
   const [generatedJam, setGeneratedJam] = useState<GeneratedJam | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
@@ -191,7 +199,7 @@ export function App() {
           ...(sourceKind === "import-script" ? { scriptMarkdown: importedScript.trim() } : {}),
           jamId: created.jam.id,
           format: {
-            totalSeconds: Math.round(totalMinutes * 60),
+            totalSeconds,
             portionMinSeconds,
             portionMaxSeconds,
           },
@@ -243,7 +251,7 @@ export function App() {
     }
     if (screen === "jams") return <JamRegistry onNew={startJam} onOpen={(jam, mode) => { applyJam(jam, mode); navigate("studio", `/jams/${jam.slug}`); }} />;
     if (screen === "create") {
-      return <CreateRoom title={roomTitle} premise={premise} visibility={visibility} sourceKind={sourceKind} importedScript={importedScript} totalMinutes={totalMinutes} portionMinSeconds={portionMinSeconds} portionMaxSeconds={portionMaxSeconds} onTitle={setRoomTitle} onPremise={setPremise} onVisibility={setVisibility} onSourceKind={setSourceKind} onImportedScript={setImportedScript} onTotalMinutes={setTotalMinutes} onPortionMinSeconds={setPortionMinSeconds} onPortionMaxSeconds={setPortionMaxSeconds} onSubmit={createRoom} isCreating={isCreating} notice={notice} />;
+      return <CreateRoom title={roomTitle} premise={premise} visibility={visibility} sourceKind={sourceKind} importedScript={importedScript} totalSeconds={totalSeconds} portionMinSeconds={portionMinSeconds} portionMaxSeconds={portionMaxSeconds} onTitle={setRoomTitle} onPremise={setPremise} onVisibility={setVisibility} onSourceKind={setSourceKind} onImportedScript={setImportedScript} onTotalSeconds={setTotalSeconds} onPortionMinSeconds={setPortionMinSeconds} onPortionMaxSeconds={setPortionMaxSeconds} onSubmit={createRoom} isCreating={isCreating} notice={notice} />;
     }
     if (screen === "script" && generatedJam) {
       return <ScriptScreen jam={generatedJam} roomTitle={roomTitle} onStudio={() => setLocation((current) => ({ ...current, screen: "studio" }))} />;

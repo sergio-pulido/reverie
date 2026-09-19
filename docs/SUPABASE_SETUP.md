@@ -8,12 +8,18 @@ Reverie uses Supabase as the authoritative store for Jam rooms, membership, chat
 2. Enable **Anonymous Sign-Ins** in Auth. This gives each browser a real `auth.uid()` without asking a HackBarna audience member to create an account.
 3. Run every migration in `supabase/migrations` in filename order through the SQL Editor or
    Supabase CLI: `20260919140000_initial_jams.sql`, `20260919160000_jam_lobby_admission.sql`,
-   `20260919170000_script_format_and_sessions.sql`, `20260919180000_jam_scripts.sql`, then
-   `20260919190000_jam_collaboration.sql`. The last migration adds `jam_messages`,
-   `jam_proposals` and `jam_members` to the `supabase_realtime` publication and creates the
-   `realtime.messages` policies that authorize the private `jam:<id>` channel, so no manual
-   publication step is needed.
+   `20260919170000_script_format_and_sessions.sql`, `20260919180000_jam_scripts.sql`,
+   `20260919190000_jam_collaboration.sql`, `20260919200000_jam_invite_lifecycle.sql`, then
+   `20260919210000_jam_live_media.sql`, `20260919211000_live_session_reservation.sql`, and
+   `20260919212000_fix_invite_code_randomness.sql` and
+   `20260919213000_persist_admission_throttle.sql`.
+   The collaboration migration adds `jam_messages`,
+   `jam_proposals` and `jam_members` to the `supabase_realtime` publication. Chat and
+   proposals are authorized by their table RLS policies, so no manual publication step is
+   needed.
 4. Keep later migrations ordered and versioned in `supabase/migrations`. Apply the initial migration once; it is not an idempotent reset script.
+   If `20260919190000_jam_collaboration.sql` was previously rejected with "must be owner of
+   table messages", pull the current `main` and rerun its complete updated contents.
 5. In Database → Publications, add any further realtime table to `supabase_realtime` only once its subscription and its RLS policies exist.
 
 ## 2. Configure local development
@@ -34,10 +40,12 @@ Add the same `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` values to the Verc
 ## Current scope
 
 The migrations support server-authoritative Jam records, script/session metadata, invite
-entitlement, display names, the waiting lobby, host admission and removal, append-only chat
-and proposals, Postgres Changes and a private Presence channel. Membership is mutated only through
+entitlement and lifecycle, display names, the waiting lobby, host admission and removal,
+append-only chat and proposals, RLS-filtered Postgres Changes, and opt-in live-media
+consent/session records. Membership is mutated only through
 `request_jam_admission` and `set_jam_member_status`; the browser has no write policy on
-`jam_members`. Votes, scene transitions, forks, Storage and every provider call remain
+`jam_members`. Live-session creation is reserved in Postgres before the server calls Vonage,
+so concurrent joins create one provider room. Votes, scene transitions, forks, Storage and every provider call remain
 subsequent milestones. Do not weaken RLS just to make a demo appear to work.
 
 ## Verification and security boundary
@@ -54,22 +62,29 @@ It opens three independent anonymous sessions and asserts lobby placement, refus
 self-admission and of direct `jam_members` inserts, host admission, cross-session Realtime
 delivery of a message and a proposal, snapshot recovery after a dropped subscription,
 host-only visibility of the waiting lobby, outsider denial, removal, and refusal to re-enter
-after removal. It leaves one test jam
+after removal. It also covers the invite lifecycle: that the invite column is not selectable
+by anyone including the host, that a host cannot hand-write a code, that a non-host cannot
+read, rotate or revoke an invite, that a revoked invite is indistinguishable from an unknown
+code, that rotation kills the previous code, that a repeated request is idempotent, and that
+repeated wrong codes are throttled. It leaves one test jam
 behind and prints its slug so it can be deleted from the dashboard. This repository has no
 Supabase credentials, so the script has never been run here.
 
-By hand: create a room in one browser and reload its persistent URL; open the invite code in
-a second browser profile and confirm it waits until the host admits it; send a line from each
-side and confirm both appear; reload one side and confirm the conversation is restored from
-the snapshot; remove the guest and confirm the room stops updating for them.
+By hand: create a room in one browser and reload its persistent URL; open the host invite
+panel and scan the QR with a phone; join from a second browser profile and confirm it waits
+until the host admits it, without touching the page; send a line from each side and confirm
+both appear; reload one side and confirm the conversation is restored from the snapshot;
+rotate the invite and confirm the previous link stops working; revoke it and confirm a new
+arrival is refused; remove the guest and confirm the room stops updating for them and that
+the same invite does not let them back in.
 
 Anonymous Auth users receive the `authenticated` database role; the public API key alone is not a signed-in identity. RLS enforces room membership on every collaborative table. The join and admit RPCs constrain who can change membership and refuse self-promotion, removed-member re-entry and private-room enumeration.
 
-Postgres Changes subscriptions need table publication and RLS; Presence needs separate
-Realtime authorization with private channels, so knowing a channel name never grants access.
-Reconnects reload authorized durable state, and membership revocation stops subsequent reads
-and writes. All of this is implemented in the migrations and the client, and none of it has
-been verified against a live project from this repository.
+Postgres Changes subscriptions need table publication and RLS. The current hosted Supabase
+setup uses public channels only as transport for those changes; it does not enable Presence or
+Broadcast, because project SQL cannot safely own policies on Supabase's internal Realtime
+table. Reconnects reload authorized durable state, and membership revocation stops subsequent
+reads and writes.
 
 Anonymous sessions persist in one browser profile. Do not promise cross-device host recovery. Before a public audience launch, configure Auth abuse protection and appropriate limits. No remote project or migration has been verified by this repository setup alone.
 

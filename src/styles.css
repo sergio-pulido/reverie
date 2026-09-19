@@ -150,3 +150,81 @@ footer { max-width: 1410px; margin: 0 auto; padding: 24px 48px; border-top: 1px 
 .roster-dot { flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%; background: #4a5573; }
 .roster-dot.online { background: #9fe6b2; box-shadow: 0 0 12px #6fd08c; }
 .contribution-form textarea:disabled, .contribution-form button:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Invite panel: link, QR and lifecycle controls. Host-only. */
+.invite-panel {
+  display: grid;
+  gap: 0.9rem;
+  padding: 1.4rem;
+  margin: 0 auto 1.5rem;
+  max-width: 34rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 18px;
+  background: rgba(12, 14, 22, 0.72);
+}
+
+.invite-qr {
+  justify-self: center;
+  padding: 0.9rem;
+  border-radius: 14px;
+  /* The QR needs a light quiet zone to scan reliably on a dark page. */
+  background: #ffffff;
+  line-height: 0;
+}
+
+.invite-code {
+  margin: 0;
+  text-align: center;
+  font-size: clamp(1.6rem, 6vw, 2.4rem);
+  letter-spacing: 0.32em;
+  text-indent: 0.32em;
+  font-weight: 600;
+}
+
+.invite-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.invite-actions .button { flex: 1 1 auto; }
+/* Live stage: opt-in camera, microphone and screen contributions. */
+.live-stage .live-surfaces {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+.live-surface:empty {
+  display: none;
+}
+
+.live-surface {
+  min-height: 140px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.live-consent-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.live-consent-form select,
+.live-consent-form input {
+  flex: 1 1 12rem;
+  min-width: 0;
+  padding: 0.6rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  font: inherit;
+}
+
+.live-consents li {
+  align-items: flex-start;
+}

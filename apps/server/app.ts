@@ -1,6 +1,7 @@
 import express, { type Express } from "express";
 import health from "../../api/health";
 import catalogue from "../../api/catalogue";
+import liveToken from "../../api/live/token";
 import { createJamsRouter, InMemoryJamStore, type JamStore } from "./jams";
 import { createPlaybackRouter } from "./playback";
 import { createSessionsRouter } from "./sessions";
@@ -15,6 +16,11 @@ export function createApiApp(store: JamStore = new InMemoryJamStore()): Express 
   app.get("/api/health", health);
   app.get("/api/catalogue", (request, response) => {
     void catalogue(request, response);
+  });
+  // Registered for every method so the local host answers 405 exactly as the Vercel
+  // function does, instead of letting the catch-all turn a wrong method into a 404.
+  app.all("/api/live/token", (request, response) => {
+    void liveToken(request, response);
   });
   app.use(createJamsRouter(store));
   app.use(createSessionsRouter(store));

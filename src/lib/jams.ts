@@ -11,7 +11,8 @@ type CreateJamInput = Pick<JamRoom, "title" | "premise" | "visibility"> & { id?:
 type CreatedJam = { jam: JamRoom; persistence: JamPersistence };
 export type JamRegistry = { jams: JamRoom[]; persistence: JamPersistence };
 
-const JAM_COLUMNS = "id, slug, title, premise, visibility, status, host_id, invite_code, created_at, updated_at";
+// invite_code is deliberately absent: it is host-only and read through get_jam_invite.
+const JAM_COLUMNS = "id, slug, title, premise, visibility, status, host_id";
 const PREVIEW_REGISTRY_KEY = "reverie.preview-jams.v1";
 
 function createSlug(title: string) {

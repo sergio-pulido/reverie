@@ -9,6 +9,7 @@ export type JamErrorCode =
   | "not_found"
   | "forbidden"
   | "conflict"
+  | "rate_limited"
   | "unavailable";
 
 export class JamError extends Error {
@@ -40,6 +41,7 @@ const SQLSTATE: Record<string, { code: JamErrorCode; message: string; retryable?
   P0002: { code: "not_found", message: "That invite code does not match an open jam." },
   "42501": { code: "forbidden", message: "You are not allowed to do that in this jam." },
   "23505": { code: "conflict", message: "That record already exists." },
+  "53400": { code: "rate_limited", message: "Too many attempts. Wait a few minutes and try again.", retryable: true },
   PGRST301: { code: "unauthenticated", message: "Your session is no longer signed in. Reload the page to continue." },
 };
 

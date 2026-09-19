@@ -33,14 +33,23 @@ Five simultaneous requests should create five candidate turns, not five contradi
 
 ## Current implementation boundary
 
-Implemented: room creation, invite entitlement, display names, the waiting lobby, host
-admission and removal, append-only chat and proposals, Postgres Changes, Presence, private
-channel authorization, reconnect snapshots, route scaffolding and health handlers.
-Constrained `security definer` RPCs own every membership mutation; Broadcast and Presence
-are notifications, not authorization or durable story state, and private rooms enforce both
-table RLS and private-channel authorization.
+Implemented: room creation, invite entitlement with expiry, revocation and rotation, link
+and QR sharing, display names, the waiting lobby, host admission and removal, append-only
+chat and proposals, Postgres Changes, Presence, private channel authorization, reconnect
+snapshots, route scaffolding and health handlers. Constrained `security definer` RPCs own
+every membership mutation and every invite mutation; Broadcast and Presence are
+notifications, not authorization or durable story state, and private rooms enforce both
+table RLS and private-channel authorization. The invite columns on `jams` are additionally
+withheld by column grant, because RLS scopes rows and not columns.
 
-Not implemented: votes, scene transitions, forks, catalogue and every provider workflow.
-Scene acceptance is deliberately absent because it requires the versioned transactional
-command contract in `docs/API_CONTRACTS.md`. No Supabase project has been migrated and no
-provider has been probed from this repository.
+Opt-in live media is implemented: a privileged Vercel function mints short-lived Vonage
+connection tokens from an RLS-checked membership row, and a consent register records owner,
+track kind, declared purpose, server-issued asset reference and expiry, with withdrawal
+stopping the track. No provider session has been opened from this repository; see
+`docs/PROJECT_STATE.md` for the probe receipts.
+
+Not implemented: votes, scene transitions, forks, catalogue, recording/export/transformation
+of live media, and every remaining provider workflow. Scene acceptance is deliberately
+absent because it requires the versioned transactional command contract in
+`docs/API_CONTRACTS.md`. No Supabase project has been migrated from this repository and no
+Vonage session has been opened from it.

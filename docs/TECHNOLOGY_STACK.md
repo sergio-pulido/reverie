@@ -11,7 +11,7 @@ Status: public build target. Package versions, models, cost, account access, and
 | Server | Node.js + Express | Local same-origin development and production-build preview; not the deployed room authority |
 | Deploy and privileged APIs | Vercel | Vite deployment, deep-link routing, and Node functions for provider credentials and token signing |
 | Authoritative collaboration data | Supabase + `@supabase/supabase-js` | Postgres, anonymous Auth, Row Level Security, Realtime, and later Storage |
-| Real-time | Supabase Realtime | Planned RLS-protected database changes and authorized private channels for room presence and notifications |
+| Real-time | Supabase Realtime | RLS-protected Postgres Changes for durable chat and proposals; Presence and Broadcast deferred |
 | Live media | Vonage Video API | WebRTC participant video, broadcast/watch view, optional archive, captions and room signaling |
 | Schemas | Zod | Validate every browser command and external AI response |
 | QR | `qrcode.react` | Audience invite flow for live presentations |

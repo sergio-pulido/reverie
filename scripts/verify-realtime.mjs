@@ -31,6 +31,10 @@ function check(name, run) {
   );
 }
 
+function denied(result) {
+  return Boolean(result.error || result.data?.status === "error");
+}
+
 /** Each session is an independent client with its own storage: a separate browser. */
 async function newSession(label) {
   const memory = new Map();
@@ -60,7 +64,7 @@ function waitForMessage(session, jamId, predicate) {
     }, REALTIME_TIMEOUT_MS);
 
     const channel = session.client
-      .channel(`jam:${jamId}`, { config: { private: true } })
+      .channel(`jam:${jamId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "jam_messages", filter: `jam_id=eq.${jamId}` }, ({ new: row }) => {
         if (!predicate(row)) return;
         clearTimeout(timer);
@@ -87,7 +91,7 @@ const slug = `verify-room-${Date.now().toString(36)}`;
 const created = await host.client
   .from("jams")
   .insert({ slug, title: "Verification Jam", premise: "Two sessions verify the lobby.", visibility: "invite_only", host_id: host.userId })
-  .select("id, slug, invite_code")
+  .select("id, slug")
   .single();
 if (created.error) {
   console.error(`Could not create the verification jam: ${created.error.message}`);
@@ -96,13 +100,45 @@ if (created.error) {
 const jam = created.data;
 console.log(`Verification jam: ${jam.slug} (remove it from the dashboard afterwards)`);
 
-await check("the host receives a well-formed invite code", async () => {
+// The invite is host-only at the column level, so even the host reads it through the RPC.
+const firstInvite = await host.client.rpc("get_jam_invite", { p_jam_id: jam.id });
+if (firstInvite.error) {
+  console.error(`Could not read the invite: ${firstInvite.error.message}`);
+  process.exit(1);
+}
+jam.invite_code = firstInvite.data.code;
+
+await check("the host receives a well-formed, active invite code", async () => {
   assert.match(jam.invite_code, /^[A-HJ-NP-TV-Z2-9]{8}$/);
+  assert.equal(firstInvite.data.state, "active");
+});
+
+await check("nobody can select the invite column directly, not even the host", async () => {
+  const hostRead = await host.client.from("jams").select("invite_code").eq("id", jam.id);
+  assert.ok(hostRead.error, "the invite column was selectable");
+  const guestRead = await guest.client.from("jams").select("invite_code").eq("id", jam.id);
+  assert.ok(guestRead.error, "the invite column was selectable by a guest");
+});
+
+await check("a host cannot hand-write a predictable invite code", async () => {
+  const { error } = await host.client.from("jams").update({ invite_code: "ABCD2345" }).eq("id", jam.id);
+  assert.ok(error, "a host wrote their own invite code");
+});
+
+await check("a guest cannot read, rotate or revoke someone else's invite", async () => {
+  for (const [fn, args] of [
+    ["get_jam_invite", { p_jam_id: jam.id }],
+    ["rotate_jam_invite", { p_jam_id: jam.id, p_expires_in_minutes: 30 }],
+    ["revoke_jam_invite", { p_jam_id: jam.id }],
+  ]) {
+    const { error } = await guest.client.rpc(fn, args);
+    assert.ok(error, `${fn} was allowed for a non-host`);
+  }
 });
 
 await check("an unknown invite code is refused", async () => {
-  const { error } = await guest.client.rpc("request_jam_admission", { p_invite_code: "ZZZZZZZZ", p_display_name: "Guest" });
-  assert.ok(error, "an unknown code was accepted");
+  const result = await guest.client.rpc("request_jam_admission", { p_invite_code: "ZZZZZZZZ", p_display_name: "Guest" });
+  assert.ok(denied(result), "an unknown code was accepted");
 });
 
 await check("a guest cannot insert a membership row directly", async () => {
@@ -167,7 +203,7 @@ await check("a proposal from the guest reaches the host over Realtime", async ()
   const delivered = new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("no realtime delivery within the timeout")), REALTIME_TIMEOUT_MS);
     const channel = host.client
-      .channel(`jam:${jam.id}`, { config: { private: true } })
+      .channel(`jam:${jam.id}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "jam_proposals", filter: `jam_id=eq.${jam.id}` }, ({ new: row }) => {
         if (row.body !== body) return;
         clearTimeout(timer);
@@ -222,6 +258,90 @@ await check("a removed guest loses read and write access", async () => {
 await check("a removed guest cannot re-enter with the same invite code", async () => {
   const { error } = await guest.client.rpc("request_jam_admission", { p_invite_code: jam.invite_code, p_display_name: "Guest" });
   assert.ok(error, "a removed guest re-entered the jam");
+});
+
+// --- invite lifecycle ---------------------------------------------------------
+
+await check("a repeated request from a waiting participant is idempotent", async () => {
+  const first = await lurker.client.rpc("request_jam_admission", { p_invite_code: jam.invite_code, p_display_name: "Lurker" });
+  assert.equal(first.error, null, first.error?.message);
+  assert.equal(first.data.memberStatus, "waiting");
+  const again = await lurker.client.rpc("request_jam_admission", { p_invite_code: jam.invite_code, p_display_name: "Lurker Again" });
+  assert.equal(again.error, null, again.error?.message);
+  assert.equal(again.data.memberStatus, "waiting", "a repeated request changed the status");
+});
+
+await check("a waiting participant can read their own membership row and nothing else", async () => {
+  const own = await lurker.client.from("jam_members").select("user_id, status").eq("jam_id", jam.id);
+  assert.equal(own.error, null, own.error?.message);
+  assert.equal(own.data.length, 1, "a waiting participant saw more than their own row");
+  assert.equal(own.data[0].user_id, lurker.userId);
+  assert.equal(own.data[0].status, "waiting");
+});
+
+await check("a revoked invite stops admitting and is indistinguishable from an unknown code", async () => {
+  const revoked = await host.client.rpc("revoke_jam_invite", { p_jam_id: jam.id });
+  assert.equal(revoked.error, null, revoked.error?.message);
+  assert.equal(revoked.data.state, "revoked");
+
+  const attempt = await outsider.client.rpc("request_jam_admission", { p_invite_code: jam.invite_code, p_display_name: "Outsider" });
+  assert.ok(denied(attempt), "a revoked invite still admitted");
+  const unknown = await outsider.client.rpc("request_jam_admission", { p_invite_code: "ZZZZZZZZ", p_display_name: "Outsider" });
+  assert.equal(attempt.data?.code, unknown.data?.code, "a revoked invite is distinguishable from an unknown code");
+});
+
+await check("rotating mints a new code and kills the old one", async () => {
+  const rotated = await host.client.rpc("rotate_jam_invite", { p_jam_id: jam.id, p_expires_in_minutes: 30 });
+  assert.equal(rotated.error, null, rotated.error?.message);
+  assert.notEqual(rotated.data.code, jam.invite_code, "rotation reused the previous code");
+  assert.match(rotated.data.code, /^[A-HJ-NP-TV-Z2-9]{8}$/);
+  assert.equal(rotated.data.state, "active");
+  assert.ok(Date.parse(rotated.data.expiresAt) > Date.now(), "the rotated invite is already expired");
+
+  const stale = await outsider.client.rpc("request_jam_admission", { p_invite_code: jam.invite_code, p_display_name: "Outsider" });
+  assert.ok(denied(stale), "the previous invite code still worked after rotation");
+  jam.invite_code = rotated.data.code;
+});
+
+await check("a rotated invite admits again", async () => {
+  const { data, error } = await outsider.client.rpc("request_jam_admission", { p_invite_code: jam.invite_code, p_display_name: "Outsider" });
+  assert.equal(error, null, error?.message);
+  assert.equal(data.memberStatus, "waiting");
+});
+
+await check("an out-of-band invite lifetime is refused", async () => {
+  for (const minutes of [1, 4, 5000]) {
+    const { error } = await host.client.rpc("rotate_jam_invite", { p_jam_id: jam.id, p_expires_in_minutes: minutes });
+    assert.ok(error, `${minutes} minutes was accepted`);
+  }
+});
+
+await check("repeated wrong codes are throttled before a private room can be enumerated", async () => {
+  const prober = await newSession("prober");
+  let throttledAt = null;
+  for (let attempt = 1; attempt <= 12 && throttledAt === null; attempt += 1) {
+    const guess = `Z${attempt.toString().padStart(7, "2")}`.slice(0, 8).toUpperCase();
+    const result = await prober.client.rpc("request_jam_admission", { p_invite_code: guess, p_display_name: "Prober" });
+    assert.ok(denied(result), "a guessed code was accepted");
+    if (result.data?.code === "rate_limited") throttledAt = attempt;
+  }
+  assert.ok(throttledAt !== null, "an unlimited number of invite guesses was allowed");
+  console.log(`      throttled after ${throttledAt} failed lookups`);
+
+  // The throttle is keyed on auth.uid() and identities here are anonymous, so a fresh
+  // session resets it. This asserts that limit rather than hiding it: the barrier against
+  // enumeration is the code's entropy plus Supabase Auth's anonymous sign-in limits.
+  const reborn = await newSession("prober-reborn");
+  const afterReset = await reborn.client.rpc("request_jam_admission", { p_invite_code: "ZZZZZZZZ", p_display_name: "Prober" });
+  assert.ok(denied(afterReset), "a guessed code was accepted");
+  assert.equal(afterReset.data?.code === "rate_limited", false,
+    "unexpected: the throttle survived a new anonymous identity, so this note is stale");
+  await reborn.client.auth.signOut();
+
+  // The throttle must not leak into the real invite either.
+  const blocked = await prober.client.rpc("request_jam_admission", { p_invite_code: jam.invite_code, p_display_name: "Prober" });
+  assert.ok(denied(blocked), "a throttled session still exchanged a valid invite");
+  await prober.client.auth.signOut();
 });
 
 for (const session of [host, guest, outsider, lurker]) {

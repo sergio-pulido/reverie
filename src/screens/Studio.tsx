@@ -1,8 +1,10 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { authorName, type ConnectionState, type JamMember } from "../core/room";
-import { inviteUrl } from "../core/invite";
 import { Footer, Header, LiveScene, Notice } from "../chrome";
+import { InvitePanel } from "./InvitePanel";
+import { useAccessStatus } from "./useAccessStatus";
 import { useJamRoom } from "./useJamRoom";
+import { LiveStage } from "../live/LiveStage";
 
 const CONNECTION_LABEL: Record<ConnectionState, string> = {
   idle: "NOT CONNECTED",
@@ -15,6 +17,7 @@ const CONNECTION_LABEL: Record<ConnectionState, string> = {
 
 export function Studio({ slug, onExit }: { slug: string; onExit: () => void }) {
   const { state, actions, actionError, contributionAllowed } = useJamRoom(slug);
+  const [showInvite, setShowInvite] = useState(false);
 
   if (state.phase === "loading") {
     return <Shell onExit={onExit}><section className="studio-header"><div><p className="eyebrow">MOVIE JAM</p><h1>Opening the room…</h1></div></section></Shell>;
@@ -32,30 +35,28 @@ export function Studio({ slug, onExit }: { slug: string; onExit: () => void }) {
   const isHost = self?.role === "host";
   const waitingMembers = members.filter((member) => member.status === "waiting");
   const activeMembers = members.filter((member) => member.status === "active");
-  const onlineIds = new Set(state.presence.map((entry) => entry.userId));
 
   return <Shell onExit={onExit}>
     <section className="studio-header">
       <div>
         <p className="eyebrow">MOVIE JAM / <ConnectionBadge state={state.connection} /></p>
         <h1>{jam.title}</h1>
-        <p>{jam.visibility === "public" ? "Public room" : "Invite-only room"} · {activeMembers.length} in the room · {onlineIds.size} connected now</p>
+        <p>{jam.visibility === "public" ? "Public room" : "Invite-only room"} · {activeMembers.length} in the room</p>
       </div>
       <div className="studio-actions">
         <button className="button button-quiet" onClick={onExit}>Leave</button>
-        {isHost && jam.invite_code && <InviteButton slug={jam.slug} code={jam.invite_code} />}
+        {isHost && <button className="button button-primary" onClick={() => setShowInvite((open) => !open)}>
+          {showInvite ? "Hide invite" : "Invite people"} <span>↗</span>
+        </button>}
       </div>
     </section>
 
     {state.error && <Notice>{state.error}</Notice>}
     {actionError && <Notice>{actionError}</Notice>}
+    {isHost && showInvite && <InvitePanel jamId={jam.id} onClose={() => setShowInvite(false)} />}
 
     {self?.status !== "active"
-      ? <section className="studio-grid"><aside className="conversation-panel">
-          <div className="panel-heading"><div><p className="eyebrow">LOBBY</p><h2>Waiting for the host.</h2></div><span className="local-badge">WAITING</span></div>
-          <p>The conversation and the proposal queue open when the host admits you.</p>
-          <button className="button button-quiet" onClick={actions.refresh}>Check again <span>↻</span></button>
-        </aside><div className="studio-scene"><LiveScene compact /></div></section>
+      ? <WaitingLobby jamId={jam.id} onAdmitted={actions.refresh} />
       : <section className="studio-grid">
           <aside className="conversation-panel">
             <div className="panel-heading"><div><p className="eyebrow">STORY CONVERSATION</p><h2>What should happen next?</h2></div><span className="local-badge">{CONNECTION_LABEL[state.connection]}</span></div>
@@ -82,7 +83,9 @@ export function Studio({ slug, onExit }: { slug: string; onExit: () => void }) {
               <p className="form-note">Accepting a proposal into a scene needs the versioned transactional contract that is not implemented yet.</p>
             </div>
 
-            <Roster members={activeMembers} onlineIds={onlineIds} selfId={self.user_id} isHost={isHost} onRemove={actions.remove} />
+            <LiveStage jamId={jam.id} userId={self.user_id} members={members} canJoin={contributionAllowed} />
+
+            <Roster members={activeMembers} selfId={self.user_id} isHost={isHost} onRemove={actions.remove} />
             {isHost && <Lobby waiting={waitingMembers} onAdmit={actions.admit} onRemove={actions.remove} />}
           </div>
         </section>}
@@ -97,17 +100,33 @@ function ConnectionBadge({ state }: { state: ConnectionState }) {
   return <span className={`connection connection-${state}`} role="status">{CONNECTION_LABEL[state]}</span>;
 }
 
-function InviteButton({ slug, code }: { slug: string; code: string }) {
-  const [copied, setCopied] = useState(false);
-  const url = inviteUrl(window.location.origin, slug, code);
-  return <button className="button button-primary" onClick={() => {
-    void navigator.clipboard?.writeText(url).then(() => setCopied(true)).catch(() => setCopied(false));
-  }}>{copied ? `Copied · ${code}` : `Invite code ${code}`} <span>↗</span></button>;
+/**
+ * A waiting participant holds no Realtime channel, because channel authorization requires
+ * active membership. It polls the one row it is authorized to read — its own — and asks
+ * the room to reload the moment that row turns active.
+ */
+function WaitingLobby({ jamId, onAdmitted }: { jamId: string; onAdmitted: () => void }) {
+  const access = useAccessStatus(jamId, true);
+
+  useEffect(() => {
+    if (access.status === "active") onAdmitted();
+  }, [access.status, onAdmitted]);
+
+  const refused = access.status === "removed";
+  return <section className="studio-grid"><aside className="conversation-panel">
+    <div className="panel-heading">
+      <div><p className="eyebrow">LOBBY</p><h2>{refused ? "The host did not admit you." : "Waiting for the host."}</h2></div>
+      <span className="local-badge">{refused ? "NOT ADMITTED" : access.checking ? "CHECKING" : "WAITING"}</span>
+    </div>
+    <p>{refused
+      ? "This session cannot enter this jam. Ask the host directly if that was not intended."
+      : "The conversation and the proposal queue open when the host admits you. This page checks every few seconds."}</p>
+    {access.error && <Notice>{access.error}</Notice>}
+  </aside><div className="studio-scene"><LiveScene compact /></div></section>;
 }
 
-function Roster({ members, onlineIds, selfId, isHost, onRemove }: {
+function Roster({ members, selfId, isHost, onRemove }: {
   members: readonly JamMember[];
-  onlineIds: ReadonlySet<string>;
   selfId: string;
   isHost: boolean;
   onRemove: (memberId: string) => void;
@@ -116,7 +135,7 @@ function Roster({ members, onlineIds, selfId, isHost, onRemove }: {
     <div><p className="eyebrow">IN THE ROOM</p><h2>{members.length} director{members.length === 1 ? "" : "s"}</h2></div>
     <ul className="roster">
       {members.map((member) => <li key={member.user_id}>
-        <span className={onlineIds.has(member.user_id) ? "roster-dot online" : "roster-dot"} aria-label={onlineIds.has(member.user_id) ? "connected" : "away"} />
+        <span className="roster-dot online" aria-label="active member" />
         <span>{member.display_name}{member.role === "host" ? " · host" : ""}{member.user_id === selfId ? " · you" : ""}</span>
         {isHost && member.role !== "host" && <button className="button button-quiet" onClick={() => onRemove(member.user_id)}>Remove</button>}
       </li>)}

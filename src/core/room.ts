@@ -18,7 +18,7 @@ export const jamRoomSchema = z.object({
   visibility: jamVisibilitySchema,
   status: jamStatusSchema,
   host_id: z.string().uuid().optional(),
-  invite_code: z.string().optional(),
+  // invite_code is host-only now and is read through get_jam_invite, never off the room row.
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
 });
@@ -64,6 +64,15 @@ export const memberMutationResultSchema = z.object({
   status: memberStatusSchema,
 });
 
+export const jamInviteSchema = z.object({
+  jamId: z.string().uuid(),
+  slug: z.string(),
+  code: z.string().regex(/^[A-HJ-NP-TV-Z2-9]{8}$/),
+  expiresAt: z.string().nullable(),
+  revokedAt: z.string().nullable(),
+  state: z.enum(["active", "expired", "revoked"]),
+});
+
 export const presenceEntrySchema = z.object({
   userId: z.string().uuid(),
   displayName: z.string(),
@@ -77,6 +86,7 @@ export type JamProposal = z.infer<typeof jamProposalSchema>;
 export type AdmissionResult = z.infer<typeof admissionResultSchema>;
 export type MemberMutationResult = z.infer<typeof memberMutationResultSchema>;
 export type PresenceEntry = z.infer<typeof presenceEntrySchema>;
+export type JamInviteRecord = z.infer<typeof jamInviteSchema>;
 export type MemberStatus = z.infer<typeof memberStatusSchema>;
 export type JamVisibility = z.infer<typeof jamVisibilitySchema>;
 export type JamStatus = z.infer<typeof jamStatusSchema>;

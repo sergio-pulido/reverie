@@ -4,6 +4,49 @@
 
 Creating a jam now registers the room before the script exists, and the pre-minted room id is passed to `POST /api/jams` as `jamId`, so one jam owns exactly one script and its revision history instead of a second, unrelated server id. `/jams` lists the rooms an identity can read (host or any member) and offers "start a new jam"; without Supabase it is an explicitly non-shareable browser-local registry, never presented as shared. Creation has two sources: generate from a prompt (Nebius, behind the existing gate) or import an existing script. Import makes no provider call, stores the pasted markdown verbatim as revision 1, and derives a word-boundary, format-bounded timed projection for playback; text that cannot fill or fit the runtime is refused with `invalid_script_import` rather than padded or shredded into mid-word fragments. The earlier "from an existing movie" prompt path stays supported by the API but is no longer a create-screen option, matching the product decision that a room brings its own script.
 
+## 2026-09-19 — A live token is minted from membership, never requested
+
+The browser asks for a live token with a jam id and its Supabase access token, and nothing
+else; an extra `role` field is rejected rather than ignored. The function resolves identity
+through Supabase Auth, reads the caller's own `jam_members` row with that same token — so it
+is bound by the same RLS as the browser and needs no service-role key — and maps the result
+to a Vonage role. A participant cannot hold a moderator token by asking for one, and cannot
+hold any token while waiting or after removal. The token lasts ten minutes because rejoining
+is cheap and a long-lived credential in a browser is not.
+
+## 2026-09-19 — Consent is a row, and withdrawing it stops the track
+
+A live contribution is permitted only while a `jam_live_consents` row for that owner and that
+track kind is unwithdrawn and unexpired. The row records the declared creative purpose and a
+server-issued `live:<uuid>` asset reference, so anything downstream cites the reference rather
+than the raw feed. A database trigger issues that reference and clamps the lifetime, because a
+reference the browser chose would not be server-issued and an expiry the browser chose would
+not be a limit. Withdrawal is a `security definer` function that can stamp only the caller's
+own row: there is no update or delete policy, so a consent record cannot be rewritten into
+something its owner did not agree to. Expiry and withdrawal are the same answer to every
+consumer, which is why nothing downstream has to know which one happened.
+
+## 2026-09-19 — Live media records nothing by default
+
+Sessions are created with `archiveMode=manual` and the slice contains no archive, broadcast,
+RTMP, caption or transformation call at all. Recording, export and creative transformation are
+separate permissions with their own consent fields and budgets; none of them may be reachable
+as a side effect of a participant turning on a camera. fal.ai is not wired to a live feed here.
+
+## 2026-09-19 — The Vonage credentials in this repository cannot open a video session
+
+Two bounded probes on 2026-09-19 settled which credential shape exists. `POST
+https://api.opentok.com/session/create` with an HS256 project JWT returned 403, and `GET
+https://api.nexmo.com/v2/applications` with the same key and secret returned 200 listing zero
+applications: these are valid Vonage *account* credentials, the configured
+`VONAGE_APPLICATION_ID` is not reachable from that account, and no private key is supplied.
+The adapter supports both documented shapes — an application id with an RS256 private key
+against `video.api.vonage.com`, and a numeric legacy project key with an HS256 secret against
+`api.opentok.com` — and accepts neither an account key nor a half-configured pair. Until a
+video-capable application is supplied, `/api/live/token` answers `live_not_configured` and the
+studio says live media is off. A working stage is not claimed on the strength of code that
+compiles.
+
 ## 2026-09-19 — Script timing is a per-jam format with the 4-minute defaults
 
 The total runtime and portion length band are per-jam parameters (`format`: total 10–900 seconds, portions 4–60 seconds, at most 48 portions) instead of global constants; omitting them keeps the established 4-minute, 10–20 second behaviour. The low floor exists for tiny test jams, and the scriptwriter's completion token budget scales with the expected portion count instead of paying a flat worst case. Hard bounds (±2 seconds) and the total tolerance (~6% of runtime) are derived from the chosen format, so the writer prompt, draft rescaling, and validation stay a single consistent system at any length. Stored scripts validate against a format-agnostic structural schema; strict timing is enforced at generation time against the jam's own format.
@@ -132,3 +175,53 @@ display a table, column or constraint name to whoever triggered it.
 An active member reads the active roster; only the host reads the waiting rows. Enforcing
 this in the `jam_members` select policy rather than in the component that renders the lobby
 means a participant reading the table directly sees the same thing the UI shows them.
+
+## 2026-09-19 — The invite is a column privilege, not only a policy
+
+A member has to be able to read the room they are in. They must not be able to read the
+room's invite code, or an admitted participant could forward the entitlement to anyone. RLS
+cannot express that: it answers *which rows*, not *which columns of a row*. So the
+table-level `select` and `update` grants on `public.jams` are dropped and re-issued per
+column, excluding `invite_code`, `invite_expires_at` and `invite_revoked_at`.
+
+The same grant closes a second hole. The host update policy would otherwise let a host write
+`invite_code` directly — including a short, guessable, or previously revoked one. With the
+column ungranted, the only writer is `rotate_jam_invite`, which runs as owner and always
+draws from `generate_invite_code()`.
+
+## 2026-09-19 — Rotation is revocation with continuity
+
+`revoke_jam_invite` stamps `invite_revoked_at` and the room stops admitting anyone.
+`rotate_jam_invite` mints a fresh code instead, which kills every outstanding link and QR in
+the same instant while leaving the room open. Because the entitlement is a column on the
+room rather than a row per guest, there is nothing left behind to expire separately, and
+neither function touches anyone already in the room — removing a member is
+`set_jam_member_status`, which is a different decision with a different audit meaning.
+
+A refused invite reports exactly what an unknown code reports. If "this invite expired" and
+"no such invite" read differently, a prober learns that a private room exists at that code.
+
+## 2026-09-19 — Failed invite lookups are throttled, not only made improbable
+
+Eight characters of a 31-symbol alphabet is roughly 39 bits, which is not guessable from a
+browser. That is an argument about cost, not about permission, so `jam_admission_attempts`
+counts failed lookups per authenticated user over a rolling 10-minute window and refuses
+after ten. The table has RLS enabled and no policies at all, and neither helper is granted
+to `authenticated`, so nobody can read it or drive another user's count up into a lockout.
+
+Its limit is worth writing down rather than discovering later. The counter is keyed on
+`auth.uid()`, and this product signs people in anonymously, so a determined attacker mints a
+new identity and starts a new window. The throttle ends casual scripted probing from one
+session; the entropy of the code is still the real barrier, and Supabase Auth's own limits
+on anonymous sign-in are the backstop that has to be configured before a public audience.
+Claiming the throttle alone makes enumeration impossible would be false.
+
+## 2026-09-19 — A waiting participant polls, because it cannot subscribe
+
+Realtime channel authorization requires *active* membership, so a participant in the lobby
+holds no channel and cannot be pushed their own admission. The previous lobby told them the
+page would update and then waited for a manual retry. Rather than widen Realtime
+authorization to waiting members — which would hand a not-yet-admitted session a live view
+of the room's channel — the lobby polls the single row it is already authorized to read,
+its own `jam_members` row, every five seconds. Polling ends at `active`, where Postgres
+Changes take over, and at `removed`, which will not change by waiting.

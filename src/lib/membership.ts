@@ -1,10 +1,10 @@
 // Membership mutations. Every one of these is a constrained database function: the
 // browser cannot insert, update or delete a jam_members row directly.
 
-import { admissionResultSchema, memberMutationResultSchema, type AdmissionResult, type MemberMutationResult } from "../core/room";
+import { admissionResultSchema, jamMemberSchema, memberMutationResultSchema, type AdmissionResult, type JamMember, type MemberMutationResult, type MemberStatus } from "../core/room";
 import { normalizeDisplayName, normalizeInviteCode } from "../core/invite";
 import { JamError, notConfigured, toJamError } from "./errors";
-import { ensureUserId } from "./session";
+import { currentUserId, ensureUserId } from "./session";
 import { supabase } from "./supabase";
 
 /**
@@ -25,6 +25,15 @@ export async function requestAdmission(rawCode: string, rawName: string): Promis
   });
   if (error) throw toJamError(error, "The jam could not be joined right now.");
 
+  const denial = data as { status?: unknown; code?: unknown } | null;
+  if (denial?.status === "error") {
+    throw new JamError(
+      denial.code === "rate_limited" ? "rate_limited" : "not_found",
+      denial.code === "rate_limited" ? "Too many invite attempts. Try again shortly." : "That invite is not available.",
+      denial.code === "rate_limited",
+    );
+  }
+
   const parsed = admissionResultSchema.safeParse(data);
   if (!parsed.success) throw new JamError("unavailable", "The jam returned an unexpected response.", true);
   return parsed.data;
@@ -44,4 +53,37 @@ export async function setMemberStatus(jamId: string, memberId: string, status: "
   const parsed = memberMutationResultSchema.safeParse(data);
   if (!parsed.success) throw new JamError("unavailable", "The jam returned an unexpected response.", true);
   return parsed.data;
+}
+
+/**
+ * Reads this participant's own membership row — the one fact a waiting participant is
+ * authorized to see. `jam_members` RLS already allows `user_id = auth.uid()`, so this
+ * opens no new read surface; it just asks for what the lobby needs.
+ *
+ * Returns `null` when no row exists (never joined, or the row is gone).
+ */
+export async function loadOwnMembership(jamId: string): Promise<JamMember | null> {
+  if (!supabase) throw notConfigured("Checking your access");
+
+  const userId = await currentUserId();
+  if (!userId) throw new JamError("unauthenticated", "Your session is no longer signed in. Reload the page to continue.");
+
+  const { data, error } = await supabase
+    .from("jam_members")
+    .select("jam_id, user_id, display_name, role, status, joined_at")
+    .eq("jam_id", jamId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw toJamError(error, "Your access could not be checked.");
+  if (!data) return null;
+
+  const parsed = jamMemberSchema.safeParse(data);
+  return parsed.success ? parsed.data : null;
+}
+
+/** What the lobby should tell a waiting participant about where they stand. */
+export type AccessStatus = MemberStatus | "unknown";
+
+export function accessStatusOf(member: JamMember | null): AccessStatus {
+  return member?.status ?? "unknown";
 }

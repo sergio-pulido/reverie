@@ -13,10 +13,12 @@
     "start": "NODE_ENV=production tsx apps/server/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test \"tests/*.test.ts\"",
-    "verify:realtime": "node scripts/verify-realtime.mjs"
+    "verify:realtime": "node scripts/verify-realtime.mjs",
+    "probe:vonage": "node --import tsx scripts/probe-vonage.mts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.116.0",
+    "@vonage/client-sdk-video": "2.35.2",
     "express": "4.22.3",
     "qrcode.react": "4.2.0",
     "react": "19.3.0",

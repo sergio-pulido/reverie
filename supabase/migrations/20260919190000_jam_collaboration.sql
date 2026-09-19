@@ -98,35 +98,10 @@ $$;
 -- full previous row rather than only the primary key.
 alter table public.jam_members replica identity full;
 
--- 4. Realtime authorization for Presence and Broadcast --------------------------
--- Channel topic is 'jam:<jam id>'. Knowing the topic grants nothing on its own.
-
-create or replace function public.jam_id_from_topic(topic text)
-returns uuid
-language plpgsql
-immutable
-as $$
-begin
-  if topic is null or topic !~ '^jam:[0-9a-fA-F-]{36}$' then
-    return null;
-  end if;
-  return substring(topic from 5)::uuid;
-exception when others then
-  return null;
-end;
-$$;
-
-revoke all on function public.jam_id_from_topic(text) from public;
-grant execute on function public.jam_id_from_topic(text) to authenticated;
-
-alter table realtime.messages enable row level security;
-
-drop policy if exists "active members read their jam channel" on realtime.messages;
-create policy "active members read their jam channel"
-on realtime.messages for select to authenticated
-using (public.is_active_jam_member(public.jam_id_from_topic(realtime.topic())));
-
-drop policy if exists "active members write their jam channel" on realtime.messages;
-create policy "active members write their jam channel"
-on realtime.messages for insert to authenticated
-with check (public.is_active_jam_member(public.jam_id_from_topic(realtime.topic())));
+-- 4. Channel boundary -----------------------------------------------------------
+-- Hosted Supabase does not grant projects ownership of its internal `realtime.messages`
+-- table, so a project cannot safely install private-channel Presence/Broadcast policies
+-- from the SQL Editor. The client uses a public channel solely as the transport for
+-- Postgres Changes: durable `jam_messages`, `jam_proposals` and `jam_members` remain
+-- individually authorized by their own RLS policies above. Presence and Broadcast are not
+-- enabled, so a waiting participant has no transient roster to observe or spoof.

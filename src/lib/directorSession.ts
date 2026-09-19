@@ -1,25 +1,14 @@
-import {
-  directorServerMessageSchema,
-  initialDirectorState,
-  nextPromptMessage,
-  reduceDirectorState,
-  type DirectorState,
-} from "../core/directorProtocol";
+import type { DirectorState } from "../core/directorProtocol";
+import type { DirectorAuditEntry } from "../core/directorAudit";
 
 /**
- * Opens a Director stream from the browser.
+ * Client for the server-proxied live director.
  *
- * The browser is the WebRTC peer by design: the video is a media track, and
- * the alternative is a native WebRTC stack inside the Node server. The server
- * still brokers the handshake, so fal's credential never reaches this code —
- * what travels from here is an SDP offer and, later, direction.
+ * There is no WebRTC here by design. The server holds the peer connection so
+ * every frame can be recorded and every direction audited, which means this
+ * browser can ask for a direction to be sent but can never reach the provider
+ * itself. What it gets back is state, the audit trail, and a recording URL.
  */
-
-/** The control channel's address, from the model's AsyncAPI `channels`. */
-const CONTROL_CHANNEL = "fal";
-/** Renewal keeps the server's spend ledger from reclaiming a live session. */
-const RENEW_INTERVAL_MS = 30_000;
-const ICE_GATHERING_TIMEOUT_MS = 5_000;
 
 export class DirectorSessionError extends Error {
   constructor(
@@ -31,172 +20,74 @@ export class DirectorSessionError extends Error {
   }
 }
 
-export interface DirectorSessionHandle {
-  /** Sends new direction; resolves false if the channel is not open. */
-  direct(prompt: string): boolean;
-  /** Stops the stream and releases the server's reservation. */
-  stop(): Promise<void>;
-  readonly state: DirectorState;
-}
-
-export interface DirectorSessionOptions {
-  jamId: string;
-  onState(state: DirectorState): void;
-  onStream(stream: MediaStream): void;
-  signal?: AbortSignal;
-}
-
-interface SessionResponse {
+export interface OpenedDirectorSession {
   sessionId: string;
-  answer: { sdp: string };
-  configure: Record<string, unknown>;
   maxSessionSeconds: number;
+  /** False when the server has no object storage: the recording is lost on restart. */
+  recordingDurable: boolean;
+  state: DirectorState;
 }
 
-export async function openDirectorSession(
-  options: DirectorSessionOptions,
-): Promise<DirectorSessionHandle> {
-  const connection = new RTCPeerConnection();
-  let state: DirectorState = { ...initialDirectorState(), status: "connecting" };
-  const publish = () => options.onState(state);
-  publish();
-
-  // Video and audio are receive-only: nothing from this browser is uploaded.
-  connection.addTransceiver("video", { direction: "recvonly" });
-  connection.addTransceiver("audio", { direction: "recvonly" });
-  const control = connection.createDataChannel(CONTROL_CHANNEL);
-
-  connection.addEventListener("track", (event) => {
-    const [stream] = event.streams;
-    if (stream) options.onStream(stream);
-  });
-
-  const offer = await connection.createOffer();
-  await connection.setLocalDescription(offer);
-  await waitForIceGathering(connection);
-
-  let session: SessionResponse;
-  try {
-    session = await requestSession(
-      options.jamId,
-      connection.localDescription?.sdp ?? offer.sdp ?? "",
-      options.signal,
-    );
-  } catch (error) {
-    connection.close();
-    throw error;
-  }
-
-  control.addEventListener("open", () => {
-    // The configure message is the server's, built from the jam's script.
-    control.send(JSON.stringify(session.configure));
-  });
-  control.addEventListener("message", (event) => {
-    const parsed = directorServerMessageSchema.safeParse(safeJson(event.data));
-    if (!parsed.success) return;
-    state = reduceDirectorState(state, parsed.data);
-    publish();
-  });
-
-  await connection.setRemoteDescription({
-    type: "answer",
-    sdp: session.answer.sdp,
-  });
-
-  const renew = setInterval(() => {
-    void fetch(
-      `/api/jams/${options.jamId}/director/session/${session.sessionId}/renew`,
-      { method: "POST" },
-    ).catch(() => undefined);
-  }, RENEW_INTERVAL_MS);
-
-  let stopped = false;
-  const stop = async () => {
-    if (stopped) return;
-    stopped = true;
-    clearInterval(renew);
-    if (control.readyState === "open") {
-      control.send(JSON.stringify({ type: "stop" }));
-    }
-    connection.close();
-    state = { ...state, status: "ended" };
-    publish();
-    // Released last: the reservation must go even if the peer teardown threw.
-    await fetch(
-      `/api/jams/${options.jamId}/director/session/${session.sessionId}/end`,
-      { method: "POST" },
-    ).catch(() => undefined);
-  };
-
-  options.signal?.addEventListener("abort", () => void stop());
-
-  return {
-    direct(prompt: string) {
-      if (control.readyState !== "open") return false;
-      const next = nextPromptMessage(state, prompt);
-      control.send(JSON.stringify(next.message));
-      state = next.state;
-      publish();
-      return true;
-    },
-    stop,
-    get state() {
-      return state;
-    },
-  };
+export interface DirectorSnapshot {
+  state: DirectorState;
+  audit: DirectorAuditEntry[];
+  droppedAuditEntries: number;
 }
 
-async function requestSession(
-  jamId: string,
-  sdp: string,
-  signal?: AbortSignal,
-): Promise<SessionResponse> {
-  const response = await fetch(`/api/jams/${jamId}/director/session`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ sdp }),
-    signal,
-  });
+async function call<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, init);
   if (!response.ok) {
     const body = await response.json().catch(() => null);
-    const error = body?.error;
+    const error = (body as { error?: { code?: string; safeMessage?: string } } | null)?.error;
     throw new DirectorSessionError(
       typeof error?.safeMessage === "string"
         ? error.safeMessage
-        : "The live director could not be started.",
+        : "The live director is not available.",
       typeof error?.code === "string" ? error.code : "director_unavailable",
     );
   }
-  return (await response.json()) as SessionResponse;
+  return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
 }
 
-/**
- * fal takes a single complete offer rather than trickled candidates, so the
- * offer is held until gathering finishes. The timeout is a safeguard: a
- * candidate that never arrives should not hang the session forever, and a
- * partial candidate list still connects on a normal network.
- */
-function waitForIceGathering(connection: RTCPeerConnection): Promise<void> {
-  if (connection.iceGatheringState === "complete") return Promise.resolve();
-  return new Promise((resolve) => {
-    const finish = () => {
-      clearTimeout(timer);
-      connection.removeEventListener("icegatheringstatechange", onChange);
-      resolve();
-    };
-    const onChange = () => {
-      if (connection.iceGatheringState === "complete") finish();
-    };
-    const timer = setTimeout(finish, ICE_GATHERING_TIMEOUT_MS);
-    connection.addEventListener("icegatheringstatechange", onChange);
+export function startDirectorSession(jamId: string): Promise<OpenedDirectorSession> {
+  return call<OpenedDirectorSession>(`/api/jams/${jamId}/director/session`, {
+    method: "POST",
   });
 }
 
-function safeJson(raw: unknown): unknown {
-  if (typeof raw !== "string") return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
+export function readDirectorSession(
+  jamId: string,
+  sessionId: string,
+): Promise<DirectorSnapshot> {
+  return call<DirectorSnapshot>(`/api/jams/${jamId}/director/session/${sessionId}`);
+}
+
+/** Asks the server to send one direction. It decides what reaches the model. */
+export function sendDirection(
+  jamId: string,
+  sessionId: string,
+  direction: { body: string; authorId?: string; proposalId?: string },
+): Promise<{ promptVersion: number; state: DirectorState }> {
+  return call(`/api/jams/${jamId}/director/session/${sessionId}/direct`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(direction),
+  });
+}
+
+export function endDirectorSession(jamId: string, sessionId: string): Promise<void> {
+  return call<void>(`/api/jams/${jamId}/director/session/${sessionId}/end`, {
+    method: "POST",
+  });
+}
+
+/** Best-effort keepalive; a missed renewal only risks the session being reclaimed. */
+export function renewDirectorSession(jamId: string, sessionId: string): void {
+  void fetch(`/api/jams/${jamId}/director/session/${sessionId}/renew`, {
+    method: "POST",
+  }).catch(() => undefined);
+}
+
+export function directorRecordingSrc(jamId: string, sessionId: string): string {
+  return `/api/jams/${jamId}/director/recordings/${sessionId}`;
 }

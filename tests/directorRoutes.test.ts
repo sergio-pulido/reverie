@@ -6,8 +6,12 @@ import express from "express";
 import type { Jam } from "../src/core/jam";
 import { InMemoryJamStore } from "../apps/server/jams";
 import { createDirectorRouter } from "../apps/server/director";
-import type { DirectorConfig } from "../apps/server/providers/falDirector";
-import { DirectorError } from "../apps/server/providers/falDirector";
+import { InMemoryDirectorRecordingStore } from "../apps/server/directorRecordings";
+import {
+  DirectorError,
+  type DirectorConfig,
+} from "../apps/server/providers/falDirector";
+import { FakeDirectorPeer } from "./fakeDirectorPeer";
 import { buildScript } from "./helpers";
 
 const CONFIG: DirectorConfig = {
@@ -16,9 +20,9 @@ const CONFIG: DirectorConfig = {
   aspectRatio: "16:9",
 };
 
-// Deliberately roomy: every session here bills fal's 60-second minimum even
-// when it is closed immediately, so a realistic $20 budget would run out
-// partway through the file. Budget refusal has its own test below.
+// Roomy on purpose: every closed session bills fal's 60-second minimum, so a
+// realistic budget would run out partway through the file. Budget refusal has
+// its own test.
 const LIMITS = {
   budgetUsd: 1000,
   usdPerSecond: 0.08,
@@ -27,8 +31,10 @@ const LIMITS = {
 };
 
 const store = new InMemoryJamStore();
-/** Offers seen by the fake fal, so tests can assert what was forwarded. */
-let offers: { sdp: string }[] = [];
+const recordings = new InMemoryDirectorRecordingStore();
+/** The peer handed to the most recent session, so tests can drive it. */
+let peer: FakeDirectorPeer;
+let offers: string[] = [];
 let nextResult: "ok" | "unavailable" = "ok";
 let server: Server;
 let baseUrl: string;
@@ -43,11 +49,20 @@ function buildJam(): Jam {
   };
 }
 
-function openSession(jamId: string, sdp = "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\n") {
-  return fetch(`${baseUrl}/api/jams/${jamId}/director/session`, {
+async function openJamSession(): Promise<{ jam: Jam; sessionId: string }> {
+  const jam = buildJam();
+  await store.createJam(jam);
+  const response = await fetch(`${baseUrl}/api/jams/${jam.id}/director/session`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ sdp }),
+  });
+  assert.equal(response.status, 201);
+  const { sessionId } = await response.json();
+  return { jam, sessionId };
+}
+
+function endSession(jamId: string, sessionId: string) {
+  return fetch(`${baseUrl}/api/jams/${jamId}/director/session/${sessionId}/end`, {
+    method: "POST",
   });
 }
 
@@ -57,8 +72,13 @@ before(async () => {
     createDirectorRouter(store, {
       config: CONFIG,
       limits: LIMITS,
+      recordings,
+      createPeer: () => {
+        peer = new FakeDirectorPeer();
+        return peer;
+      },
       startSession: async (_config, offer) => {
-        offers.push({ sdp: offer.sdp });
+        offers.push(offer.sdp);
         if (nextResult === "unavailable") {
           throw new DirectorError("The director stream did not respond.", true);
         }
@@ -76,172 +96,253 @@ before(async () => {
 
 after(() => server.close());
 
-test("a session returns fal's answer plus the jam's own configure message", async () => {
+test("the server is the peer: it offers, receives only, and opens the control channel", async () => {
   offers = [];
-  const jam = buildJam();
-  await store.createJam(jam);
+  const { jam, sessionId } = await openJamSession();
 
-  const response = await openSession(jam.id);
-  assert.equal(response.status, 201);
-  const body = await response.json();
-
-  assert.equal(body.answer.type, "answer");
-  assert.equal(body.maxSessionSeconds, 60);
-  assert.ok(body.sessionId);
-  // The offer reached fal unchanged.
+  // The offer came from this server, not from a client.
   assert.equal(offers.length, 1);
-  assert.match(offers[0].sdp, /^v=0/);
-  // The beats come from the jam's script, not from the client.
-  assert.equal(body.configure.type, "configure");
-  assert.equal(body.configure.script.length, 4);
+  assert.match(offers[0], /fake-offer/);
+  assert.deepEqual(peer.transceivers, ["video", "audio"]);
+  assert.equal(peer.label, "fal");
+  assert.match(String(peer.remoteSdp), /answer/);
+
+  await endSession(jam.id, sessionId);
+});
+
+test("the configure message is the jam's script, sent by the server", async () => {
+  const { jam, sessionId } = await openJamSession();
+  peer.channel.open();
+
+  const [configure] = peer.channel.parsed();
+  assert.equal(configure.type, "configure");
+  assert.equal(configure.prompt_version, 1);
+  assert.equal((configure.script as unknown[]).length, 4);
   assert.deepEqual(
-    body.configure.script.map((beat: { offset: number }) => beat.offset),
+    (configure.script as { offset: number }[]).map((beat) => beat.offset),
     [0, 5, 10, 15],
   );
 
-  await fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${body.sessionId}/end`, {
-    method: "POST",
-  });
+  await endSession(jam.id, sessionId);
 });
 
-test("the response never carries the API key", async () => {
-  const jam = buildJam();
-  await store.createJam(jam);
-  const response = await openSession(jam.id);
-  const raw = await response.text();
-  assert.doesNotMatch(raw, /test-key/);
-  const { sessionId } = JSON.parse(raw);
-  await fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/end`, {
+test("a client cannot reach the provider: it asks the server to direct", async () => {
+  const { jam, sessionId } = await openJamSession();
+  peer.channel.open();
+
+  const response = await fetch(
+    `${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/direct`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        body: "Cut to the lighthouse at dusk.",
+        authorId: "author-1",
+        proposalId: "proposal-1",
+      }),
+    },
+  );
+  assert.equal(response.status, 202);
+  assert.equal((await response.json()).promptVersion, 2);
+
+  // It reached fal as a versioned prompt, sent by this server.
+  const prompt = peer.channel.parsed().at(-1)!;
+  assert.equal(prompt.type, "prompt");
+  assert.equal(prompt.prompt_version, 2);
+  assert.equal(prompt.prompt, "Cut to the lighthouse at dusk.");
+
+  await endSession(jam.id, sessionId);
+});
+
+test("every direction and verdict lands in the audit trail", async () => {
+  const { jam, sessionId } = await openJamSession();
+  peer.channel.open();
+
+  await fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/direct`, {
     method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ body: "Push in.", authorId: "author-1", proposalId: "p-1" }),
   });
+  peer.channel.deliver({ type: "prompt_applied", prompt_version: 2 });
+  peer.channel.deliver({
+    type: "chunk",
+    chunk_index: 0,
+    prompt_version: 2,
+    playback_seconds: 10,
+  });
+
+  const audit = await (
+    await fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}`)
+  ).json();
+
+  const kinds = audit.audit.map((entry: { kind: string }) => entry.kind);
+  assert.deepEqual(kinds, [
+    "session_opened",
+    "direction_sent",
+    "direction_applied",
+    "chunk_received",
+  ]);
+
+  const sent = audit.audit[1];
+  // The body recorded is the body sent, and it carries who asked for it.
+  assert.equal(sent.body, "Push in.");
+  assert.equal(sent.authorId, "author-1");
+  assert.equal(sent.proposalId, "p-1");
+  assert.equal(sent.promptVersion, 2);
+  assert.ok(sent.at);
+  assert.equal(audit.state.status, "streaming");
+
+  await endSession(jam.id, sessionId);
+});
+
+test("a refused direction is recorded and does not end the stream", async () => {
+  const { jam, sessionId } = await openJamSession();
+  peer.channel.open();
+  await fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/direct`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ body: "Something refused." }),
+  });
+  peer.channel.deliver({ type: "chunk", chunk_index: 0, prompt_version: 1, playback_seconds: 5 });
+  peer.channel.deliver({ type: "prompt_rejected", prompt_version: 2 });
+
+  const audit = await (
+    await fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}`)
+  ).json();
+  assert.ok(
+    audit.audit.some(
+      (entry: { kind: string; promptVersion?: number }) =>
+        entry.kind === "direction_rejected" && entry.promptVersion === 2,
+    ),
+  );
+  // Per the transactional-scene-contract rule, the stream survives it.
+  assert.equal(audit.state.status, "streaming");
+
+  await endSession(jam.id, sessionId);
+});
+
+test("direction is refused before the channel is open", async () => {
+  const { jam, sessionId } = await openJamSession();
+  const response = await fetch(
+    `${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/direct`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ body: "Too early." }),
+    },
+  );
+  assert.equal(response.status, 409);
+  const body = await response.json();
+  assert.equal(body.error.code, "stream_not_ready");
+  assert.equal(body.error.retryable, true);
+
+  await endSession(jam.id, sessionId);
+});
+
+test("an empty or oversized direction is refused", async () => {
+  const { jam, sessionId } = await openJamSession();
+  peer.channel.open();
+  const before = peer.channel.sent.length;
+
+  for (const body of ["", "   ", "x".repeat(2_001)]) {
+    const response = await fetch(
+      `${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/direct`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ body }),
+      },
+    );
+    assert.equal(response.status, 400, body.slice(0, 10));
+  }
+  // Nothing reached the provider.
+  assert.equal(peer.channel.sent.length, before);
+
+  await endSession(jam.id, sessionId);
 });
 
 test("an unknown jam is refused before any provider call", async () => {
   offers = [];
-  const response = await openSession(randomUUID());
+  const response = await fetch(
+    `${baseUrl}/api/jams/${randomUUID()}/director/session`,
+    { method: "POST" },
+  );
   assert.equal(response.status, 404);
-  assert.equal((await response.json()).error.code, "not_found");
-  assert.equal(offers.length, 0);
-});
-
-test("a malformed offer is refused before any provider call", async () => {
-  offers = [];
-  const jam = buildJam();
-  await store.createJam(jam);
-  const response = await fetch(`${baseUrl}/api/jams/${jam.id}/director/session`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ sdp: "" }),
-  });
-  assert.equal(response.status, 400);
   assert.equal(offers.length, 0);
 });
 
 test("a jam may hold only one stream, and the slot frees on end", async () => {
-  const jam = buildJam();
-  await store.createJam(jam);
-  const first = await openSession(jam.id);
-  assert.equal(first.status, 201);
-  const { sessionId } = await first.json();
-
-  const second = await openSession(jam.id);
+  const { jam, sessionId } = await openJamSession();
+  const second = await fetch(`${baseUrl}/api/jams/${jam.id}/director/session`, {
+    method: "POST",
+  });
   assert.equal(second.status, 409);
   assert.equal((await second.json()).error.code, "already_open");
 
-  const ended = await fetch(
-    `${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/end`,
-    { method: "POST" },
-  );
-  assert.equal(ended.status, 204);
-  const third = await openSession(jam.id);
+  assert.equal((await endSession(jam.id, sessionId)).status, 204);
+  const third = await fetch(`${baseUrl}/api/jams/${jam.id}/director/session`, {
+    method: "POST",
+  });
   assert.equal(third.status, 201);
-  await fetch(
-    `${baseUrl}/api/jams/${jam.id}/director/session/${(await third.json()).sessionId}/end`,
-    { method: "POST" },
-  );
+  await endSession(jam.id, (await third.json()).sessionId);
 });
 
-test("a failed handshake releases the reservation it took", async () => {
+test("a failed handshake releases the reservation and closes the peer", async () => {
   const jam = buildJam();
   await store.createJam(jam);
   nextResult = "unavailable";
-  const failed = await openSession(jam.id);
+  const failed = await fetch(`${baseUrl}/api/jams/${jam.id}/director/session`, {
+    method: "POST",
+  });
   assert.equal(failed.status, 502);
-  const body = await failed.json();
-  assert.equal(body.error.code, "director_unavailable");
-  assert.equal(body.error.retryable, true);
+  assert.equal((await failed.json()).error.code, "director_unavailable");
+  assert.ok(peer.closed);
 
-  // The jam is not left holding a session that never opened.
   nextResult = "ok";
-  const retried = await openSession(jam.id);
+  const retried = await fetch(`${baseUrl}/api/jams/${jam.id}/director/session`, {
+    method: "POST",
+  });
   assert.equal(retried.status, 201);
-  await fetch(
-    `${baseUrl}/api/jams/${jam.id}/director/session/${(await retried.json()).sessionId}/end`,
-    { method: "POST" },
-  );
+  await endSession(jam.id, (await retried.json()).sessionId);
 });
 
-test("renew is refused for a session that is not open", async () => {
-  const jam = buildJam();
-  await store.createJam(jam);
+test("ending a session closes the peer and is idempotent", async () => {
+  const { jam, sessionId } = await openJamSession();
+  peer.channel.open();
+  assert.equal((await endSession(jam.id, sessionId)).status, 204);
+  assert.ok(peer.closed);
+  // The provider was told to stop.
+  assert.equal(peer.channel.parsed().at(-1)!.type, "stop");
+  assert.equal((await endSession(jam.id, sessionId)).status, 204);
+});
+
+test("state and audit are gone once a session is closed", async () => {
+  const { jam, sessionId } = await openJamSession();
+  await endSession(jam.id, sessionId);
   const response = await fetch(
-    `${baseUrl}/api/jams/${jam.id}/director/session/nope/renew`,
-    { method: "POST" },
+    `${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}`,
   );
   assert.equal(response.status, 404);
 });
 
-test("ending a session twice is not an error", async () => {
-  const jam = buildJam();
-  await store.createJam(jam);
-  const { sessionId } = await (await openSession(jam.id)).json();
-  const url = `${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/end`;
-  assert.equal((await fetch(url, { method: "POST" })).status, 204);
-  assert.equal((await fetch(url, { method: "POST" })).status, 204);
+test("a session with no recording reports no recording, not an error", async () => {
+  const { jam, sessionId } = await openJamSession();
+  await endSession(jam.id, sessionId);
+  const response = await fetch(
+    `${baseUrl}/api/jams/${jam.id}/director/recordings/${sessionId}`,
+  );
+  assert.equal(response.status, 404);
+  assert.equal((await response.json()).error.code, "not_found");
 });
 
-test("the budget refuses a session it cannot pay for", async () => {
-  const poor = express();
-  poor.use(
-    createDirectorRouter(store, {
-      config: CONFIG,
-      // Enough for exactly one 60-second session at list price ($4.80).
-      limits: { ...LIMITS, budgetUsd: 5 },
-      startSession: async () => ({ type: "answer", sdp: "v=0\r\n" }),
-    }),
+test("a stored recording is served by this server", async () => {
+  const jam = buildJam();
+  await store.createJam(jam);
+  await recordings.save(jam.id, "session-x", Buffer.from("webm-bytes"), "video/webm");
+  const response = await fetch(
+    `${baseUrl}/api/jams/${jam.id}/director/recordings/session-x`,
   );
-  const poorServer = await new Promise<Server>((resolve) => {
-    const started = poor.listen(0, "127.0.0.1", () => resolve(started));
-  });
-  const address = poorServer.address();
-  assert.ok(address && typeof address === "object");
-  const poorUrl = `http://127.0.0.1:${address.port}`;
-
-  const first = buildJam();
-  const second = buildJam();
-  await store.createJam(first);
-  await store.createJam(second);
-
-  const open = (jamId: string) =>
-    fetch(`${poorUrl}/api/jams/${jamId}/director/session`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sdp: "v=0\r\n" }),
-    });
-
-  const ok = await open(first.id);
-  assert.equal(ok.status, 201);
-  const { sessionId } = await ok.json();
-  await fetch(
-    `${poorUrl}/api/jams/${first.id}/director/session/${sessionId}/end`,
-    { method: "POST" },
-  );
-
-  // Closing it refunds nothing: fal bills a 60-second minimum regardless.
-  const refused = await open(second.id);
-  assert.equal(refused.status, 409);
-  const body = await refused.json();
-  assert.equal(body.error.code, "budget_exhausted");
-  assert.equal(body.error.retryable, false);
-  poorServer.close();
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "video/webm");
+  assert.equal(await response.text(), "webm-bytes");
 });

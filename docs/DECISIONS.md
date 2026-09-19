@@ -27,43 +27,63 @@ slack that lets a beat breathe may no longer widen past it. `TOTAL_MAX_SECONDS` 
 A 4-second portion was asked for and is not possible: 5 seconds is the vendor floor on every
 H3 Max route. That is a vendor limit, not a preference, and nothing in this build rounds it away.
 
-## 2026-09-19 — The live director streams over WebRTC, so the browser is the peer (RV-16)
+## 2026-09-19 — The server is the WebRTC peer, so every frame and every direction is on the record (RV-16)
 
 `minimax/h3-max/director` is **not a queue model**. A session is a WebRTC peer connection: the
 caller POSTs an SDP offer to `/start-session`, fal answers, and video then arrives as a media
 track while direction travels over a JSON control channel (`configure`, `prompt`, `ping`, `stop`
-out; `configured`, `chunk`, `prompt_applied`, `stream_exhausted`, `error` back). There is no
-result URL. **Nothing a Director session generates can become a stored portion clip**, so it does
-not touch the playback pipeline and the two features sit side by side: `JamPlayer` is the durable
-film, `JamDirector` is the live room.
+out; `configured`, `chunk`, `prompt_applied`, `prompt_rejected`, `stream_exhausted`, `error`
+back). There is no result URL.
 
-**The browser is the WebRTC peer.** Only a browser can render a media track without pulling a
-native WebRTC stack into the Node server, which `AGENTS.md` would require a measured need for.
-The server brokers the handshake instead: it spends `FAL_KEY` so the client never sees it, it
-builds the `configure` message from the jam's own script so the beats are not client-supplied,
-and it decides whether a session may open at all.
+**This server is the peer.** An earlier revision of this branch made the browser the peer and had
+the server broker only the handshake, on the grounds that a browser renders a media track for
+free. That was reversed: if the browser holds the connection, prompts go from the browser
+straight to fal and there is no record of what the room asked for or what came back. Full control
+and a complete audit trail are the point of the integration, so the server takes the connection
+and pays the costs that come with it.
 
-**What this costs us, stated plainly:** once the peer connection is up, individual prompts travel
-from the browser straight to fal on the data channel. The server does not see them and cannot
-moderate them. That is a genuine narrowing of the "server owns provider calls" rule, accepted
-because the alternative is a native WebRTC stack in the server. The server still owns
-authorization to open a session, how many may be open, and the budget.
+What that buys: every direction is **originated** here (`POST .../director/session/:id/direct`),
+recorded with its prompt version, its author and the proposal it came from, and matched against
+fal's `prompt_applied` / `prompt_rejected` verdict. The media track is recorded to WebM and
+stored. A client has no route to the provider at all.
 
-**Spend is why the ledger exists.** fal bills each Director session at a **60-second minimum of
-wall-clock runtime**, so an idle open session costs as much as a working one. Opening a session
-reserves its worst case, closing settles it against the billed minimum, and a session whose
-client stops checking in is reclaimed **without a refund** — the server cannot prove fal stopped
-generating, and guessing low would understate the bill. The default rate is fal's list price
-(`$0.08`/s) rather than the promotional rate, because the safe direction is to over-estimate.
-Director sits behind its own `REVERIE_DIRECTOR_ENABLED` flag: `REVERIE_LIVE_ENABLED` already
-means "queue generation is allowed", and one flag must not silently buy the most expensive thing
-this server can start.
+What it costs, stated plainly:
+- **It cannot run in a serverless function.** A peer connection is long-lived, so the live
+  director belongs to the container process, not to Vercel. `AGENTS.md` already forbids a
+  long-lived socket server on Vercel; this is the same constraint arriving from the provider side.
+- **A WebRTC stack is now a server dependency** (`werift`, pure TypeScript, no native bindings).
+  `AGENTS.md` requires a measured need for new infrastructure; the audit requirement is it.
+- **The browser no longer watches live.** It watches the stored recording, because forwarding the
+  track to a second peer connection is a separate piece of work. The screen says so rather than
+  implying liveness it does not have.
 
-**Not probed.** No Director session has been opened and no generated video has been seen by
-anyone. The route shape was confirmed unauthenticated — `/start-session` and `/info` answer 401,
-`/health` and the bare application 404 — and every constant comes from the model's published
-`/info` and AsyncAPI documents. Per `AGENTS.md` this stays unprobed until a dated receipt is
-recorded here.
+`werift` sits behind one interface (`DirectorPeer` in `apps/server/directorStream.ts`) so nothing
+else in the server knows it exists, and so route tests can drive a session without opening real
+sockets — a real peer also keeps the Node event loop alive and hangs the test runner.
+
+**The audit log is deliberately stream-specific.** It records the prompt version, whether fal
+applied or refused it, and which chunk it took effect on. It does not duplicate author, body,
+decision or timestamps for the *proposal* that produced a direction; that record belongs to
+`jam_proposals`, and a second copy would be a second, divergent account of the same event.
+
+**Spend is unchanged and still the sharp edge.** fal bills each session a **60-second minimum of
+wall-clock runtime**, so an idle open session costs as much as a working one. Opening reserves the
+worst case, closing settles against the billed minimum, a session whose client stops checking in
+is reclaimed without a refund, and a handshake fal *refused* is released in full — nothing ran, so
+nothing is billed. The default rate is fal's list price rather than the promotional one, because
+the safe direction is to over-estimate. Director stays behind its own `REVERIE_DIRECTOR_ENABLED`
+flag.
+
+**Still open, and not decided here:** whether an accepted proposal becomes live direction on an
+open stream or a script edit gated by the portion-lock window. `docs/specs/transactional-scene-contract.md`
+assumes the second; this integration currently implements the first as a minimal typed seam
+(`DirectionRequest`) that carries `authorId` and `proposalId` without assuming where they came
+from. The seam is one interface wide so it is cheap to move.
+
+**Not probed.** No Director session has been opened with a valid key, and no generated video has
+been seen by anyone. The route shape was confirmed unauthenticated — `/start-session` and `/info`
+answer 401, `/health` and the bare application 404 — and every constant comes from the model's
+published `/info` and AsyncAPI documents.
 
 ## 2026-09-19 — Generated streams are keyed by configuration, and a cap makes the room attach
 

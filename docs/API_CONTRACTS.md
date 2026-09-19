@@ -160,6 +160,77 @@ The command is a discriminated union on `mode`:
 
 Both modes accept an optional `jamId` — the room id created before the script — so the script and its revisions attach to the registered jam rather than a second server-minted id. Reusing an id that already has a script returns `jam_exists` (`409`). Success is `201 { jam, scriptMarkdown }`. The browser registry (`GET`-free: `src/lib/jams.ts#listJams`) reads `jams` under the existing RLS select policy, so `/jams` shows the rooms an identity hosts or has joined, newest first, hiding `completed`/`closed`.
 
+## The escape room
+
+An escape room is a Movie Jam with a fixed world and a goal (`docs/specs/escape-room-scenario.md`).
+It adds no room concept: the invite code, the QR, the lobby, admission, the roster and the chat
+are the jam's. What it adds is the scenario's state, the turn the room is on, and the segments
+generated from them. These routes run on the local Node server only, like the script, session and
+director routes, and their state is in that process's memory.
+
+**These are the only routes on this Express host that check who is asking.** They move a world a
+whole room can see and they spend from a budget, so identity is Supabase Auth's answer to the
+presented access token and the role is the caller's own `jam_members` row read under RLS with that
+same token — this server holds no service-role key for it and can see no more than the participant
+it is acting for. The answer is cached for 20 seconds on a SHA-256 digest of the token (never the
+token), so a room polled by six people does not make twelve Supabase calls a second; the cost is
+that an admission or a removal takes up to 20 seconds to be felt. Every command body is strict: an
+unknown field is rejected rather than dropped.
+
+| Route | Who | Contract |
+| --- | --- | --- |
+| `GET /api/escape-room/scenarios` | anyone | `200 { scenarios: [{ id, title, logline, characterName, goal, locationCount }] }` — this repository's own scenario files. Unauthenticated: the create screen offers them before anybody is a member of anything. |
+| `POST /api/jams/:id/escape-room` | host | Body `{ scenarioId }`. `201 <snapshot>`. Refusals: `unknown_scenario` (400), `already_open` (409), `too_many_rooms` (409). |
+| `GET /api/jams/:id/escape-room` | active member | `200 <snapshot>`, or `404 not_open` — which is the answer "this jam is not an escape room", not a failure. |
+| `POST /api/jams/:id/escape-room/proposals` | active member | Body `{ body ≤ 280 chars, authorName? ≤ 32 }`. `201 { proposalId, snapshot }`. The author is the caller's own user id; an `authorId` in the body is rejected, never honoured. Refusals: `session_over`, `too_many_proposals` (24 a turn). |
+| `POST /api/jams/:id/escape-room/votes` | active member | Body `{ proposalId }`. `200 <snapshot>`. One effective vote per participant; a second replaces the first. A proposal not on this turn's table is `404 not_found`. |
+| `POST /api/jams/:id/escape-room/settle` | host | Closes the vote. `200 { beatId, snapshot }`. Refusals: `no_proposals` (409), `session_over` (409). |
+| `GET /api/jams/:id/escape-room/segments/:mediaId` | active member | The clip's own bytes, from this server's storage. Never a provider or storage URL. `404 not_found`, or `503 media_unavailable`. |
+
+Authorization failures are `escape_unauthenticated` (401), `escape_forbidden` (403) and
+`escape_unavailable` (503), in the same `{ error: { code, safeMessage, retryable } }` shape as the
+rest of this server. None carries a token, an upstream URL or an upstream body.
+
+A `<video src>` sends no `Authorization` header, so the browser fetches a segment with the
+viewer's own token and plays it as an object URL. The alternative was a credential in a URL or a
+route that trusted an unguessable id.
+
+### The snapshot
+
+`EscapeSnapshot` (`src/core/escape/session.ts`) is the only thing the screen draws, and every
+field is scenario state, the room's own vote, or the status of a generation this server actually
+started:
+
+- `location` — where the character is, with the author's description.
+- `loop` and each beat's `media` — a `SegmentView`: `status` is `absent`, `generating`, `ready`,
+  `failed`, `not_configured` (no fal key or the live flag is off) or `ceiling_reached` (the spend
+  ceiling refused it; nothing was sent to the provider). `seconds` is the clip's **measured**
+  length, read from the file, not the length that was asked for.
+- `progress` — what has been found, what is still shut, what is carried, how many things have
+  happened, and whether the goal is reached. Counted from scenario state.
+- `turn` — the proposals on the table with their real vote counts, this viewer's vote, and how
+  many people have voted.
+- `beats` — what the room has done, each with its narration and whether the model or the
+  scenario's author wrote it.
+- `ended` — `{ reason: "goal" | "spend_ceiling", tell }`, or null.
+- `spend` — real money committed against `FAL_ASSET_BUDGET_USD`.
+- `mediaDurable` — false when this server has no object storage, so segments die with it.
+
+### Video
+
+Segments are generated through the fal adapter's queue half
+(`apps/server/providers/falSegments.ts`) with `minimax/h3-max/text-to-video`, entry `[0]` of a
+server-owned allowlist that `FAL_MODEL` may select from and nothing else. Only an outcome that
+advanced the world is filmed: a refusal already carries the sentence its author wrote. A beat's
+duration comes from the scenario's action, clamped to the model's published `[5, 15]` band; a
+location's loop is 5 seconds. What the model returns is measured
+(`src/core/mediaDuration.ts`) rather than assumed — see `docs/DECISIONS.md` for the numbers.
+
+Money is committed before the provider is called and settled after. A submit fal never accepted is
+refunded; anything that failed after fal accepted the request is not, because fal may well have
+run it. The director and the escape room debit **one** `SpendAccount`, so
+`FAL_ASSET_BUDGET_USD` stays a ceiling on the process rather than one each feature gets a copy of.
+
 ## Beat locking and the live director
 
 Portions are addressed by a zero-based global `portionIndex` in flattened scene order — the single address used by edits and by the director's beats (the markdown label `Portion 2.1` is a render, not the address). Structural edits (insert/delete/reorder of scenes or portions) are forbidden in v1, so indices stay stable. The structured script (scenes → portions) is the editing source of truth; markdown revisions are deterministic renders of it.

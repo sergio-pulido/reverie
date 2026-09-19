@@ -20,12 +20,13 @@ Reverie is an open-source HackBarna 2026 project with two separate modes. **Disc
 - **Shared chat and proposals.** Append-only, synchronized through Supabase Realtime, and reloaded from the database on every reconnect.
 - **A shared playback clock.** The host starts, pauses and resets a room-wide timer anchored to the database's clock, so every participant sees the same position.
 - **A screenplay to work from.** The host generates one from a short prompt (Nebius) or imports their own markdown. The script is split into timed portions. Each portion can be edited on its own, and every change is kept as a revision that can be restored.
+- **An escape room.** A third source when a jam is created, beside starting from scratch and importing a script: a fixed world and a goal, authored as data in this repository, that the room shares control of one character inside. The rules decide what happened — a pure, offline module resolves a proposal into an advance, a refusal with the author's own reason, or something impossible here and now — and the model writes the prose and the shot from that outcome. Each location has one short looping shot, generated once and played while the room argues, so the screen is never dead while the next beat renders. It reuses the jam wholesale and is drawn inside the jam screen. Three scenarios ship. See [the scenario format](docs/specs/escape-room-scenario.md).
 - **Opt-in live camera, microphone and screen (Vonage Video API).** Nothing is published until the participant consents. Each consent records its owner, purpose and expiry, and withdrawing it stops the track. Nothing is recorded. Opening a session and minting a token have been proven against Vonage, but a live stage between two browsers has not been tested.
 
 ## Not built yet
 
-- Voting, and turning an accepted proposal into a scene. The Studio says this on screen.
-- Generated video. A fal.ai adapter and a portion video pipeline exist, but no fal model has been verified, and starting playback generation returns `generation_disabled`.
+- Voting on a Movie Jam's own proposal queue, and turning an accepted proposal into a scene. The Studio says this on screen. (An escape room has its own turn and vote, which are a narrower mechanism and do not implement that contract.)
+- Generated video for a Movie Jam's script. The live director holds a real MiniMax H3 Max session but its media track has never been watched, and capturing it blocks the server. Video in an **escape room** works and is verified: see [Project state](docs/PROJECT_STATE.md) for the measured numbers.
 - Voice input and transcription (SLNG), image and video-clip uploads, forks, recording, broadcast and export.
 - Translated or re-styled playback per participant. A session stores those settings, but nothing renders them.
 
@@ -42,7 +43,7 @@ The Studio's scene panel is a static illustration, not generated output.
 | Validation | Zod | Command and provider-response schemas at every boundary |
 | Reasoning | Nebius (`Qwen/Qwen3-30B-A3B-Instruct-2507` for Discover) | Script generation and the Discover conversation, both verified live |
 | Live media | Vonage Video API | Implemented. `pnpm probe:vonage` passed; the two-browser stage is untested. |
-| Generated media | fal.ai | Adapter behind a model allowlist; no model verified |
+| Generated media | fal.ai | Two surfaces behind one model allowlist and one spend ceiling: `minimax/h3-max/text-to-video` for escape-room segments, verified live; the realtime `minimax/h3-max/director` handshake, whose media track is unverified |
 | Speech | SLNG | Planned, no code |
 | Catalogue | TMDB snapshot in Postgres | Live: 27,839 films |
 | Invites | `qrcode.react` | Link, QR, code, expiry, rotation and revocation |
@@ -91,7 +92,7 @@ pnpm build
 curl --fail http://127.0.0.1:4317/api/health
 ```
 
-Create `.env.local` from `.env.example`, then follow [Supabase setup](docs/SUPABASE_SETUP.md) and [Vercel deployment](docs/VERCEL_SETUP.md). Without Supabase configuration the app runs as a clearly labelled, non-shareable local preview. A configured project that fails reports the failure and never falls back to the preview. Live checks against configured services: `pnpm verify:realtime`, `pnpm verify:shortlist`, `pnpm verify:conversation` and `pnpm probe:vonage`.
+Create `.env.local` from `.env.example`, then follow [Supabase setup](docs/SUPABASE_SETUP.md) and [Vercel deployment](docs/VERCEL_SETUP.md). Without Supabase configuration the app runs as a clearly labelled, non-shareable local preview. A configured project that fails reports the failure and never falls back to the preview. Live checks against configured services: `pnpm verify:realtime`, `pnpm verify:shortlist`, `pnpm verify:conversation` and `pnpm probe:vonage`. `node --import tsx scripts/probe-escape-segment.mts` generates one real escape-room segment and reports what the model actually returned; it costs money, so run it deliberately.
 
 Design documents:
 
@@ -99,6 +100,7 @@ Design documents:
 - [Technology stack and provider strategy](docs/TECHNOLOGY_STACK.md)
 - [Internal API contracts](docs/API_CONTRACTS.md)
 - [State machines](docs/STATE_MACHINE.md)
+- [The escape-room scenario format](docs/specs/escape-room-scenario.md)
 - [Decisions](docs/DECISIONS.md)
 - [User-journey runbooks](docs/user_journeys/README.md)
 - [Contributor instructions](AGENTS.md)
@@ -114,7 +116,7 @@ Design documents:
   - script generation through Nebius
   - Vonage session and token creation: `probe:vonage`
 - **Verified locally only:** the shared playback clock, in two browsers on the local stack; 554/554 unit tests.
-- **Not verified:** a Vercel deployment; a live Vonage stage between two browsers; any fal.ai model. Hosted migrations were applied by hand, so no tracking table records them.
+- **Not verified:** a Vercel deployment; a live Vonage stage between two browsers; the director model's media track; two browsers in one escape room. Hosted migrations were applied by hand, so no tracking table records them.
 - **Not implemented:** everything under [Not built yet](#not-built-yet).
 - **Deliberately blocked:** scene acceptance, which waits on a versioned transactional contract.
 

@@ -1373,6 +1373,80 @@ Nothing about the engine, the turn snapshots, the two preview actions or the rem
 changed. Verified in Chrome at 360×800 and 390×844, and held by DOM tests at 360 that read the
 real stylesheet at that width (`tests/searchPhone.dom.test.tsx`).
 
+## 2026-09-20 — The escape room: an authored world, rules that decide, and a loop that covers the wait
+
+An **escape room** is a Movie Jam with a fixed world and a goal. The room shares control of one
+character; the film is what the character does. It reuses the jam wholesale — invite code, QR,
+lobby, admission, roster, chat — and is drawn as a configuration of the jam screen, in the slot
+the live director occupies otherwise, rather than as a screen of its own. It is the third source
+on create, beside starting from scratch and importing a script.
+
+- **Three original scenarios ship as data** (`src/core/escape/scenarios/`), each with a different
+  spine so the rooms do not play the same: *The Night Audit* (killing the magnetic lock takes the
+  lights with it), *Cold Sill* (the bulkhead will not undog while the porch is filling) and *The
+  Understudy* (the trap is counterweighted and the score is inside the hamper standing on it).
+  All three are solvable in ten or eleven steps. The format is specified in
+  `docs/specs/escape-room-scenario.md`.
+- **The rules decide what happened; the model only tells it.** `src/core/escape/rules.ts` is
+  pure — no network, no React, no clock, no randomness — and resolves a proposal into exactly one
+  of three outcomes: it advances the world, it fails for a sentence the author wrote, or it is
+  impossible here and now. The model is handed the resolved outcome and writes the prose and the
+  shot; it is never asked whether the key fits the drawer. A beat the model did not narrate says
+  the scenario told it.
+- **The turn.** Participants propose in their own words, vote (one effective vote each,
+  replaceable), and the host closes it. The winner is resolved and filmed; every other proposal is
+  discarded rather than queued.
+- **Latency is answered by the idle loop.** A location's five-second loop is generated once on
+  arrival and plays while the room argues and while the next beat renders. A finished beat cuts in
+  over it exactly once and hands the screen back when it ends. A late beat is simply a longer
+  loop; one that fails leaves the loop running and says so.
+- **Video** is `minimax/h3-max/text-to-video` through the fal adapter's queue half
+  (`apps/server/providers/falSegments.ts`), entry `[0]` of a server-owned allowlist. The director
+  and the escape room debit one `SpendAccount`, so `FAL_ASSET_BUDGET_USD` stays a ceiling on the
+  process. The session ends when the goal is reached or when that ceiling refuses the next
+  segment.
+- **These routes check who is asking**, unlike the other routes on this Express host: identity is
+  Supabase Auth's answer to the presented token, the role is the caller's own `jam_members` row
+  read under RLS, and the answer is cached for 20 seconds on a digest of the token.
+
+**Measured against the live model** on 2026-09-20 (`scripts/probe-escape-segment.mts`, two
+generations): 15s asked → **15.104s** measured, 9,795,075 bytes, playable 25.3s after submit; 5s
+asked → **5.184s**, 3,792,092 bytes, playable 8.7s after submit. Both `video/mp4`. The model
+overshoots and not proportionally, so a clip's length is read from its own header
+(`src/core/mediaDuration.ts`) rather than assumed, and a beat takes longer to make than it takes
+to watch — which is why the loop exists.
+
+**Verified live in a browser**, against the hosted Supabase project and the real model, on
+2026-09-20: a room opened from the create screen (loop committed $0.40), "grab the deck spanner
+off the wall" resolved, was narrated by Nebius ("Ozan Rills unclips the deck spanner from the
+wall, its metal cold against his wet palm.") and filmed at a measured 15.1s (committed $1.60
+total); the losing proposal was discarded; the beat cut in over the loop and handed the screen
+back when it ended; and "undog the bulkhead door and get through" was refused with the author's
+sentence, not filmed, with spend unchanged.
+
+**Three dead screens the browser found and no test had.** A `<video src>` sends no Authorization
+header, so every clip 401'd — the bytes are now fetched with the viewer's own token and played as
+an object URL, and the loop is held while a beat's bytes arrive rather than swapped out for it.
+`autoPlay` on a muted video left the element on its first frame, so it is asked to play when it
+appears and again when it says it can. And a hidden tab pauses its video with nothing to resume
+it, so playback restarts when the tab is visible.
+
+**Verified:** `npx tsc --noEmit` clean; `pnpm test` 882/882 (was 862 before this work's last
+slice, 766 before it began), including the rules' three outcomes and their invariants, exhaustive
+solvability of all three scenarios, the turn and the spend ceiling, the fal adapter's allowlist
+and error shapes, the routes' authorization, the mp4 duration reader, and the panel and create
+screen in a document.
+
+**Not implemented / not verified:** two browsers in one escape room; any of this on Vercel (these
+routes are local-Node only and their state is in that process's memory, like the script, session
+and director routes); Realtime events for the room (it polls every three seconds, one named
+constant); durable segments without `SUPABASE_SERVICE_ROLE_KEY`, which this environment does not
+have, so segments were held in memory and the panel said so; and a session actually ending on the
+spend ceiling against the live model — that path is covered by tests, not by a receipt. The
+room's own turn and votes live in the escape session on the server and do **not** use
+`jam_proposals`, which remains append-only with no vote: the versioned transactional scene
+contract is still unimplemented and still blocks the Movie Jam's own proposal queue.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

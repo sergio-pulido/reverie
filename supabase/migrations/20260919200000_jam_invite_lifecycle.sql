@@ -40,7 +40,9 @@ $$;
 create or replace function public.jam_invite_state(p_expires_at timestamptz, p_revoked_at timestamptz)
 returns text
 language sql
-immutable
+-- stable, not immutable: it reads now(). Marking it immutable would let the planner
+-- constant-fold an expiry check and keep answering 'active' after the invite lapsed.
+stable
 as $$
   select case
     when p_revoked_at is not null then 'revoked'

@@ -68,7 +68,7 @@ export function orderShortlist(
   }
   if (wantsAssistant && current?.phase === "failed") return scored(candidates, state, "fallback", current.message);
   if (wantsAssistant) {
-    // The scorer's order holds the grid still while the assistant ranks; nothing is marked as
+    // The scorer's order holds the row still while the assistant ranks; nothing is marked as
     // a pick, because nothing has picked it yet.
     const { ordered } = rankShortlist(candidates, state);
     return { items: ordered.map(({ title }) => title), pickIds: new Set(), reasons: new Map(), source: "pending", note: null };

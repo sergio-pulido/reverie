@@ -1,5 +1,12 @@
 # UJ-01 — Discover, jam registry and navigation
 
+> **Out of date in part (2026-09-19).** The browsing grid at `/discover` was replaced by the
+> conversation at `/discover`. Sections A and D still apply, and so
+> do the film page steps at `/discover/:id`. The grid steps in sections B and C (loading state,
+> ready grid, search, keyboard traversal, the growing grid) no longer describe the product and are
+> kept only until this runbook is rewritten for it. What `/discover` does and how it was
+> verified is in `docs/PROJECT_STATE.md`.
+
 Covers: the home screen and its entry points, the `/jams` registry, the TV-first `/discover`
 experience (all four states, search, the endless grid, keyboard traversal, film pages at
 `/discover/:id`, the same-origin API guard), and what the app does when no catalogue or no Supabase is configured.

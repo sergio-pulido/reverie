@@ -148,7 +148,7 @@ test("no request is made without configuration, without a session or for an impo
   assert.equal(captured.length, 0);
 });
 
-test("the grid's list mapping never carries the detail-only fields", () => {
+test("the list mapping never carries the detail-only fields", () => {
   const listed = toCatalogueTitle(inceptionRow);
   assert.ok(listed);
   for (const key of ["tagline", "voteAverage", "voteCount", "keywords", "spokenLanguages", "imdbId", "originalTitle"]) {

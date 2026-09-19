@@ -1,4 +1,4 @@
-import { DISCOVER_PATH, HOME_PATH, JAMS_PATH, NEW_JAM_PATH, type Screen } from "../lib/routes";
+import { HOME_PATH, JAMS_PATH, NEW_JAM_PATH, DISCOVER_PATH, type Screen } from "../lib/routes";
 
 /**
  * Remote and keyboard conventions the whole app agrees on. Pure, so they are testable without a
@@ -31,10 +31,10 @@ export function backAction({ key, keyCode = 0, editable, handled, inTopBar, repe
 }
 
 /**
- * Where leaving a screen goes: its parent. Home, Discover and Movie Jam are siblings under the
+ * Where leaving a screen goes: its parent. Home, Search and Movie Jam are siblings under the
  * home; a jam's screens sit under Movie Jam; the script goes back to its setup; a film page goes
- * back to wherever it was opened from. The home has no parent: Back there belongs to the
- * platform.
+ * back to wherever it was opened from, or to search when it was reached by URL. The home has no
+ * parent: Back there belongs to the platform.
  */
 export function parentPath(screen: Screen, filmOpen: boolean, from: string | null): string | null {
   if (filmOpen) return from ?? DISCOVER_PATH;

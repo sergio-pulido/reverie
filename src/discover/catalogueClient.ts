@@ -10,8 +10,8 @@ import { JamError } from "../lib/errors";
 import { ensureAccessToken } from "../lib/session";
 
 /**
- * One read of `/api/catalogue`, shared by Discover and the home. Every caller goes through the
- * same request, validation and failure mapping, so a shelf and the grid can never disagree about
+ * One read of `/api/catalogue`, shared by search and the home. Every caller goes through the
+ * same request, validation and failure mapping, so a shelf and an answer can never disagree about
  * what a response means.
  */
 

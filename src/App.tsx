@@ -1,7 +1,6 @@
 import { FormEvent, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { providerIdOf, type CatalogueTitle } from "./catalogue/contract";
 import type { Jam as GeneratedJam, JamSource } from "./core/jam";
-import { DiscoverScreen } from "./discover/DiscoverScreen";
 import { FilmPage } from "./discover/FilmPage";
 import { TMDB_ATTRIBUTION_FALLBACK } from "./discover/TmdbAttribution";
 import { HomeScreen } from "./home/HomeScreen";
@@ -14,8 +13,8 @@ import { safeMessageOf } from "./lib/errors";
 import { createJam as createJamRoom, type JamPersistence, type JamRoom, type JamVisibility } from "./lib/jams";
 import {
   DESTINATION_PATH,
-  DISCOVER_PATH,
   JAMS_PATH,
+  DISCOVER_PATH,
   JOIN_PATH,
   NEW_JAM_PATH,
   filmFromPath,
@@ -31,6 +30,8 @@ import { CreateRoom, type SourceKind } from "./screens/CreateRoom";
 import { JamRegistry } from "./screens/JamRegistry";
 import { JoinRoom } from "./screens/JoinRoom";
 import { PreviewStudio } from "./screens/PreviewStudio";
+import { jamSeedFrom } from "./search/jamSeed";
+import { SearchScreen } from "./search/SearchScreen";
 import { Studio } from "./screens/Studio";
 import { behindIntact, entryFrom, keyCurrentEntry, pushedEntry, replacingEntry } from "./shell/history";
 import { leaveAction } from "./shell/keys";
@@ -48,13 +49,14 @@ function inviteCodeFromLocation() {
   return new URLSearchParams(window.location.search).get("code") ?? "";
 }
 
-/** A request, made by the top bar's search icon, for Discover to focus its field. */
+/** A request, made by the top bar's Search, for the search screen to focus its field. */
 export type SearchRequest = { id: number };
 
 let searchRequests = 0;
 
 type Location = { screen: Screen; slug: string | null; film: ReturnType<typeof filmFromPath>; from: string | null; inviteCode: string };
 
+/** Where the viewer is. */
 function readLocation(): Location {
   const { pathname } = window.location;
   return { screen: screenFromPath(pathname), slug: jamSlugFromPath(pathname), film: filmFromPath(pathname), from: entryFrom(), inviteCode: inviteCodeFromLocation() };
@@ -128,7 +130,7 @@ export function App() {
   }
   useRemoteConventions(leave);
 
-  /** A film page closes to where it was opened from, or to the grid when it was reached by URL. */
+  /** A film page closes to where it was opened from, or to search when it was reached by URL. */
   function closeFilm() {
     leave();
   }
@@ -144,29 +146,47 @@ export function App() {
     navigate("discover", filmPath(providerId));
   }
 
-  const shell = useMemo<Shell>(() => ({
-    go(destination: Destination) {
-      if (filmOpen && destination === filmOrigin) return closeFilm();
-      if (!filmOpen && isAt(destination, screen)) {
-        window.scrollTo({ top: 0 });
-        return;
-      }
-      navigate(destination === "jam" ? "jams" : destination, DESTINATION_PATH[destination]);
-    },
-    search() {
+  /** "Start a Jam from this": the Movie Jam form, filled with a title and premise drawn from the film. */
+  function startJamFrom(title: CatalogueTitle) {
+    const seed = jamSeedFrom(title);
+    setRoomTitle(seed.title);
+    setPremise(seed.premise);
+    setSourceKind("from-scratch");
+    setRegisteredRoom(null);
+    setGeneratedJam(null);
+    navigate("create", NEW_JAM_PATH);
+    // Chosen from deep in a conversation: the form opens at its top, not where search was scrolled.
+    window.scrollTo({ top: 0 });
+  }
+
+  const shell = useMemo<Shell>(() => {
+    function search() {
       searchRequests += 1;
       const request = { id: searchRequests };
       if (filmOpen && filmOrigin === "discover" && from && behindIntact()) {
-        // Close the film the way Back would, and focus the search once the grid is back.
+        // Close the film the way Back would, and focus the field once the conversation is back.
         pendingSearch.current = request;
         window.history.back();
         return;
       }
-      // From anywhere else Discover opens fresh; a film page it replaces is not returned to.
+      // From anywhere else search opens fresh; a film page it replaces is not returned to.
       if (screen !== "discover" || filmOpen) navigate("discover", DISCOVER_PATH, { replace: filmOpen });
       setSearchRequest(request);
-    },
-  }), [screen, filmOpen, filmOrigin, from]); // eslint-disable-line react-hooks/exhaustive-deps
+    }
+    return {
+      go(destination: Destination) {
+        // Discover is where its field is: choosing it always lands there.
+        if (destination === "discover") return search();
+        if (filmOpen && destination === filmOrigin) return closeFilm();
+        if (!filmOpen && isAt(destination, screen)) {
+          window.scrollTo({ top: 0 });
+          return;
+        }
+        navigate(destination === "jam" ? "jams" : destination, DESTINATION_PATH[destination]);
+      },
+      search,
+    };
+  }, [screen, filmOpen, filmOrigin, from]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function applyJam(jam: JamRoom, mode: JamPersistence) {
     setRoomTitle(jam.title);
@@ -242,11 +262,12 @@ export function App() {
       </>;
     }
     if (screen === "discover") {
-      return <DiscoverScreen
+      return <SearchScreen
         film={film}
         searchRequest={searchRequest}
         onOpenFilm={(providerId) => openFilm(undefined, providerId)}
         onCloseFilm={closeFilm}
+        onStartJam={startJamFrom}
       />;
     }
     if (screen === "jams") return <JamRegistry onNew={startJam} onOpen={(jam, mode) => { applyJam(jam, mode); navigate("studio", `/jams/${jam.slug}`); }} />;

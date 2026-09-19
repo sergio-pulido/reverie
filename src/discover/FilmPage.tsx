@@ -10,12 +10,12 @@ import { useFilm } from "./useFilm";
 type FilmPageProps = {
   /** The provider id from the URL, or null when the URL names no valid film. */
   providerId: string | null;
-  /** The grid's copy of this film, shown at once while the full record loads. */
+  /** The row's copy of this film, shown at once while the full record loads. */
   seed?: CatalogueTitle;
   /** Where the film was opened from. The bar shows it as current, and choosing it closes the page. */
   origin: Destination;
   attributionFallback: string;
-  /** "Not this one", when the page was opened from the grid it would leave. */
+  /** "Not this one", when the page was opened from search, whose answers it would leave. */
   onReject?: (id: string) => void;
 };
 
@@ -24,11 +24,11 @@ const PREVIOUS_KEYS = new Set(["ArrowLeft", "ArrowUp"]);
 
 /**
  * A film's own page, at `/discover/:id`. It renders only what the record holds, and grows with
- * it: the grid's copy appears at once, and the full record fills in when its single row arrives.
+ * it: the row's copy appears at once, and the full record fills in when its single row arrives.
  *
- * It is drawn as a full-screen layer over the grid rather than in its place, so the grid keeps
- * its scroll position, its loaded pages and its focus target while the page is open. The layer
- * carries its own top bar; the grid's, underneath, is inert with the rest of the grid.
+ * It is drawn as a full-screen layer over the screen that opened it rather than in its place, so
+ * that screen keeps its scroll position, what it has loaded and its focus target while the page is
+ * open. The layer carries its own top bar; the one underneath is inert with the rest of that screen.
  *
  * There is no on-screen way back: the remote has one. The page opens with focus on the top bar's
  * current item, where OK or Back returns to where the film was opened and Down enters the page.
@@ -44,7 +44,7 @@ export function FilmPage({ providerId, seed, origin, attributionFallback, onReje
     focusTopBar({ scroll: false });
   }, [providerId]);
 
-  /** The grid stays put underneath; the page scrolls on its own. */
+  /** The screen underneath stays put; the page scrolls on its own. */
   useEffect(() => {
     document.documentElement.classList.add("film-page-open");
     return () => document.documentElement.classList.remove("film-page-open");

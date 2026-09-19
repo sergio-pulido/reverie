@@ -1101,6 +1101,171 @@ shift while it grows.
   rebuilt; the remaining layout shift is the web-font swap (preloading the fonts removed it but
   delayed the first paint by about 250 ms); not yet deployed to Vercel from here.
 
+## 2026-09-19 — Finding something to watch is one conversation, at `/search`
+
+- **Routes now.** `/` home · `/search` search (new) · `/discover` and `/discover/` → replaced by
+  `/search` on arrival (history record kept), no longer a browsing surface · `/discover/:id` film
+  page, unchanged address, drawn over whatever opened it (the home, or search; over an empty search
+  when reached by URL, and closing it then replaces it with `/search`) · `/jams` · `/jams/new` ·
+  `/join` · `/jams/:slug`. `movedPath` in `src/lib/routes.ts` is the redirect rule, and
+  `screenFromPath` resolves a moved path to the screen it moved to. The API routes are unchanged.
+- **The top bar** is Home · Search · Movie Jam. Search replaces Discover as a destination and
+  carries the lens beside its name; the separate search icon is gone. Choosing Search from
+  anywhere lands in the field (closing a film page opened from search first, as before). Back
+  from search goes to the bar, then home.
+- **At rest** the screen is one line ("What do you feel like watching?"), the voice control and
+  the field. Nothing else: no films, no filters, no send button until something is typed, and no
+  catalogue read until the viewer sends something or speaks. Typing alone previews nothing; a
+  spoken request previews posters while it is being said (below).
+- **A turn is a block**: the viewer's message, the reply, and a row of up to twelve posters under
+  it, with a caption saying whose order it is ("Ranked by the assistant", "Ranked by genre match",
+  "Title matches") and how many films matched. A refinement appends a block. Earlier blocks keep
+  the films they showed: the transcript (`src/conversation/transcript.ts`) now numbers turns, and an
+  assistant line carries its turn's result set as a snapshot that `attachResults` never replaces.
+  The six-line cap is gone; the transcript keeps the last 20 turns, dropping the oldest turn whole.
+  Each waiting turn prepares its own films (`TurnFilms`) for the state its reply left: a filter
+  changed, or another message sent, while they are read and ranked changes nothing about that
+  turn. When its filters are the ones in effect it shares the live read instead of making its own.
+  A ranking that fails or times out leaves the scorer's order, captioned with the reason.
+- **One field, no modes.** `messageIntent` (`src/search/intent.ts`) looks a message up as a title
+  when it reads like one (at most six words, no question mark, nothing that frames a request such
+  as "I want" or "something", and no genre, running time or era heard in it); everything else goes
+  to the assistant. A lookup reads `/api/catalogue` with the words as the query and no filters,
+  and answers "Here's what I found for “…”." with what it found. A lookup that finds nothing sends
+  the same message to the assistant. Known trade-off: a title made of genre words ("Scary Movie")
+  is sent to the assistant, which narrows by genre.
+- **Filler never fires.** `carriesRequest` (`src/search/filler.ts`) is false for hesitation and
+  framing alone ("um", "I want", "something", a bare "or"), for a short answer ("yes", "neither")
+  unless the assistant is waiting on a question, and for a number word straight after "want" or
+  "like", which is how the live speech service hears a trailing "or" ("I want four"). Filler
+  typed and sent says "Say a little more…" and sends, reads and asks nothing; a spoken final that
+  is filler is not put in the field.
+- **Voice** is the same pipeline (endpoint, SLNG adapter, relay and upload fallback unchanged).
+  What changed is the screen:
+  - The control is an inline SVG icon, with no words and no countdown: a microphone at rest, a
+    red stop square with a red level halo while recording, dimmed while the microphone opens or
+    the transcript finishes. `voiceName` gives the accessible name for each state.
+  - While the viewer speaks, a pending line appears in the conversation and fills with the partial
+    transcript. Partials are merged by overlap (`mergePartial`, `src/voice/partialMerge.ts`): a
+    partial is trusted from where it begins, what came before is kept, a word cut short is
+    finished, and a fragment already shown changes nothing, so words are never doubled.
+  - Genres, a refusal, a running time and an era heard so far appear as chips while the viewer is
+    still speaking (`detectPreferences`, a literal word list), and a row of posters previews
+    against them laid over what is already narrowing (`previewFilters`, one debounced catalogue
+    read per change of what was heard). Nothing heard in filler, so filler previews nothing.
+  - On stop, the final transcript goes in the field, focused, and the pending line stays up as
+    "Not sent yet", mirroring the field until it is sent or cleared. It is never sent for the
+    viewer. Partials are display only: only a sent final ever reaches the assistant, and the
+    engine's literal-quote grounding applies to it unchanged.
+- **Filters are their own surface.** A Filters control in the strip (shown once a turn has
+  happened) opens a panel with every genre but TV Movie, six eras and three running times, as
+  plain filters (`FILTER_GROUPS` in `src/catalogue/refinements.ts`, grounded in their own words
+  and applied through the engine like the old chips). The panel shows the live count and the
+  matching films, ordered by the scorer, so toggling a filter costs no model call. Choosing a
+  filter says nothing in the conversation and rewrites no turn's films; the next turn composes
+  with it. The strip beside the field shows everything narrowing the results, each removable,
+  with the live count and "Start over".
+- **A film's preview.** Selecting a poster (click, OK, or a mouse resting on it for 650 ms, never
+  on focus) opens a modal over the conversation: backdrop, poster, title, year, running time, score
+  (from the film's single detail row, which fills in when it arrives), genres and synopsis. No record
+  in the catalogue carries accessibility flags, so none are shown. It traps focus, closes on Back
+  or Escape and returns focus to the card. Its two actions: **Open the film page** (the film's
+  page, and Back returns to the card) and **Start a Jam from this** (`/jams/new` with the title
+  "Inspired by <film>" and a premise opening on the synopsis's first sentence, `jamSeedFrom`).
+  Nothing offers to play or stream a catalogue film. The hover rule is pure (`createDwell`): only a
+  mouse or pen that actually moved, a fresh wait per card, and a card whose preview just closed
+  stays quiet until the pointer leaves it.
+- **Remote navigation** follows the app's axis rule through `rowMove`: Up and Down move between
+  turns' poster rows, the strip and the field, landing on the item last focused in each row;
+  Left and Right move along a row. Up from the first row reaches the bar; Down from the bar lands in
+  the field. OK presses the focused control once, handled by the app. Back from anywhere on the
+  page goes to the bar; in the field, Escape first clears what was typed.
+- **Removed**, because `/search` absorbs them: `DiscoverScreen`, `ConversationBar`,
+  `RefinementBar`, the endless-grid feed (`pageFeed`, `useCatalogue`) and grid navigation
+  (`gridMove`, `useGridNavigation`), with their tests (`gridNavigation`, `pageFeed`,
+  `discoverCopy`) and the grid's styles. The film page, artwork, attribution, status panels and
+  catalogue client stay in `src/discover/`. `useConversation`, `useAssistantRanking`,
+  `useRefinement`, `useVoiceInput` and `VoiceButton` are reused, not copied: the conversation hook
+  gained the lookup and snapshot attachment, the two assistant calls read from an
+  `AssistantProvider` a test can replace, and the voice hook merges partials.
+- Code: `src/search/` (`SearchScreen`, `SearchTranscript`, `ResultRow`, `ResultCard`,
+  `FilmPreview`, `FilterPanel`, `NarrowingStrip`, `PendingVoice`, `Composer`, `TurnFilms`, `search.css`, the pure
+  `words`, `filler`, `intent`, `detect`, `dwell`, `jamSeed`, `results`, and the hooks `useSearch`,
+  `useShortlist`, `useVoicePreview`, `useHoverPreview`, `useRows`).
+
+### Verification
+
+- `pnpm test` 611/611 (554 before; 25 grid-only tests removed with their modules), `npx tsc
+  --noEmit` clean, `pnpm build` passes. New tests: `tests/partialMerge.test.ts` (the overlap merge,
+  including every two-piece cut of a sentence and every growing prefix), `tests/searchRequest.test.ts`
+  (the filler predicate, the lookup-or-conversation decision, preference detection and preview
+  filters), `tests/transcript.test.ts` (turns, the turn bound, snapshots never replaced),
+  `tests/previewDwell.test.ts` (the dwell rule and the Jam seed), filter groups in
+  `tests/refinements.test.ts`, routes and Back parents, and `tests/search.dom.test.tsx`, which drives
+  the whole app over a test catalogue and a test assistant whose turns go through the real engine:
+  no film and no read before the first request; a title answered by a lookup without the
+  assistant; a lookup that finds nothing sent to the assistant; a request answered with the
+  assistant's ranked posters; a refinement appending a block while the first keeps its posters;
+  filler firing nothing; remote navigation between turns and rows; the preview opening on OK but
+  never on focus or a held OK, trapping focus, closing on Escape and on key code 461 with focus
+  back on its card, opening the film page and returning to the card, and starting a Jam with the
+  seeded title and premise; the filter panel narrowing without saying anything in the
+  conversation; `/discover` landing on `/search`; a turn keeping the films for its own state when a
+  filter comes off while they load, and two turns each getting their own films when the second
+  message goes before the first's are ready (both fail when a turn is given the current state
+  instead, checked by making that change).
+- An independent review of the diff found that a filter removed while a turn's films were loading
+  changed what that turn attached, and that a message sent before a turn's shortlist arrived left
+  it with no films; both are fixed above and covered by those two tests. It also flagged the voice
+  preview reading the catalogue before any message is sent, which is the intended behaviour: the
+  preview follows what is said, and nothing is read for typing alone.
+- In the built-in browser at 1920×1080 against the live project and Nebius: the resting screen; a
+  typed "something funny for a Friday night" answered and ranked by the assistant (9,942 films,
+  Barbie, Elemental, The Super Mario Bros. Movie as picks); "a scary film under two hours" then
+  "from the nineties please" as two blocks (3,902 then 311 films, Scream, Bride of Chucky, Child's
+  Play 2). In that run, made before each turn prepared its own films, the first block's row kept the
+  scorer's order because its ranking had not returned when the second message went; with
+  `TurnFilms` it keeps waiting for its own ranking instead. A later turn whose ranking timed out at the
+  provider showed the scorer's order captioned "Ranked by genre match · 3,659 films — The assistant
+  did not answer in time." Remote walk between rows; the preview by OK (The Nun II,
+  "2023 · 1 h 50 min · 6.5 / 10"), Escape back to the card, its film page at `/discover/968051` with
+  Search current in the bar, Back to the card with both turns kept; the filter panel by remote
+  (1,345 films for horror-comedies from the nineties under two hours) and back to Filters with the
+  transcript unchanged; "Start a Jam from this" filling the form. At 375×812: no horizontal overflow
+  at rest or after a lookup ("Inception" first of three title matches). One live message ("actually
+  from the nineties") was answered `unavailable` by the unchanged assistant path; the page said so.
+- **Spoken into it**, in Google Chrome (separate profile) with synthesised speech (macOS `say`) on
+  Chrome's fake microphone, driven by DevTools key events (Left to the microphone, OK, OK), against
+  `pnpm dev` and the live SLNG stream. The fake microphone could only read the clip with Chrome's
+  audio-service sandbox off (`--disable-features=AudioServiceSandbox`); with it on, Chrome logs that
+  it cannot read the file and the page, correctly, said "Nothing was heard."
+  - "Um, I want something… something funny, from the nineties.": recording at 0.9 s; the pending
+    line read "I want something." at 3.2 s with no chip and no posters (filler); "I want something.
+    Something funny." at 4.6 s with a Comedy chip, not a doubled "something"; preview posters
+    (Barbie, Elemental) at 5.2 s; "… From the nineties." at 6.5 s with Comedy and 1990s and the
+    preview redrawn (Forrest Gump, Toy Story). On stop the final was in the field, focused, "Not sent
+    yet", zero turns, and still zero 1.7 s later; OK sent it; answered "A funny film from the
+    nineties, got it.", ranked by the assistant, 1,209 films, Toy Story, Toy Story 2, Hercules as
+    picks. First partial 2.4 s after recording started; stop → final 3.0 s (the relay waited out its
+    final timeout on this clip, which ends in six seconds of silence).
+  - "Um… I want… uh… or…": the service dropped "um" and "uh" and heard "I want four."; no chip, no
+    preview; before the number rule it was put in the field and sent, after it nothing went in the
+    field, the page said "Say a little more…", zero turns.
+  - After a typed "a thriller": "Nothing scary, and under two hours please." filled the line word
+    by word, No Horror at 11.6 s, a preview of thrillers without horror at 11.9 s, Under 120 min at
+    12.5 s; stop → final 286 ms over the stream; not sent until OK; answered "No horror, and under
+    two hours — got it." as a second block (3,301 films) with the first block unchanged.
+- **Not verified / known gaps:** a person has not spoken into it; the speech was synthesised and fed
+  through a fake microphone. Nothing ran on a TV set. The hover-to-open is unit-tested and wired to
+  pointer events but was not exercised with a real mouse dwell in a browser. The voice parts of the
+  screen (pending line, chips, preview) are covered by the pure functions' tests and the Chrome runs,
+  not by DOM tests, since jsdom has no microphone. The engine's twelve-turn cap counts filter toggles
+  too, so a heavy filter session hits "That is as much as one conversation holds" sooner. The
+  `docs/user_journeys/01-discover-and-navigation.md` runbook still describes the grid in its
+  sections B and C; it is marked as such until it is rewritten for `/search`. Removing a filter while
+  a turn's films load was tried live but the assistant was timing out at the time, so the removal
+  landed while the reply itself was in flight; that case is covered by the DOM test only.
+
 ## 2026-09-19 — The story outline: a centralized artifact the room steers (RV-17)
 
 - An **outline** sits between the script and the reader: one brief phrase (a **beat**) per

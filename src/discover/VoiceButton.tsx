@@ -1,71 +1,67 @@
-import type { CSSProperties, RefObject } from "react";
-import { voiceLabel, type VoicePhase } from "../voice/voiceState";
+import type { CSSProperties, KeyboardEvent, RefObject } from "react";
+import { voiceName, type VoicePhase } from "../voice/voiceState";
 
 type VoiceButtonProps = {
   phase: VoicePhase;
   /** Input level, 0–1, while recording. */
   level: number;
-  secondsLeft: number;
   buttonRef: RefObject<HTMLButtonElement | null>;
   onPress: () => void;
-  /** Right from the control, into the text field. */
-  onExitRight: () => void;
-  onExitUp: () => void;
-  onExitDown: () => void;
+  /** Where arrow keys lead from the control; any it does not take are left to the page. */
+  onArrow?: (event: KeyboardEvent<HTMLButtonElement>) => void;
+  /** Attributes the page's remote navigation places on it. */
+  navigation?: Record<string, string | number>;
 };
 
 /**
- * The one voice control: OK starts recording, OK again stops it. While recording it turns red,
- * counts down and shows a live level bar, all sized to read from the sofa.
+ * The one voice control: an icon, and nothing else. OK starts recording and OK again stops it.
+ * Idle it is a microphone; recording it turns red and becomes a stop square, the one colour
+ * change and the one shape change that say "listening" from across a room. A halo in the same red
+ * follows the input level. Opening the microphone and finishing the transcript each dim it.
  */
-export function VoiceButton({ phase, level, secondsLeft, buttonRef, onPress, onExitRight, onExitUp, onExitDown }: VoiceButtonProps) {
+export function VoiceButton({ phase, level, buttonRef, onPress, onArrow, navigation }: VoiceButtonProps) {
   const recording = phase === "recording";
-  const busy = phase === "starting" || phase === "transcribing";
-  const accessibleName = recording
-    ? "Stop recording"
-    : phase === "starting"
-      ? "Opening the microphone. Press to cancel."
-      : phase === "transcribing"
-        ? "Transcribing what you said"
-        : "Speak instead of typing";
-
   return (
     <button
       ref={buttonRef}
       type="button"
-      className={`discover-voice discover-voice-${phase}`}
-      aria-label={accessibleName}
+      className={`voice-control voice-control-${phase}`}
+      aria-label={voiceName(phase)}
       aria-pressed={recording}
-      aria-busy={busy}
+      aria-busy={phase === "starting" || phase === "transcribing"}
       style={{ "--voice-level": recording ? level.toFixed(3) : "0" } as CSSProperties}
       onClick={onPress}
       onKeyDown={(event) => {
+        if (event.defaultPrevented) return;
         // OK is handled here rather than left to the browser, so every remote behaves the same.
         if (event.key === "Enter") {
           event.preventDefault();
           onPress();
+          return;
         }
-        if (event.key === "ArrowRight") {
-          event.preventDefault();
-          onExitRight();
-        }
-        if (event.key === "ArrowUp" || event.key === "Escape") {
-          event.preventDefault();
-          onExitUp();
-        }
-        if (event.key === "ArrowDown") {
-          event.preventDefault();
-          onExitDown();
-        }
+        onArrow?.(event);
       }}
+      {...navigation}
     >
-      <span className="discover-voice-dot" aria-hidden="true" />
-      <span className="discover-voice-label" aria-hidden="true">
-        {voiceLabel(phase, secondsLeft)}
-      </span>
-      <span className="discover-voice-meter" aria-hidden="true">
-        <span className="discover-voice-meter-fill" />
-      </span>
+      {recording ? <StopIcon /> : <MicrophoneIcon />}
     </button>
+  );
+}
+
+function MicrophoneIcon() {
+  return (
+    <svg className="voice-control-icon" viewBox="0 0 24 24" width="40" height="40" aria-hidden="true" focusable="false">
+      <rect x="8.5" y="2.5" width="7" height="12" rx="3.5" fill="currentColor" />
+      <path d="M5 11.5a7 7 0 0 0 14 0" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+      <path d="M12 18.5v3" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function StopIcon() {
+  return (
+    <svg className="voice-control-icon" viewBox="0 0 24 24" width="40" height="40" aria-hidden="true" focusable="false">
+      <rect x="6" y="6" width="12" height="12" rx="2.5" fill="currentColor" />
+    </svg>
   );
 }

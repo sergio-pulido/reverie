@@ -1,6 +1,6 @@
 import type { Evidence, PreferenceState, Predicate, TurnInput } from "../preferences/schema.js";
 import { RUNTIME_ATTRIBUTE, YEAR_ATTRIBUTE, genreDimension, genreLabel, genreOfTag } from "./domain.js";
-import type { GenreSlug } from "./genres.js";
+import { GENRES, type GenreSlug } from "./genres.js";
 import { wantedGenres } from "./shortlistFilters.js";
 
 /**
@@ -124,6 +124,39 @@ export const REFINEMENTS: readonly Refinement[] = [
   era("recent", "Something recent, from 2015 on", "from 2015 on", { operator: "gte", year: 2015 }, null),
   era("nineties", "From the nineties", "the nineties", { operator: "gte", year: 1990 }, { operator: "lte", year: 1999 }),
   era("classic", "A classic, before 1980", "before 1980", null, { operator: "lt", year: 1980 }),
+];
+
+/**
+ * What the search screen's filter panel offers: plain filters for a viewer who already knows what
+ * they want, each stated in its own words and grounded in them exactly as a chip is. Choosing one
+ * is an engine turn; choosing it again withdraws it. An era or a running time replaces the one in
+ * effect, so each of those groups holds one choice at a time.
+ */
+export type FilterGroup = { id: "genre" | "era" | "runtime"; label: string; filters: readonly Refinement[] };
+
+const DECADES = [1980, 1990, 2000, 2010] as const;
+
+export const FILTER_GROUPS: readonly FilterGroup[] = [
+  {
+    id: "genre",
+    label: "Genre",
+    // "TV Movie" says how a film was made, not what it is like.
+    filters: GENRES.filter(({ slug }) => slug !== "tv_movie").map(({ label, slug }) => wantGenre(`genre-${slug}`, label, label, slug)),
+  },
+  {
+    id: "era",
+    label: "Era",
+    filters: [
+      era("era-before-1980", "Before 1980", "Before 1980", null, { operator: "lt", year: 1980 }),
+      ...DECADES.map((decade) => era(`era-${decade}s`, `${decade}s`, `${decade}s`, { operator: "gte", year: decade }, { operator: "lte", year: decade + 9 })),
+      era("era-since-2020", "Since 2020", "Since 2020", { operator: "gte", year: 2020 }, null),
+    ],
+  },
+  {
+    id: "runtime",
+    label: "Running time",
+    filters: [shorterThan("runtime-90", "Under 90 min", 90), shorterThan("runtime-120", "Under 2 hours", 120), shorterThan("runtime-150", "Under 2½ hours", 150)],
+  },
 ];
 
 /** Turn ids are sequential within a session, so a replayed id is always the same turn. */

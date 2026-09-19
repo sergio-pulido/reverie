@@ -46,10 +46,10 @@
 /* Where the viewer is shows as a shape (an outline) as well as brighter text. */
 .top-bar-item[aria-current="page"] { color: #fffdf8; border-color: rgba(207, 215, 255, .55); }
 .top-bar-item:hover { color: #fffdf8; }
-.top-bar-search { width: 56px; padding: 0; margin-left: auto; background: rgba(8, 11, 19, .45); }
 /* Over a film's backdrop, the bar keeps its own dark ground so every item stays legible. */
 .film-page .top-bar { background: linear-gradient(180deg, rgba(8, 11, 19, .88) 0%, rgba(8, 11, 19, .55) 65%, rgba(8, 11, 19, 0) 100%); }
-.top-bar-search-icon { display: block; }
+/* Search carries its lens beside its name. */
+.top-bar-search-icon { display: block; flex: none; margin-right: 10px; }
 .top-bar-item:focus-visible, :root:not([data-input="pointer"]) .top-bar-item:focus {
   outline: 4px solid #ffffff;
   outline-offset: 4px;
@@ -124,8 +124,7 @@
   .top-bar-brand-mark { font-size: 26px; }
   .top-bar-destinations { gap: 0; min-width: 0; }
   .top-bar-item { min-height: 44px; padding: 6px 8px; border-width: 2px; font-size: 14px; }
-  .top-bar-search { flex: none; width: 44px; }
-  .top-bar-search-icon { width: 22px; height: 22px; }
+  .top-bar-search-icon { width: 18px; height: 18px; margin-right: 5px; }
   .tv-action { min-height: 48px; padding: 10px 18px; font-size: 18px; }
 }
 /* On the narrowest phones the destinations need the brand mark's room. */

@@ -41,7 +41,7 @@ function backButtons() {
 const screens: { name: string; at: string | { path: string; state?: unknown }[]; current: string }[] = [
   { name: "the home", at: "/home", current: "Home" },
   { name: "Discover", at: "/discover", current: "Discover" },
-  { name: "a film page opened from Discover", at: [{ path: "/discover" }, { path: "/discover/603", state: { [FROM]: "/discover" } }], current: "Discover" },
+  { name: "a film page opened from search", at: [{ path: "/discover" }, { path: "/discover/603", state: { [FROM]: "/discover" } }], current: "Discover" },
   { name: "a film page opened from the home", at: [{ path: "/home" }, { path: "/discover/603", state: { [FROM]: "/home" } }], current: "Home" },
   { name: "a film page reached by URL", at: "/discover/603", current: "Discover" },
   { name: "the jam registry", at: "/jams", current: "Movie Jam" },
@@ -52,10 +52,10 @@ const screens: { name: string; at: string | { path: string; state?: unknown }[];
 
 describe("the top bar", () => {
   for (const { name, at, current } of screens) {
-    it(`is on ${name}, with every destination, a search icon, no text field and no back button`, async () => {
+    it(`is on ${name}, with every destination, no text field and no back button`, async () => {
       await render(<App />, at);
       const bar = readBar();
-      assert.deepEqual(bar.labels, ["Home", "Discover", "Movie Jam", "Search"]);
+      assert.deepEqual(bar.labels, ["Home", "Discover", "Movie Jam"]);
       assert.deepEqual(bar.current, [current]);
       assert.equal(bar.fields, 0, "the bar holds no text field");
       assert.deepEqual(backButtons(), []);
@@ -75,34 +75,57 @@ describe("the top bar", () => {
     assert.deepEqual(backButtons(), []);
   });
 
-  it("puts the Discover search field in the page, not in the chrome", async () => {
+  it("puts the search field in the page, not in the chrome", async () => {
     await render(<App />, "/discover");
     const search = document.querySelector('input[type="search"]');
-    assert.ok(search, "Discover has its search field");
+    assert.ok(search, "search has its field");
     assert.equal(search.closest("[data-top-bar]"), null);
+  });
+
+  it("marks Discover by its lens as well as its name", async () => {
+    await render(<App />, "/home");
+    const item = searchItem();
+    assert.equal(item.getAttribute("href"), "/discover");
+    assert.ok(item.querySelector("svg[aria-hidden='true']"), "the lens is drawn and hidden from assistive technology");
   });
 });
 
-describe("the search icon", () => {
-  it("opens Discover with its search field focused", async () => {
+/** The bar's Discover destination on the screen showing now. */
+function searchItem() {
+  const item = Array.from(liveTopBar()!.querySelectorAll<HTMLAnchorElement>("a[data-top-bar-item]")).find((link) => link.textContent?.trim() === "Discover");
+  assert.ok(item, "the bar has Discover");
+  return item;
+}
+
+describe("Discover in the top bar", () => {
+  it("opens search with its field focused", async () => {
     await render(<App />, "/home");
-    await click(document.querySelector('[data-top-bar] a[aria-label="Search"]'));
+    await click(searchItem());
     assert.equal(window.location.pathname, "/discover");
     assert.equal(focused().getAttribute("type"), "search");
   });
 
-  it("on Discover, focuses the field where it is", async () => {
+  it("on search, focuses the field where it is", async () => {
     await render(<App />, "/discover");
-    await click(document.querySelector('[data-top-bar] a[aria-label="Search"]'));
+    await click(searchItem());
     assert.equal(window.location.pathname, "/discover");
     assert.equal(focused().getAttribute("type"), "search");
   });
 
-  it("on a film page, closes it and focuses the Discover search", async () => {
+  it("on a film page, closes it and focuses the search field", async () => {
     await render(<App />, [{ path: "/discover" }, { path: "/discover/603", state: { [FROM]: "/discover" } }]);
-    await click(liveTopBar()!.querySelector('a[aria-label="Search"]'));
+    await click(searchItem());
     assert.equal(window.location.pathname, "/discover");
     assert.equal(document.querySelector(".film-page"), null, "the film page is closed");
+    assert.equal(focused().getAttribute("type"), "search");
+  });
+
+  it("lands on the field when OK is pressed on it from another screen", async () => {
+    await render(<App />, "/jams");
+    await press("ArrowLeft");
+    assert.equal(focused().textContent, "Discover");
+    assert.equal(await press("Enter"), true);
+    assert.equal(window.location.pathname, "/discover");
     assert.equal(focused().getAttribute("type"), "search");
   });
 });
@@ -127,22 +150,22 @@ describe("remote focus on arrival", () => {
   it("goes where OK is pressed on the bar", async () => {
     await render(<App />, "/jams");
     await press("ArrowLeft");
-    assert.equal(focused().textContent, "Discover");
+    await press("ArrowLeft");
+    assert.equal(focused().textContent, "Home");
     assert.equal(await press("Enter"), true);
-    assert.equal(window.location.pathname, "/discover");
+    assert.equal(window.location.pathname, "/home");
   });
 
   it("moves along the bar with Left and Right and stops at its ends", async () => {
     await render(<App />, "/jams");
     assert.equal(focused().textContent, "Movie Jam");
     await press("ArrowRight");
-    assert.equal(focused().getAttribute("aria-label"), "Search");
-    await press("ArrowRight");
-    assert.equal(focused().getAttribute("aria-label"), "Search");
+    assert.equal(focused().textContent, "Movie Jam", "Movie Jam is the last item");
     await press("ArrowLeft");
-    await press("ArrowLeft");
-    await press("ArrowLeft");
+    assert.equal(focused().textContent, "Discover");
     await press("ArrowLeft");
     assert.equal(focused().textContent, "Home");
+    await press("ArrowLeft");
+    assert.equal(focused().textContent, "Home", "Home is the first");
   });
 });

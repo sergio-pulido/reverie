@@ -55,17 +55,20 @@ export function mergeIntoDraft(draft: string, transcript: string): string {
   return (kept ? `${kept} ${said}` : said).slice(0, MAX_MESSAGE_CHARS);
 }
 
-/** Label of the one voice control, legible from across a room. */
-export function voiceLabel(phase: VoicePhase, secondsLeft: number): string {
+/**
+ * The voice control's accessible name. On screen it is an icon and a colour, with no words and
+ * no countdown; this is what a screen reader says, and what the control does if pressed now.
+ */
+export function voiceName(phase: VoicePhase): string {
   switch (phase) {
     case "idle":
-      return "Speak";
+      return "Speak instead of typing";
     case "starting":
-      return "Opening mic…";
+      return "Opening the microphone. Press to cancel.";
     case "recording":
-      return `Stop · ${Math.max(0, Math.ceil(secondsLeft))}s`;
+      return "Listening. Press to stop.";
     case "transcribing":
-      return "Transcribing…";
+      return "Finishing what you said";
   }
 }
 

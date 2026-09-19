@@ -169,8 +169,11 @@
   overflow: hidden;
   box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
 }
+/* The width/height attributes give the image its ratio before it loads; the box is always 2:3,
+   so posters arriving never move the grid. */
 .discover-card-art {
   width: 100%;
+  height: auto;
   aspect-ratio: 2 / 3;
   object-fit: cover;
   background: linear-gradient(150deg, #2b3152, #151a2d);
@@ -234,9 +237,9 @@
 .discover-jam-link:focus-visible,
 .discover-brand:focus-visible,
 .discover-retry:focus-visible,
-.discover-pager button:focus-visible,
-.discover-detail-close:focus-visible,
-.discover-detail-reject:focus-visible,
+.film-back:focus-visible,
+.film-action:focus-visible,
+.film-external a:focus-visible,
 .discover-chip:focus-visible,
 .discover-search input:focus-visible {
   outline: 5px solid var(--focus);
@@ -314,63 +317,6 @@
   letter-spacing: .08em;
 }
 
-.discover-pager {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 20px;
-  padding: 24px 56px;
-  color: #c2c4d0;
-  font-size: 22px;
-}
-.discover-pager button {
-  padding: 16px 28px;
-  font-size: 22px;
-  border: 2px solid #5a6384;
-  border-radius: 6px;
-  background: transparent;
-  color: #eaebf0;
-}
-.discover-pager button { scroll-margin-bottom: calc(var(--attribution-height) + 32px); }
-.discover-pager button:disabled { opacity: .4; cursor: not-allowed; }
-
-.discover-detail-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 32px;
-  background: rgba(4, 6, 12, .82);
-}
-.discover-detail {
-  position: relative;
-  width: min(1040px, 100%);
-  max-height: 86vh;
-  overflow-y: auto;
-  padding: 44px 48px;
-  border: 1px solid rgba(190, 200, 255, .22);
-  border-radius: 14px;
-  background: #101524;
-}
-.discover-detail h2 { font-family: Fraunces, Georgia, serif; font-size: 52px; font-weight: 500; margin: 0 0 12px; }
-.discover-detail-meta { color: var(--muted); font-size: 22px; }
-.discover-detail-synopsis { color: #e0e2ec; font-size: 24px; line-height: 1.6; }
-.discover-detail-close {
-  position: absolute;
-  top: 18px;
-  right: 20px;
-  width: 60px;
-  height: 60px;
-  font-size: 34px;
-  border: 1px solid #48506a;
-  border-radius: 8px;
-  background: transparent;
-  color: #eaebf0;
-}
-.discover-detail-attribution { color: var(--muted); font-size: 18px; margin: 0; }
-
 /* Below TV widths the spotlight gives way to the search, and type steps down for handheld use. */
 /* Refinement rails: one horizontal row each, scrolled rather than wrapped, so Left/Right always
    walk the row a remote user sees and Up/Down always change row. */
@@ -423,16 +369,150 @@
 }
 .discover-grid[aria-busy="true"] { opacity: .6; transition: opacity .2s ease; }
 
-.discover-detail-reject {
-  margin: 0 0 20px;
-  border: 2px solid #ffb4a8;
+/* The end of the grid keeps a fixed height, so a loading line or a retry never moves a poster. */
+.discover-feed-end {
+  min-height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--safe-x);
+}
+.discover-feed-status {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 22px;
+}
+.discover-feed-failed { color: #ffd6cf; }
+.discover-feed-failed .discover-retry { margin-top: 0; }
+.discover-spinner-inline { width: 28px; height: 28px; margin: 0; }
+
+/* A film's own page: the backdrop large behind everything, the poster and the story over it. */
+.film-page {
+  position: fixed;
+  z-index: 30;
+  inset: 0;
+  isolation: isolate;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+html.film-page-open { overflow: hidden; }
+.film-backdrop {
+  position: absolute;
+  z-index: -2;
+  top: 0;
+  right: 0;
+  width: 78%;
+  height: min(100vh, 1080px);
+  object-fit: cover;
+  object-position: center 25%;
+  animation: discover-fade .4s ease;
+}
+.film-page::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: min(100vh, 1080px);
+  background:
+    linear-gradient(90deg, #080b13 0%, #080b13 24%, rgba(8, 11, 19, .72) 48%, rgba(8, 11, 19, .15) 100%),
+    linear-gradient(0deg, #0a0f1a 0%, rgba(10, 15, 26, .4) 30%, transparent 55%);
+  pointer-events: none;
+}
+.film-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  border: 2px solid #5a6384;
   border-radius: 8px;
-  background: transparent;
-  color: #ffd6cf;
-  padding: 12px 22px;
-  font-size: 21px;
+  background: rgba(8, 11, 19, .6);
+  color: var(--ink);
+  padding: 14px 24px;
+  font-size: 22px;
   font-weight: 600;
 }
+.film-hero {
+  display: grid;
+  grid-template-columns: minmax(220px, 360px) minmax(0, 1fr);
+  align-items: end;
+  gap: 56px;
+  min-height: min(68vh, 740px);
+  padding: 24px var(--safe-x) 40px;
+}
+.film-poster {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 12px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .6);
+  background: linear-gradient(150deg, #2b3152, #151a2d);
+}
+.film-poster-empty { display: block; }
+.film-summary { max-width: 1060px; text-shadow: 0 2px 14px rgba(0, 0, 0, .7); }
+.film-summary h1 {
+  margin: 0 0 12px;
+  font-family: Fraunces, Georgia, serif;
+  font-size: clamp(48px, 4.4vw, 88px);
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -.035em;
+}
+.film-tagline { margin: 0 0 18px; color: #cbd5ff; font-family: Fraunces, Georgia, serif; font-size: 28px; font-style: italic; }
+.film-headline { margin: 0 0 18px; color: #dfe2ee; font-size: 24px; }
+.film-genres, .film-keywords ul { list-style: none; margin: 0 0 22px; padding: 0; display: flex; flex-wrap: wrap; gap: 10px; }
+.film-genres li {
+  padding: 8px 16px;
+  border: 1px solid rgba(207, 215, 255, .45);
+  border-radius: 999px;
+  background: rgba(15, 20, 36, .6);
+  font-size: 19px;
+}
+.film-synopsis { margin: 0 0 30px; max-width: 920px; color: #e4e5ec; font-size: 24px; line-height: 1.55; }
+/* Room for what can be done with a film. It holds only actions that work. */
+.film-actions { display: flex; flex-wrap: wrap; gap: 18px; min-height: 64px; }
+.film-action {
+  border: 2px solid #ffb4a8;
+  border-radius: 8px;
+  background: rgba(8, 11, 19, .6);
+  color: #ffd6cf;
+  padding: 14px 26px;
+  font-size: 22px;
+  font-weight: 600;
+}
+.film-details {
+  display: grid;
+  gap: 32px;
+  padding: 16px var(--safe-x) 40px;
+  max-width: 1500px;
+}
+.film-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 24px 48px; margin: 0; }
+.film-facts dt {
+  color: var(--muted);
+  font-family: "DM Mono", monospace;
+  font-size: 16px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.film-facts dd { margin: 6px 0 0; font-size: 22px; line-height: 1.4; }
+.film-keywords h2 {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-family: "DM Mono", monospace;
+  font-size: 16px;
+  font-weight: 400;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.film-keywords li { padding: 6px 14px; border-radius: 6px; background: rgba(40, 46, 74, .7); color: #dfe2ee; font-size: 18px; }
+.film-external { margin: 0; }
+.film-external a { color: #cfd7ff; font-size: 22px; font-weight: 600; }
+.film-inline-error { padding: 0 var(--safe-x); color: #ffd6cf; font-size: 20px; }
 
 @media (max-width: 1100px) {
   .discover-head { grid-template-columns: minmax(0, 1fr); min-height: 0; }
@@ -445,7 +525,11 @@
   .discover-eyebrow { font-size: 14px; }
   .discover-card-title { font-size: 18px; }
   .discover-card-meta, .discover-attribution { font-size: 15px; }
-  .discover-detail { padding: 32px 24px; }
+  .film-hero { grid-template-columns: minmax(0, 1fr); }
+  .film-poster { width: 180px; }
+  .film-summary h1 { font-size: 40px; }
+  .film-tagline, .film-synopsis { font-size: 19px; }
+  .film-facts { grid-template-columns: minmax(0, 1fr); }
   .discover-chip { font-size: 17px; padding: 10px 16px; }
   .discover-rail-label { font-size: 14px; }
 }

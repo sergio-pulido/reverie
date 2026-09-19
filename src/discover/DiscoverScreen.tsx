@@ -1,35 +1,60 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toCandidates } from "../catalogue/candidates";
-import type { CatalogueOk, CatalogueTitle } from "../catalogue/contract";
+import { providerIdOf, type CatalogueOk, type CatalogueTitle } from "../catalogue/contract";
 import { rankShortlist } from "../catalogue/scorer";
 import { isRefined, toShortlistFilters } from "../catalogue/shortlistFilters";
+import type { FilmRoute } from "../lib/routes";
 import type { PreferenceState } from "../preferences/schema";
+import { FilmPage } from "./FilmPage";
+import type { Feed, FeedController } from "./pageFeed";
 import { RefinementBar } from "./RefinementBar";
 import { useCatalogue, type CatalogueState } from "./useCatalogue";
 import { useGridNavigation } from "./useGridNavigation";
 import { useRefinement } from "./useRefinement";
 import "./discover.css";
 
-type DiscoverScreenProps = { onExit: () => void };
+type DiscoverScreenProps = {
+  /** The film the URL names, or null for the grid. */
+  film: FilmRoute;
+  onOpenFilm: (providerId: string) => void;
+  onCloseFilm: () => void;
+  onExit: () => void;
+};
 
 /** Shown whenever TMDB records are on screen, even if a response omits its own attribution. */
 const TMDB_ATTRIBUTION_FALLBACK =
   "Film data and images from TMDB (themoviedb.org). This product uses TMDB data but is not endorsed or certified by TMDB.";
 
-export function DiscoverScreen({ onExit }: DiscoverScreenProps) {
+/** How far below the viewport the end of the grid starts loading the next page. */
+const END_OF_GRID_MARGIN = "0px 0px 900px 0px";
+
+/** Where focus goes when the grid comes back: the film that was open, or its old place. */
+type ReturnFocus = { id: string; index: number };
+
+export function DiscoverScreen({ film, onOpenFilm, onCloseFilm, onExit }: DiscoverScreenProps) {
   const [searchInput, setSearchInput] = useState("");
-  const [page, setPage] = useState(1);
-  const [selected, setSelected] = useState<CatalogueTitle | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
-  const pagerRef = useRef<HTMLElement | null>(null);
   const refineRef = useRef<HTMLElement | null>(null);
+  const endRef = useRef<HTMLDivElement | null>(null);
+  const returnFocus = useRef<ReturnFocus | null>(null);
+  const filmOpen = film !== null;
+
+  // Reached by a film's URL, the grid is not read until the viewer goes to it: the page pays
+  // for its one row and nothing else.
+  const [gridWanted, setGridWanted] = useState(!filmOpen);
+  useEffect(() => {
+    if (!filmOpen) setGridWanted(true);
+  }, [filmOpen]);
 
   const refinement = useRefinement();
   const refined = isRefined(refinement.state);
   const filters = useMemo(() => (refined ? toShortlistFilters(refinement.state) : null), [refined, refinement.state]);
-  const { state, retry } = useCatalogue(searchInput, page, filters);
+  const { state, retry, feed, more } = useCatalogue(searchInput, filters, gridWanted);
   const response = shownResponse(state);
-  const { items, pickIds } = useMemo(() => orderForViewer(response, refined ? refinement.state : null), [response, refined, refinement.state]);
+  const { items, pickIds } = useMemo(
+    () => (refined ? orderForViewer(response, refinement.state) : { items: feed.items, pickIds: new Set<string>() }),
+    [refined, response, refinement.state, feed.items],
+  );
 
   const focusSearch = useCallback(() => searchRef.current?.focus(), []);
   const focusRefine = useCallback((rail: "first" | "last") => {
@@ -37,178 +62,266 @@ export function DiscoverScreen({ onExit }: DiscoverScreenProps) {
     const target = rails && rails.length > 0 ? rails[rail === "first" ? 0 : rails.length - 1] : null;
     target?.querySelector<HTMLButtonElement>("button")?.focus();
   }, []);
-  const activate = useCallback(
+  const focusFeedEnd = useCallback(() => {
+    endRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+  }, []);
+
+  const openFilm = useCallback(
     (index: number) => {
       const title = items[index];
-      if (title) setSelected(title);
+      if (!title) return;
+      returnFocus.current = { id: title.id, index };
+      onOpenFilm(providerIdOf(title.id));
     },
-    [items],
+    [items, onOpenFilm],
   );
-  const focusPager = useCallback(() => {
-    pagerRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
-  }, []);
   const gridHandlers = useMemo(
-    () => ({ onActivate: activate, onExitTop: () => focusRefine("last"), onExitBottom: focusPager, onBack: focusSearch }),
-    [activate, focusSearch, focusPager, focusRefine],
+    () => ({ onActivate: openFilm, onExitTop: () => focusRefine("last"), onExitBottom: focusFeedEnd, onBack: focusSearch }),
+    [openFilm, focusSearch, focusFeedEnd, focusRefine],
   );
-  const { gridRef, activeIndex, setActiveIndex, handleKeyDown, focusItem } = useGridNavigation(
-    items.length,
-    gridHandlers,
-  );
+  const { gridRef, activeIndex, setActiveIndex, handleKeyDown, focusItem, columns } = useGridNavigation(items.length, gridHandlers);
   const spotlight = items[activeIndex];
 
-  useEffect(() => setPage(1), [searchInput]);
+  /** A new search or refinement starts from the top of a fresh grid. */
+  const filtersKey = filters ? JSON.stringify(filters) : "";
+  const firstRun = useRef(true);
+  useEffect(() => {
+    if (firstRun.current) {
+      firstRun.current = false;
+      return;
+    }
+    setActiveIndex(0);
+    window.scrollTo({ top: 0 });
+  }, [searchInput, filtersKey, setActiveIndex]);
 
   /** A remote has no pointer: when posters arrive and nothing holds focus, start on the grid. */
   const hasItems = items.length > 0;
   useEffect(() => {
-    if (!hasItems) return;
+    if (!hasItems || filmOpen) return;
     const idle = !document.activeElement || document.activeElement === document.body;
     if (idle) focusItem(activeIndex);
   }, [hasItems, state]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const closeDetail = useCallback(() => {
-    setSelected(null);
-    focusItem(activeIndex);
-  }, [activeIndex, focusItem]);
+  /** Focus reaching the last row asks for the next page: a remote moves focus, not the scrollbar. */
+  useEffect(() => {
+    if (refined || filmOpen) return;
+    if (!gridRef.current?.contains(document.activeElement)) return;
+    more.focusMoved(activeIndex, columns);
+  }, [activeIndex, columns, items.length, refined, filmOpen, more, gridRef]);
 
-  /** "Not this one": the title leaves the grid now and never returns in this session. */
-  const pendingFocus = useRef<number | null>(null);
-  const { reject } = refinement;
-  const rejectSelected = useCallback(() => {
-    if (!selected) return;
-    pendingFocus.current = activeIndex;
-    reject(selected.id);
-    setSelected(null);
-  }, [selected, reject, activeIndex]);
+  /** The end of the grid nearing the viewport asks for it too, for mouse and touch. */
+  useEndOfGrid(endRef, more, !refined && !filmOpen, feed.items.length);
 
   /**
-   * Once the rejected card is gone, focus the title now at its position (the order may have
-   * changed, since a first rejection turns on ranking), or the refinements if nothing is left.
-   * The request is consumed either way, so it can never take focus later.
+   * However a film page closes (Escape, the Back button, the browser's Back), the grid returns
+   * to that film. The page is a layer over the grid, which never moves or scrolls underneath it,
+   * so only focus has to be put back.
+   */
+  const openFilmId = film && "id" in film ? film.id : null;
+  const lastFilmId = useRef(openFilmId);
+  useEffect(() => {
+    const closed = lastFilmId.current;
+    lastFilmId.current = openFilmId;
+    if (closed && !filmOpen && !returnFocus.current) returnFocus.current = { id: `cat:${closed}`, index: activeIndex };
+  }, [openFilmId, filmOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /**
+   * Back on the grid, focus returns to the film that was open. If that film is gone (turned
+   * down), its old place is focused instead, or the refinements when nothing is left. Reached by
+   * URL, there is nothing to return to until posters arrive.
    */
   useEffect(() => {
-    const index = pendingFocus.current;
-    if (index === null) return;
-    pendingFocus.current = null;
-    if (items.length > 0) focusItem(Math.min(index, items.length - 1));
-    else focusRefine("first");
-  }, [items, focusItem, focusRefine]);
+    const target = returnFocus.current;
+    if (filmOpen || !target) return;
+    if (items.length === 0) {
+      if (state.phase === "ready") {
+        returnFocus.current = null;
+        focusRefine("first");
+      }
+      return;
+    }
+    returnFocus.current = null;
+    const index = items.findIndex(({ id }) => id === target.id);
+    focusItem(index >= 0 ? index : Math.min(target.index, items.length - 1));
+  }, [filmOpen, items, state.phase, focusItem, focusRefine]);
 
-  useEffect(() => {
-    if (!selected) return;
-    const close = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeDetail();
-    };
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
-  }, [selected, closeDetail]);
+  /** "Not this one": the title leaves the grid now and never returns in this session. */
+  const { reject } = refinement;
+  const rejectFilm = useCallback(
+    (id: string) => {
+      if (!returnFocus.current) returnFocus.current = { id, index: activeIndex };
+      reject(id);
+      onCloseFilm();
+    },
+    [reject, onCloseFilm, activeIndex],
+  );
+
+  const attribution = response?.attribution ?? TMDB_ATTRIBUTION_FALLBACK;
+  const seed = openFilmId ? items.find(({ id }) => providerIdOf(id) === openFilmId) : undefined;
 
   return (
-    <main className="discover-shell">
-      <header className="discover-bar">
-        <button className="discover-brand" onClick={onExit}>
-          <span aria-hidden="true">✳</span> REVERIE
-        </button>
-        <p className="discover-eyebrow">DISCOVER · REAL CATALOGUE</p>
-        <button className="discover-jam-link" onClick={onExit}>
-          Movie Jam <span aria-hidden="true">↗</span>
-        </button>
-      </header>
-
-      <section className="discover-head">
-        {spotlight?.backdropUrl && (
-          <img key={spotlight.id} className="discover-backdrop" src={spotlight.backdropUrl} alt="" aria-hidden="true" />
-        )}
-        <div className="discover-intro">
-          <h1>
-            Find a <em>real</em> film.
-          </h1>
-          <p className="discover-note">
-            Discover shows real films from a curated TMDB catalogue, with their own artwork and
-            metadata. It does not say where a film can be watched. Generated Movie Jam scenes never
-            appear here.
-          </p>
-          <label className="discover-search">
-            <span className="sr-only">Search the catalogue</span>
-            <input
-              ref={searchRef}
-              type="search"
-              value={searchInput}
-              maxLength={120}
-              placeholder="Search by title, mood or genre…"
-              autoComplete="off"
-              onChange={(event) => setSearchInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "ArrowDown") {
-                  event.preventDefault();
-                  focusRefine("first");
-                }
-                if (event.key === "Escape") {
-                  if (searchInput) setSearchInput("");
-                  else onExit();
-                }
-              }}
-            />
-          </label>
-        </div>
-        {spotlight && <Spotlight title={spotlight} />}
-      </section>
-
-      <RefinementBar
-        state={refinement.state}
-        notice={refinement.notice}
-        matchCount={state.phase === "ready" ? state.response.total : null}
-        barRef={refineRef}
-        onChoose={refinement.choose}
-        onUnchoose={refinement.unchoose}
-        onWithdraw={refinement.withdraw}
-        onRestore={refinement.restore}
-        onReset={refinement.reset}
-        onExitUp={focusSearch}
-        onExitDown={() => (items.length > 0 ? focusItem(activeIndex) : focusPager())}
-      />
-
-      <CatalogueRegion
-        state={state}
-        items={items}
-        pickIds={pickIds}
-        refined={refined}
-        gridRef={gridRef}
-        activeIndex={activeIndex}
-        onKeyDown={handleKeyDown}
-        onSelect={setSelected}
-        onFocusIndex={setActiveIndex}
-        onRetry={retry}
-        query={searchInput}
-      />
-
-      {!refined && state.phase === "ready" && (state.response.page > 1 || state.response.hasMore) && (
-        <nav
-          className="discover-pager"
-          aria-label="Catalogue pages"
-          ref={pagerRef}
-          onKeyDown={(event) => handlePagerKey(event, () => focusItem(activeIndex))}
-        >
-          <button disabled={state.response.page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
-            ← Previous
-          </button>
-          <span>Page {state.response.page}</span>
-          <button disabled={!state.response.hasMore} onClick={() => setPage((value) => value + 1)}>
-            Next →
-          </button>
-        </nav>
+    <>
+      {film && (
+        <FilmPage
+          providerId={openFilmId}
+          seed={seed}
+          attributionFallback={attribution}
+          onBack={onCloseFilm}
+          onReject={rejectFilm}
+        />
       )}
+      <main className="discover-shell" inert={filmOpen}>
+        <header className="discover-bar">
+          <button className="discover-brand" onClick={onExit}>
+            <span aria-hidden="true">✳</span> REVERIE
+          </button>
+          <p className="discover-eyebrow">DISCOVER</p>
+          <button className="discover-jam-link" onClick={onExit}>
+            Movie Jam <span aria-hidden="true">↗</span>
+          </button>
+        </header>
 
-      {response && items.length > 0 && (
-        <p className="discover-attribution">
-          <span className="discover-attribution-mark" aria-hidden="true">TMDB</span>
-          {response.attribution ?? TMDB_ATTRIBUTION_FALLBACK}
+        <section className="discover-head">
+          {spotlight?.backdropUrl && (
+            <img key={spotlight.id} className="discover-backdrop" src={spotlight.backdropUrl} alt="" aria-hidden="true" />
+          )}
+          <div className="discover-intro">
+            <h1>
+              What are we watching <em>tonight?</em>
+            </h1>
+            <p className="discover-note">Say what you’re in the mood for, then narrow it down together.</p>
+            <label className="discover-search">
+              <span className="sr-only">Search films</span>
+              <input
+                ref={searchRef}
+                type="search"
+                value={searchInput}
+                maxLength={120}
+                placeholder="Search by title, mood or genre…"
+                autoComplete="off"
+                onChange={(event) => setSearchInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowDown") {
+                    event.preventDefault();
+                    focusRefine("first");
+                  }
+                  if (event.key === "Escape") {
+                    if (searchInput) setSearchInput("");
+                    else onExit();
+                  }
+                }}
+              />
+            </label>
+          </div>
+          {spotlight && <Spotlight title={spotlight} />}
+        </section>
+
+        <RefinementBar
+          state={refinement.state}
+          notice={refinement.notice}
+          matchCount={state.phase === "ready" ? state.response.total : null}
+          barRef={refineRef}
+          onChoose={refinement.choose}
+          onUnchoose={refinement.unchoose}
+          onWithdraw={refinement.withdraw}
+          onRestore={refinement.restore}
+          onReset={refinement.reset}
+          onExitUp={focusSearch}
+          onExitDown={() => (items.length > 0 ? focusItem(activeIndex) : undefined)}
+        />
+
+        <CatalogueRegion
+          state={state}
+          items={items}
+          pickIds={pickIds}
+          refined={refined}
+          gridRef={gridRef}
+          activeIndex={activeIndex}
+          onKeyDown={handleKeyDown}
+          onOpen={openFilm}
+          onFocusIndex={setActiveIndex}
+          onRetry={retry}
+          query={searchInput}
+        />
+
+        {!refined && items.length > 0 && (
+          <FeedEnd
+            feed={feed}
+            endRef={endRef}
+            onRetry={() => {
+              // The retry button is about to disappear; focus goes back to the grid first so a
+              // remote is never left pointing at nothing.
+              more.retry();
+              focusItem(activeIndex);
+            }}
+            onReturnToGrid={() => focusItem(activeIndex)}
+          />
+        )}
+
+        {response && items.length > 0 && (
+          <p className="discover-attribution">
+            <span className="discover-attribution-mark" aria-hidden="true">TMDB</span>
+            {attribution}
+          </p>
+        )}
+      </main>
+    </>
+  );
+}
+
+/**
+ * Watches the end of the grid. The observer is re-attached whenever the grid grows, which makes
+ * it report again: if the new end is still within reach (a tall screen, a short page), the next
+ * page is asked for without waiting for a scroll that may never come.
+ */
+function useEndOfGrid(endRef: React.RefObject<HTMLDivElement | null>, more: FeedController, enabled: boolean, itemCount: number) {
+  useEffect(() => {
+    const end = endRef.current;
+    if (!enabled || !end || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) more.endInView();
+      },
+      { rootMargin: END_OF_GRID_MARGIN },
+    );
+    observer.observe(end);
+    return () => observer.disconnect();
+  }, [endRef, more, enabled, itemCount]);
+}
+
+/**
+ * The end of the grid: a loading line while a page is in flight, a retry after a failure, and
+ * nothing at all once the last page is shown. It is always rendered, so its height is reserved
+ * and the grid never shifts when the state changes.
+ */
+function FeedEnd({ feed, endRef, onRetry, onReturnToGrid }: { feed: Feed; endRef: React.RefObject<HTMLDivElement | null>; onRetry: () => void; onReturnToGrid: () => void }) {
+  return (
+    <div
+      className="discover-feed-end"
+      ref={endRef}
+      aria-live="polite"
+      onKeyDown={(event) => {
+        if (event.key === "ArrowUp" || event.key === "Escape") {
+          event.preventDefault();
+          onReturnToGrid();
+        }
+      }}
+    >
+      {feed.loading && (
+        <p className="discover-feed-status">
+          <span className="discover-spinner discover-spinner-inline" aria-hidden="true" />
+          Loading more…
         </p>
       )}
-
-      {selected && <TitleDetail title={selected} onClose={closeDetail} onReject={rejectSelected} />}
-    </main>
+      {feed.failure && (
+        <p className="discover-feed-status discover-feed-failed" role="alert">
+          {feed.failure.safeMessage}
+          <button className="discover-retry" onClick={onRetry}>
+            Try again
+          </button>
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -233,25 +346,25 @@ function orderForViewer(response: CatalogueOk | null, state: PreferenceState | n
 
 type CatalogueRegionProps = {
   state: CatalogueState;
-  items: CatalogueTitle[];
+  items: readonly CatalogueTitle[];
   pickIds: ReadonlySet<string>;
   refined: boolean;
   gridRef: React.RefObject<HTMLDivElement | null>;
   activeIndex: number;
   onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
-  onSelect: (title: CatalogueTitle) => void;
+  onOpen: (index: number) => void;
   onFocusIndex: (index: number) => void;
   onRetry: () => void;
   query: string;
 };
 
 function CatalogueRegion(props: CatalogueRegionProps) {
-  const { state, items, pickIds, refined, gridRef, activeIndex, onKeyDown, onSelect, onFocusIndex, onRetry, query } = props;
+  const { state, items, pickIds, refined, gridRef, activeIndex, onKeyDown, onOpen, onFocusIndex, onRetry, query } = props;
   if (state.phase === "loading" && items.length === 0) {
     return (
       <section className="discover-state" aria-busy="true" aria-live="polite">
         <span className="discover-spinner" aria-hidden="true" />
-        <p>Loading catalogue titles…</p>
+        <p>Loading films…</p>
       </section>
     );
   }
@@ -279,7 +392,7 @@ function CatalogueRegion(props: CatalogueRegionProps) {
   if (state.phase === "error") {
     return (
       <section className="discover-state discover-state-error" role="alert">
-        <p className="discover-state-title">Discover could not load the catalogue</p>
+        <p className="discover-state-title">Films could not be loaded</p>
         <p>{state.safeMessage}</p>
         <p className="discover-state-detail">
           Reference: <code>{state.code}</code>
@@ -296,7 +409,7 @@ function CatalogueRegion(props: CatalogueRegionProps) {
   if (items.length === 0) {
     return (
       <section className="discover-state" role="status">
-        <p className="discover-state-title">No catalogue titles match</p>
+        <p className="discover-state-title">Nothing matches</p>
         <p>{emptyMessage(query, refined)}</p>
       </section>
     );
@@ -305,7 +418,7 @@ function CatalogueRegion(props: CatalogueRegionProps) {
   return (
     <>
       <div className="discover-grid" ref={gridRef} onKeyDown={onKeyDown} aria-busy={state.phase === "loading"}>
-        <ul aria-label={refined ? "Titles ranked for you" : "Catalogue titles"}>
+        <ul aria-label={refined ? "Films ranked for you" : "Films"}>
           {items.map((title, index) => (
             <li key={title.id}>
               <button
@@ -314,7 +427,7 @@ function CatalogueRegion(props: CatalogueRegionProps) {
                 tabIndex={index === activeIndex ? 0 : -1}
                 className="discover-card"
                 onFocus={() => onFocusIndex(index)}
-                onClick={() => onSelect(title)}
+                onClick={() => onOpen(index)}
               >
                 <span className="discover-card-poster">
                   <Artwork title={title} />
@@ -325,7 +438,7 @@ function CatalogueRegion(props: CatalogueRegionProps) {
                 </span>
                 <span className="discover-card-title">{title.title}</span>
                 <span className="discover-card-meta">
-                  {[title.year, title.rating, title.genres[0]].filter(Boolean).join(" · ") || "Catalogue title"}
+                  {[title.year, title.rating, title.genres[0]].filter(Boolean).join(" · ")}
                 </span>
               </button>
             </li>
@@ -337,8 +450,8 @@ function CatalogueRegion(props: CatalogueRegionProps) {
 }
 
 function emptyMessage(query: string, refined: boolean) {
-  if (refined) return "Nothing in the catalogue fits all of that. Remove something above to widen it.";
-  return query ? `Nothing in the catalogue matches “${query}”.` : "The catalogue returned no titles.";
+  if (refined) return "Nothing fits all of that. Remove something above to widen it.";
+  return query ? `Nothing matches “${query}”. Try another title, mood or genre.` : "There are no films to show yet.";
 }
 
 /**
@@ -361,22 +474,6 @@ function Spotlight({ title }: { title: CatalogueTitle }) {
   );
 }
 
-/** Left/Right move between the pager buttons; Up or Escape hands focus back to the grid. */
-function handlePagerKey(event: React.KeyboardEvent<HTMLElement>, returnToGrid: () => void) {
-  if (event.key === "ArrowUp" || event.key === "Escape") {
-    event.preventDefault();
-    returnToGrid();
-    return;
-  }
-  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-  const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"));
-  const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
-  const next = buttons[current + (event.key === "ArrowRight" ? 1 : -1)];
-  if (!next) return;
-  event.preventDefault();
-  next.focus();
-}
-
 function Artwork({ title }: { title: CatalogueTitle }) {
   if (!title.posterUrl) {
     return (
@@ -385,56 +482,15 @@ function Artwork({ title }: { title: CatalogueTitle }) {
       </span>
     );
   }
-  return <img className="discover-card-art" src={title.posterUrl} alt={`Poster for ${title.title}`} loading="lazy" />;
-}
-
-function TitleDetail({ title, onClose, onReject }: { title: CatalogueTitle; onClose: () => void; onReject: () => void }) {
-  const closeRef = useRef<HTMLButtonElement | null>(null);
-  const dialogRef = useRef<HTMLElement | null>(null);
-  useEffect(() => closeRef.current?.focus(), []);
-
-  /** Keeps Tab inside the dialog so a remote or keyboard cannot wander into the hidden page. */
-  function trapTab(event: React.KeyboardEvent<HTMLElement>) {
-    if (event.key !== "Tab") return;
-    const focusable = dialogRef.current?.querySelectorAll<HTMLElement>("button, a[href]");
-    if (!focusable || focusable.length === 0) return;
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
-
   return (
-    <div className="discover-detail-backdrop" onClick={onClose}>
-      <section
-        className="discover-detail"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title.title}
-        ref={dialogRef}
-        onKeyDown={trapTab}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <button className="discover-detail-close" ref={closeRef} onClick={onClose} aria-label="Close title details">
-          ×
-        </button>
-        <h2>{title.title}</h2>
-        <p className="discover-detail-meta">
-          {[title.year, title.rating, title.runtimeMinutes && `${title.runtimeMinutes} min`, ...title.genres]
-            .filter(Boolean)
-            .join(" · ")}
-        </p>
-        {title.synopsis && <p className="discover-detail-synopsis">{title.synopsis}</p>}
-        <button className="discover-detail-reject" onClick={onReject}>
-          Not this one
-        </button>
-        <p className="discover-detail-attribution">{title.attribution ?? "Catalogue record shown as supplied."}</p>
-      </section>
-    </div>
+    <img
+      className="discover-card-art"
+      src={title.posterUrl}
+      alt={`Poster for ${title.title}`}
+      width={500}
+      height={750}
+      loading="lazy"
+      decoding="async"
+    />
   );
 }

@@ -1,0 +1,47 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { filmFromPath, filmPath, jamSlugFromPath, screenFromPath } from "../src/lib/routes";
+
+test("a film path opens Discover on that film", () => {
+  assert.equal(screenFromPath("/discover/27205"), "discover");
+  assert.deepEqual(filmFromPath("/discover/27205"), { id: "27205" });
+  assert.deepEqual(filmFromPath("/discover/27205/"), { id: "27205" });
+});
+
+test("the bare Discover path is the grid, with no film", () => {
+  assert.equal(screenFromPath("/discover"), "discover");
+  assert.equal(screenFromPath("/discover/"), "discover");
+  assert.equal(filmFromPath("/discover"), null);
+  assert.equal(filmFromPath("/discover/"), null);
+});
+
+test("a segment that is not a film id is named invalid, not quietly shown as the grid", () => {
+  for (const path of ["/discover/abc", "/discover/0", "/discover/-3", "/discover/012", "/discover/1.5", "/discover/1234567890123"]) {
+    assert.equal(screenFromPath(path), "discover", path);
+    assert.deepEqual(filmFromPath(path), { invalid: true }, path);
+  }
+});
+
+test("only one parameter segment is matched", () => {
+  assert.equal(filmFromPath("/discover/27205/cast"), null);
+  assert.equal(screenFromPath("/discover/27205/cast"), "home");
+  assert.equal(filmFromPath("/jams/27205"), null);
+});
+
+test("a film path round-trips through filmPath", () => {
+  assert.equal(filmPath("27205"), "/discover/27205");
+  assert.deepEqual(filmFromPath(filmPath("603")), { id: "603" });
+  assert.throws(() => filmPath("cat:27205"), RangeError);
+  assert.throws(() => filmPath("../jams"), RangeError);
+});
+
+test("the existing screens still resolve as before", () => {
+  assert.equal(screenFromPath("/"), "home");
+  assert.equal(screenFromPath("/jams"), "jams");
+  assert.equal(screenFromPath("/jams/new"), "create");
+  assert.equal(screenFromPath("/join"), "join");
+  assert.equal(screenFromPath("/jams/night-swim-4k2"), "studio");
+  assert.equal(jamSlugFromPath("/jams/night-swim-4k2"), "night-swim-4k2");
+  assert.equal(jamSlugFromPath("/jams/new"), null);
+  assert.equal(screenFromPath("/elsewhere"), "home");
+});

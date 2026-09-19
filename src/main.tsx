@@ -10,23 +10,13 @@ import { ScriptScreen } from "./ScriptScreen";
 import { JoinRoom } from "./screens/JoinRoom";
 import { Studio } from "./screens/Studio";
 import { JamRegistry } from "./screens/JamRegistry";
+import { DISCOVER_PATH, filmFromPath, filmPath, jamSlugFromPath, screenFromPath, type Screen } from "./lib/routes";
 import "./styles.css";
 
-type Screen = "home" | "discover" | "jams" | "create" | "join" | "script" | "studio";
 type SourceKind = "from-scratch" | "import-script";
-function screenFromPath(pathname: string): Screen {
-  if (pathname === "/discover") return "discover";
-  if (pathname === "/jams") return "jams";
-  if (pathname === "/jams/new") return "create";
-  if (pathname === "/join") return "join";
-  if (pathname.startsWith("/jams/")) return "studio";
-  return "home";
-}
 
-function jamSlugFromPath(pathname: string) {
-  const match = pathname.match(/^\/jams\/([a-z0-9-]+)$/);
-  return match?.[1] === "new" ? null : match?.[1] ?? null;
-}
+/** Marks a history entry pushed by opening a film from the grid, so closing it can go back. */
+const FILM_FROM_GRID = "reverie:film-from-grid";
 
 function inviteCodeFromLocation() {
   return new URLSearchParams(window.location.search).get("code") ?? "";
@@ -35,6 +25,7 @@ function inviteCodeFromLocation() {
 function App() {
   const [screen, setScreen] = useState<Screen>(() => screenFromPath(window.location.pathname));
   const [slug, setSlug] = useState<string | null>(() => jamSlugFromPath(window.location.pathname));
+  const [film, setFilm] = useState(() => filmFromPath(window.location.pathname));
   const [inviteCode, setInviteCode] = useState(() => inviteCodeFromLocation());
   const [roomTitle, setRoomTitle] = useState("Untitled Movie Jam");
   const [premise, setPremise] = useState("A signal changes what the room thinks is possible.");
@@ -50,10 +41,12 @@ function App() {
   const [isCreating, setIsCreating] = useState(false);
   const [registeredRoom, setRegisteredRoom] = useState<JamRoom | null>(null);
 
-  function navigate(next: Screen, path: string) {
-    window.history.pushState({}, "", path);
+  function navigate(next: Screen, path: string, { replace = false, state = {} }: { replace?: boolean; state?: object } = {}) {
+    if (replace) window.history.replaceState(state, "", path);
+    else window.history.pushState(state, "", path);
     setScreen(next);
     setSlug(jamSlugFromPath(path));
+    setFilm(filmFromPath(path));
     setInviteCode(inviteCodeFromLocation());
     setNotice(null);
   }
@@ -62,6 +55,7 @@ function App() {
     const handlePopState = () => {
       setScreen(screenFromPath(window.location.pathname));
       setSlug(jamSlugFromPath(window.location.pathname));
+      setFilm(filmFromPath(window.location.pathname));
       setInviteCode(inviteCodeFromLocation());
     };
     window.addEventListener("popstate", handlePopState);
@@ -121,7 +115,19 @@ function App() {
     }
   }
 
-  if (screen === "discover") return <DiscoverScreen onExit={() => navigate("home", "/")} />;
+  if (screen === "discover") {
+    return <DiscoverScreen
+      film={film}
+      onOpenFilm={(providerId) => navigate("discover", filmPath(providerId), { state: { [FILM_FROM_GRID]: true } })}
+      onCloseFilm={() => {
+        // Opened from the grid: step back, so browser Back and this close stay one history.
+        // Reached by URL: there is no grid entry behind it, so the grid replaces the page.
+        if (window.history.state?.[FILM_FROM_GRID]) window.history.back();
+        else navigate("discover", DISCOVER_PATH, { replace: true });
+      }}
+      onExit={() => navigate("home", "/")}
+    />;
+  }
   if (screen === "jams") return <JamRegistry onBack={() => navigate("home", "/")} onNew={() => { setRegisteredRoom(null); setGeneratedJam(null); navigate("create", "/jams/new"); }} onOpen={(jam, mode) => { applyJam(jam, mode); navigate("studio", `/jams/${jam.slug}`); }} />;
   if (screen === "create") {
     return <CreateRoom title={roomTitle} premise={premise} visibility={visibility} sourceKind={sourceKind} importedScript={importedScript} totalMinutes={totalMinutes} portionMinSeconds={portionMinSeconds} portionMaxSeconds={portionMaxSeconds} onTitle={setRoomTitle} onPremise={setPremise} onVisibility={setVisibility} onSourceKind={setSourceKind} onImportedScript={setImportedScript} onTotalMinutes={setTotalMinutes} onPortionMinSeconds={setPortionMinSeconds} onPortionMaxSeconds={setPortionMaxSeconds} onBack={() => navigate("jams", "/jams")} onSubmit={createRoom} isCreating={isCreating} notice={notice} />;
@@ -144,7 +150,7 @@ function App() {
 
 function Home({ onCreate, onJoin }: { onCreate: () => void; onJoin: () => void }) {
   return <main className="site-shell"><Header onHome={() => window.scrollTo({ top: 0, behavior: "smooth" })} />
-    <section className="hero" id="jam"><div className="hero-copy"><p className="eyebrow">A LIVE COLLABORATIVE FILM STUDIO</p><h1>Make the next scene <em>together.</em></h1><p className="intro">Start a room, invite the people around you, and direct a new story one clear turn at a time.</p><div className="hero-actions"><button className="button button-primary" onClick={onCreate}>Start a Movie Jam <span>↗</span></button><button className="button button-quiet" onClick={onJoin}>Join with an invite <span>→</span></button><a className="button button-quiet" href="/discover">Discover real films <span>→</span></a></div></div><LiveScene /></section>
+    <section className="hero" id="jam"><div className="hero-copy"><p className="eyebrow">A LIVE COLLABORATIVE FILM STUDIO</p><h1>Make the next scene <em>together.</em></h1><p className="intro">Start a room, invite the people around you, and direct a new story one clear turn at a time.</p><div className="hero-actions"><button className="button button-primary" onClick={onCreate}>Start a Movie Jam <span>↗</span></button><button className="button button-quiet" onClick={onJoin}>Join with an invite <span>→</span></button><a className="button button-quiet" href="/discover">Find something to watch <span>→</span></a></div></div><LiveScene /></section>
     <section className="steps" aria-label="How Movie Jam works"><article><span>01</span><h2>Invite the room</h2><p>Share a QR code or link. Everyone enters with a name and a point of view.</p></article><article><span>02</span><h2>Direct the turn</h2><p>Speak, write, show an image, upload a clip, or share a live reference.</p></article><article><span>03</span><h2>See it evolve</h2><p>The selected direction becomes an editable scene, screenplay, and visual world.</p></article></section><Footer />
   </main>;
 }

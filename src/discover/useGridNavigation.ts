@@ -42,7 +42,7 @@ export function useGridNavigation(itemCount: number, handlers: GridHandlers) {
   const focusItem = useCallback((index: number) => {
     setActiveIndex(index);
     const target = gridRef.current?.querySelector<HTMLElement>(`[data-grid-index="${index}"]`);
-    target?.focus();
+    target?.focus({ preventScroll: true });
     target?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }, []);
 
@@ -56,7 +56,7 @@ export function useGridNavigation(itemCount: number, handlers: GridHandlers) {
     [activeIndex, columns, focusItem, handlers, itemCount],
   );
 
-  return { gridRef, activeIndex, setActiveIndex, handleKeyDown, focusItem };
+  return { gridRef, activeIndex, setActiveIndex, handleKeyDown, focusItem, columns };
 }
 
 /** Carries out one grid intent; returns false when nothing handles it, so the key is left alone. */

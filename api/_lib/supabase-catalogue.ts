@@ -28,7 +28,7 @@ export const TMDB_BACKDROP_BASE = "https://image.tmdb.org/t/p/w780";
 export const TMDB_ATTRIBUTION =
   "Film data and images from TMDB (themoviedb.org). This product uses TMDB data but is not endorsed or certified by TMDB.";
 
-const SYNOPSIS_MAX_LENGTH = catalogueTitleSchema.shape.synopsis.unwrap().maxLength ?? 1_200;
+export const SYNOPSIS_MAX_LENGTH = catalogueTitleSchema.shape.synopsis.unwrap().maxLength ?? 1_200;
 const GENRES_MAX = 12;
 /** TMDB image paths are a single slash-led file name. Anything else is not rendered. */
 const TMDB_IMAGE_PATH = /^\/[A-Za-z0-9._-]+$/;
@@ -68,7 +68,7 @@ export function notConfiguredResponse(): CatalogueNotConfigured {
   };
 }
 
-function errorResponse(code: string, safeMessage: string, retryable: boolean): CatalogueError {
+export function errorResponse(code: string, safeMessage: string, retryable: boolean): CatalogueError {
   return { status: "error", code, safeMessage, retryable };
 }
 
@@ -138,7 +138,7 @@ export function toRpcFilters(filters: CatalogueFilters): Record<string, number |
   return rpc;
 }
 
-function mapRestError(error: unknown): CatalogueError {
+export function mapRestError(error: unknown): CatalogueError {
   if (error instanceof RestError && error.code === "unauthenticated") return UNAUTHENTICATED_RESPONSE;
   if (error instanceof RestError && error.code === "forbidden") {
     return errorResponse("CATALOGUE_FORBIDDEN", "This session is not allowed to read the catalogue.", false);
@@ -170,12 +170,12 @@ function mapRow(row: CatalogueRow) {
   };
 }
 
-function releaseYear(releaseDate: string | null | undefined) {
+export function releaseYear(releaseDate: string | null | undefined) {
   const match = releaseDate ? /^(\d{4})-\d{2}-\d{2}$/.exec(releaseDate) : null;
   return match ? Number(match[1]) : undefined;
 }
 
-function truncate(text: string | undefined, maxLength: number) {
+export function truncate(text: string | undefined, maxLength: number) {
   if (!text) return undefined;
   return text.length <= maxLength ? text : `${text.slice(0, maxLength - 1).trimEnd()}…`;
 }
@@ -190,11 +190,11 @@ function splitGenres(genres: string | null | undefined) {
 }
 
 /** Present only when the row states a well-formed code; a missing language is never defaulted. */
-function languageOf(code: string | null | undefined) {
+export function languageOf(code: string | null | undefined) {
   const normalized = code?.trim().toLowerCase();
   return normalized && /^[a-z]{2,3}$/.test(normalized) ? { originalLanguage: normalized } : {};
 }
 
-function tmdbImageUrl(base: string, path: string | null | undefined) {
+export function tmdbImageUrl(base: string, path: string | null | undefined) {
   return path && TMDB_IMAGE_PATH.test(path) ? `${base}${path}` : undefined;
 }

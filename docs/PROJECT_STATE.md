@@ -516,6 +516,65 @@ project (it was applied by hand, so no tracking table records it). Each run of
 - **Not covered by automated tests:** the rail DOM wiring (focus hand-off between rails and after
   a rejection). It was checked in the browser.
 
+## 2026-09-19 — Discover speaks to the viewer, films get pages, the grid grows
+
+- Copy: the Discover header now reads `DISCOVER`, `What are we watching tonight?` and one line,
+  "Say what you’re in the mood for, then narrow it down together." It no longer asserts that the
+  films are real, names TMDB, or lists what the product does not do; grid states say "films",
+  not "catalogue titles"; the home link reads "Find something to watch". The guarantee is
+  unchanged where it is enforced: the adapter, the contract and the tests. TMDB attribution is
+  still on every screen that shows TMDB data (the grid's footer bar and every film page).
+- Film pages: the detail dialog is gone. A film opens at `/discover/:id` (the TMDB id), which
+  survives a reload and works with back/forward. `src/lib/routes.ts` holds the pathname matching
+  that `main.tsx` did by hand, now with one parameter segment; there is still no router. The
+  page shows the backdrop large (TMDB `w1280`), the poster, and only the fields the record
+  holds: title, original title when it differs, tagline, year, running time, score with votes,
+  genres, synopsis, release date, original and spoken languages, keywords and an IMDb link.
+  An absent field produces no line at all (`src/discover/filmFacts.ts`); availability stays
+  empty and unrendered. A "What to do with this film" group is where future actions go; it
+  holds only "Not this one", which works as before. Escape or a remote's Back returns to the
+  grid with focus on that film, however the page was opened (OK, a URL, or browser Forward).
+- The page is drawn as a fixed full-screen layer over an `inert` grid, so the grid keeps its
+  scroll position, loaded pages and focus target underneath. Opened from the grid, closing it
+  steps back in history; reached by URL, it replaces itself with `/discover`. Reached by URL,
+  the grid is not read until the viewer goes to it.
+- Data: `supabase/migrations/20260919232000_catalogue_title_detail.sql` adds
+  `get_catalogue_title(title_id bigint)`: one row by primary key as `jsonb`, security invoker,
+  `search_path = ''`, executable by `authenticated` only, returning `null` for an unknown id and
+  none of the internal columns. `search_catalogue_titles` is untouched, so the grid stays lean
+  and a film page pays for exactly one row. `GET /api/catalogue-title?id=` (`api/catalogue-title.ts`,
+  `api/_lib/supabase-catalogue-title.ts`) validates the id, requires the viewer's token, maps
+  the row (a score only with votes behind it; zero runtime, blank tagline and malformed IMDb
+  ids dropped) and answers 404 for an unknown film.
+- Endless grid: the Previous / Next / Page control is gone. `src/discover/pageFeed.ts` appends
+  pages of the unchanged page-based query when focus enters the last row (the trigger a remote
+  uses) or when the end of the grid comes within 900px of the viewport (mouse and touch). One
+  request is in flight at a time and triggers during it are dropped, not queued; appended titles
+  never displace the ones on screen, so focus does not move; the last page (or the query's page
+  100) ends the feed silently. A failed page shows "More films could not be loaded" with
+  "Try again" at the end of the grid, reachable with Down from the last row, and keeps
+  everything loaded; retrying returns focus to the grid. A new search or refinement starts at
+  page 1 at the top. Poster boxes are 2:3 before their image loads. A refined shortlist stays a
+  single ranked read of 48 and never pages.
+- Verified: the migration was applied by hand in the SQL Editor; against the live project, a
+  signed-in call for 27205 returned Inception's full record, an anonymous call was refused
+  (`42501`), a title with no tagline returned `null` for it, and an unknown id returned `null`.
+  `pnpm test` (340/340, including `tests/routes.test.ts`, `tests/catalogueTitle.test.ts`,
+  `tests/filmFacts.test.ts`, `tests/pageFeed.test.ts`, `tests/discoverCopy.test.ts`),
+  `pnpm typecheck`, `pnpm build`. In a browser at 1920×1080 against the live project: arrow
+  keys into the last row loaded page 2 (24 → 48) with focus kept; wheel scrolling loaded page 2;
+  a forced page failure showed the retry with 48 posters kept, and retrying appended with focus
+  back on the grid; opening a film changed the URL, cost one `catalogue-title` request, and
+  Escape returned focus to that film with the grid's scroll position unchanged; Forward then
+  Back did the same; reloading `/discover/976573` rendered the same page with no list request;
+  `/discover/abc` (no request) and `/discover/1` (404) say the film is not there; a film with a
+  zero runtime and no tagline shows neither; "Not this one" from a film page removed it from the
+  grid and focused its old place; nothing overflows at 375px.
+- **Not covered by automated tests:** the DOM wiring (the IntersectionObserver, focus hand-offs,
+  the film layer). It was checked in the browser. The browser tool could not press native
+  buttons with Enter or Space (it failed the same way on existing buttons), so the "Try again"
+  button was checked by click; Down from the last row does reach it.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

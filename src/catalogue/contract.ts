@@ -67,6 +67,43 @@ export const catalogueTitleSchema = z.object({
   availability: z.array(catalogueAvailabilitySchema).max(12).default([]),
 });
 
+/**
+ * The full record behind a film's own page. It extends the grid title with the fields only that
+ * page shows. Every one is optional: a record that does not state a value simply lacks the key.
+ */
+export const catalogueTitleDetailSchema = catalogueTitleSchema.extend({
+  originalTitle: z.string().trim().min(1).max(240).optional(),
+  tagline: z.string().trim().min(1).max(400).optional(),
+  /** ISO date (YYYY-MM-DD) of the release, when the record states one. */
+  releaseDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  /** TMDB audience score out of 10, present only when at least one vote stands behind it. */
+  voteAverage: z.number().gt(0).max(10).optional(),
+  voteCount: z.number().int().positive().optional(),
+  spokenLanguages: z.array(z.string().trim().min(1).max(80)).max(40).default([]),
+  keywords: z.array(z.string().trim().min(1).max(80)).max(60).default([]),
+  imdbId: z.string().regex(/^tt\d{5,10}$/).optional(),
+});
+
+/** A provider id as it appears in a film's URL: a positive integer, no sign, no leading zero. */
+export const catalogueProviderIdSchema = z
+  .string()
+  .regex(/^[1-9]\d{0,11}$/)
+  .transform(Number)
+  .refine(Number.isSafeInteger);
+
+export const catalogueTitleOkSchema = z.object({
+  status: z.literal("ok"),
+  source: z.literal("tmdb"),
+  title: catalogueTitleDetailSchema,
+  attribution: z.string().optional(),
+});
+
+export const catalogueTitleNotFoundSchema = z.object({
+  status: z.literal("not_found"),
+  code: z.literal("CATALOGUE_TITLE_NOT_FOUND"),
+  safeMessage: z.string(),
+});
+
 const GENRE_SLUGS = GENRES.map(({ slug }) => slug) as [GenreSlug, ...GenreSlug[]];
 const genreSlugListSchema = z.array(z.enum(GENRE_SLUGS)).min(1).max(GENRES.length);
 const runtimeBoundSchema = z.coerce.number().int().min(CATALOGUE_LIMITS.runtimeMin).max(CATALOGUE_LIMITS.runtimeMax);
@@ -135,6 +172,13 @@ export const catalogueResponseSchema = z.discriminatedUnion("status", [
   catalogueErrorSchema,
 ]);
 
+export const catalogueTitleResponseSchema = z.discriminatedUnion("status", [
+  catalogueTitleOkSchema,
+  catalogueTitleNotFoundSchema,
+  catalogueNotConfiguredSchema,
+  catalogueErrorSchema,
+]);
+
 export type CatalogueAvailability = z.infer<typeof catalogueAvailabilitySchema>;
 export type CatalogueTitle = z.infer<typeof catalogueTitleSchema>;
 export type CatalogueQuery = z.infer<typeof catalogueQuerySchema>;
@@ -143,6 +187,10 @@ export type CatalogueOk = z.infer<typeof catalogueOkSchema>;
 export type CatalogueNotConfigured = z.infer<typeof catalogueNotConfiguredSchema>;
 export type CatalogueError = z.infer<typeof catalogueErrorSchema>;
 export type CatalogueResponse = z.infer<typeof catalogueResponseSchema>;
+export type CatalogueTitleDetail = z.infer<typeof catalogueTitleDetailSchema>;
+export type CatalogueTitleOk = z.infer<typeof catalogueTitleOkSchema>;
+export type CatalogueTitleNotFound = z.infer<typeof catalogueTitleNotFoundSchema>;
+export type CatalogueTitleResponse = z.infer<typeof catalogueTitleResponseSchema>;
 
 export function namespaceCatalogueId(providerId: string) {
   return providerId.startsWith(CATALOGUE_ID_PREFIX) ? providerId : `${CATALOGUE_ID_PREFIX}${providerId}`;
@@ -150,6 +198,11 @@ export function namespaceCatalogueId(providerId: string) {
 
 export function isCatalogueId(id: string) {
   return id.startsWith(CATALOGUE_ID_PREFIX);
+}
+
+/** The provider id inside a namespaced catalogue id, the form a film's URL carries. */
+export function providerIdOf(id: string) {
+  return id.startsWith(CATALOGUE_ID_PREFIX) ? id.slice(CATALOGUE_ID_PREFIX.length) : id;
 }
 
 const FILTER_SCALARS = ["minRuntime", "maxRuntime", "minYear", "maxYear"] as const;

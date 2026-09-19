@@ -1,8 +1,8 @@
 # UJ-01 — Discover, jam registry and navigation
 
 Covers: the home screen and its entry points, the `/jams` registry, the TV-first `/discover`
-experience (all four states, search, pagination, keyboard traversal, the detail dialog, the
-same-origin API guard), and what the app does when no catalogue or no Supabase is configured.
+experience (all four states, search, the endless grid, keyboard traversal, film pages at
+`/discover/:id`, the same-origin API guard), and what the app does when no catalogue or no Supabase is configured.
 Runtime: ~18 minutes.
 Environment: A, B or C. The "ready grid" section additionally needs a configured
 `TITAN_CATALOGUE_URL` + `TITAN_API_KEY`; without them that section is `BLOCKED` and the
@@ -30,7 +30,7 @@ half-rendered grid or a fake room.
   - The brand reads `REVERIE`.
   - Primary navigation has a `Discover` link and a `Movie Jam` control.
   - Heading `Make the next scene together.`
-  - Controls `Start a Movie Jam`, `Join with an invite`, and a link `Discover real films`.
+  - Controls `Start a Movie Jam`, `Join with an invite`, and a link `Find something to watch`.
   - A section `How Movie Jam works` with `Invite the room`, `Direct the turn`,
     `See it evolve`.
   - Footer text containing `REVERIE / MOVIE JAM` and `Made for HackBarna 2026`.
@@ -84,8 +84,10 @@ half-rendered grid or a fake room.
 
 ### 7. Open Discover and return
 
-- Do: from `/` click `Discover real films`.
-- Expect: URL `/discover`; heading `Find something real to watch.`; a search field.
+- Do: from `/` click `Find something to watch`.
+- Expect: URL `/discover`; the header label `DISCOVER`; heading `What are we watching tonight?`;
+  one supporting line; a search field. The header mentions neither the data source nor what
+  the product does not do.
 - Do: click the `Movie Jam` control in the Discover header.
 - Expect: URL `/` and the hero visible again.
 - Evidence: `uj-01-discover.png`, `uj-01-discover-exit.png`.
@@ -95,7 +97,7 @@ half-rendered grid or a fake room.
 ### 8. Loading state
 
 - Do: `navigate_page` to `/discover`; snapshot immediately.
-- Expect: a busy region reading `Loading catalogue titles…` while pending. Missing it because
+- Expect: a busy region reading `Loading films…` while pending. Missing it because
   the response is instant is acceptable; note it.
 - Evidence: `list_network_requests` filtered to `/api/catalogue`; record status and that the
   request used `query`, `page=1`, `pageSize=24`.
@@ -111,7 +113,7 @@ Read the `/api/catalogue` response and branch:
   - Evidence: `uj-01-not-configured.png`.
 - `200 { "status": "ok", "items": [...] }`: continue to section C.
 - `4xx/5xx { "status": "error" }`:
-  - Expect `Discover could not load the catalogue`, the safe message and a `Reference:` code.
+  - Expect `Films could not be loaded`, the safe message and a `Reference:` code.
   - Expect `Try again` only when `retryable` is `true`.
   - Expect the safe message to contain none of: the credential, the upstream URL, or an
     upstream body.
@@ -123,8 +125,9 @@ Read the `/api/catalogue` response and branch:
 
 - Do: `resize_page` to a TV-like size (for example `1920x1080`); snapshot.
 - Expect:
-  - A list `Catalogue titles`; each card shows a title and `year · rating · genre`, or
-    `Catalogue title` when metadata is absent.
+  - A list `Films`; each card shows a title and `year · genre`, and nothing in place of
+    metadata a record lacks.
+  - Every poster box is 2:3 before its image arrives, so nothing moves as images load.
   - A missing poster renders `No artwork supplied`, not a broken image.
   - An attribution line appears when the API returns one.
   - No generated Jam scene or invented title appears.
@@ -132,13 +135,14 @@ Read the `/api/catalogue` response and branch:
 
 ### 11. Search and empty state
 
-- Do: focus `Search the catalogue` and type a distinctive term from a visible title.
+- Do: focus `Search films` and type a distinctive term from a visible title.
 - Expect: after roughly 320 ms the grid updates; every card matches the term (or the empty
   state appears). Network shows at most one request per paused input, not one per keystroke.
 - Do: press `Escape` in the field.
 - Expect: the field clears and the grid returns to the unfiltered set.
 - Do: search a term that cannot match (for example `zzzzzzzznoresult`).
-- Expect: `No catalogue titles match` and `Nothing in the catalogue matches “…”`.
+- Expect: `Nothing matches` and `Nothing matches “…”. Try another title, mood or genre.`
+- Expect: every change of search or refinement starts again from page 1 at the top.
 - Evidence: `uj-01-search.png`, `uj-01-empty.png`.
 
 ### 12. Keyboard traversal
@@ -151,33 +155,44 @@ Read the `/api/catalogue` response and branch:
 - Expect: focus moves to the row's first then last card.
 - Evidence: `uj-01-keyboard.png` after each move (focus ring visible).
 
-### 13. Title detail dialog
+### 13. Film page
 
 - Do: with a card focused, press `Enter` (repeat with `Space`).
-- Expect: a dialog opens named after the title, showing title, metadata, synopsis when
-  present, `Where to watch` when availability exists, and an attribution line. Focus moves
-  into the dialog.
-- Do: press `Tab` to the last focusable element, then `Tab` again.
-- Expect: focus wraps inside the dialog and never reaches the page behind it.
+- Expect: the URL becomes `/discover/<id>` and the film's page covers the screen: backdrop,
+  poster, title, and only the fields the record holds (tagline, year, running time, score with
+  votes, genres, synopsis, release date, languages, keywords, IMDb). Nothing reads "unknown",
+  "0" or "—". A `What to do with this film` group holds `Not this one`. The TMDB attribution bar
+  is visible. Focus is on `All films`; arrows walk the page's controls.
 - Do: press `Escape`.
-- Expect: the dialog closes and focus returns to the card that opened it.
-- Evidence: `uj-01-detail.png`, `uj-01-detail-focus-trap.png`.
+- Expect: URL `/discover`, the grid exactly where it was, and focus on the film that was opened.
+- Do: `navigate_page type=forward`, then `type=back`.
+- Expect: forward reopens the same film page; back returns to the grid with focus on that film.
+- Do: open a film, then reload the page.
+- Expect: the same film page renders, with one `GET /api/catalogue-title?id=<id>` and no list
+  request. `Escape` then shows the grid.
+- Do: open `/discover/abc` and `/discover/1`.
+- Expect: `This film isn’t here`; `/discover/abc` makes no request.
+- Evidence: `uj-01-film.png`, `uj-01-film-reload.png`.
 
-### 14. Availability links are safe
+### 14. Nothing implies where to watch
 
-- Only if availability entries are shown.
-- Do: inspect each `Where to watch` link.
-- Expect: every link is `https:` with `rel="noreferrer noopener"`; no `javascript:` or `http:`
-  link is rendered. Rejected URLs are absent rather than broken.
-- Evidence: the dialog snapshot; do not follow the link.
+- Expect: neither the grid nor a film page shows a `Where to watch` block or a streaming claim.
+  Availability is empty in every response.
 
-### 15. Pagination
+### 15. The grid grows as the viewer moves through it
 
-- Only when the response reports more than one page.
-- Do: click `Next →`.
-- Expect: the request uses `page=2`; `Next →` is disabled on the last page; `← Previous` is
-  disabled on page 1.
-- Evidence: `uj-01-page-2.png`.
+- Only when the response reports `hasMore: true`.
+- Do: with the remote keys, move focus into the last row of posters.
+- Expect: `Loading more…` at the end of the grid, then one request with `page=2`; the new
+  posters are appended below and focus stays on the same poster.
+- Do: scroll with the mouse or touch towards the end of the grid.
+- Expect: the next page loads the same way. At most one page request is in flight at a time.
+- Do: reach the last page (a narrow search).
+- Expect: no further requests and nothing written at the end of the grid.
+- Do: make a page request fail (block `/api/catalogue` in DevTools), then trigger it.
+- Expect: `More films could not be loaded.` with `Try again` at the end of the grid; every
+  poster already loaded stays. `ArrowDown` from the last row reaches `Try again`.
+- Evidence: `uj-01-grid-page-2.png`, `uj-01-grid-failed.png`.
 
 ### 16. The API refuses what it should
 
@@ -210,14 +225,16 @@ Read the `/api/catalogue` response and branch:
 - The registry shows only open jams this identity may see, or an explicit empty/preview state.
 - The Discover state the environment supports is exactly one of the four, with expected copy.
 - No invented title, no generated Jam artifact, and no leaked credential or upstream URL.
-- Keyboard focus follows the grid and is trapped in the dialog; `Escape` restores focus.
+- Keyboard focus follows the grid; a film has its own URL that survives a reload, and
+  `Escape` or Back returns to the grid with focus on that film.
 - The API guard rejects methods and out-of-range queries with typed JSON.
 
 ## Failure signals
 
 - A poster or title that did not come from the response.
 - An error page that includes `TITAN_API_KEY`, the upstream URL, or upstream JSON.
-- `Escape`/`Tab` escaping the dialog, or focus lost to the page body.
+- Focus lost to the page body after closing a film page, a retry, or new posters arriving.
+- A film page showing "unknown", "0" or "—" for a field the record lacks.
 - A 500 or an HTML body where typed JSON is expected.
 - Join appearing to succeed without Supabase, or `/jams/new` opening a studio for a room
   called "new".

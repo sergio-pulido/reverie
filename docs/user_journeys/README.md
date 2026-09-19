@@ -99,7 +99,8 @@ a room.
 | `REVERIE_LIVE_ENABLED=true` | server | any script or video generation |
 | `NEBIUS_API_KEY` | server | script generation |
 | `FAL_KEY` | server | portion video generation |
-| `TITAN_CATALOGUE_URL`, `TITAN_API_KEY` | server | real Discover titles (not supplied today) |
+| `SUPABASE_URL`, `SUPABASE_ANON_KEY` | server | Discover titles from `public.catalogue_titles` (falls back to the `VITE_` pair) |
+| `NEBIUS_API_KEY` + `REVERIE_LIVE_ENABLED=true` | server | Discover conversation and assistant ranking (chips work without them) |
 
 Never print, copy, commit or put a secret in a URL, a page field, or the report. If you
 need to state configuration, say only `set` or `missing`.

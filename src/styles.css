@@ -31,6 +31,8 @@ h1 em { color: #cbd5ff; font-weight: 500; }
 .button-quiet { background: transparent; border-color: #48506a; color: #eaebf0; }
 .notice { margin-top: 22px; max-width: 520px; display: flex; gap: 10px; align-items: center; padding: 13px 14px; color: #d7daf0; background: rgba(37, 47, 73, .78); border: 1px solid #465577; border-radius: 5px; font-size: 14px; }
 .notice-dot { flex: 0 0 7px; }
+/* Names like VITE_SUPABASE_ANON_KEY have no break opportunity and ran off a narrow screen. */
+.notice code { overflow-wrap: anywhere; }
 .notice button { margin-left: auto; border: 0; background: transparent; color: #d7daf0; font-size: 20px; }
 .scene-card { position: relative; min-height: 527px; overflow: hidden; isolation: isolate; border: 1px solid rgba(192, 203, 255, .4); border-radius: 12px; background: linear-gradient(155deg, #c4a2ba 0%, #7c7199 36%, #27335c 70%, #121b31 100%); box-shadow: 0 25px 80px rgba(0, 0, 0, .33); }
 .scene-card::before { content: ""; position: absolute; inset: 0; z-index: -1; opacity: .75; background-image: radial-gradient(#ffffff 1px, transparent 1px); background-size: 55px 55px; mask-image: linear-gradient(to bottom, #000, transparent 58%); }
@@ -89,6 +91,9 @@ footer { max-width: 1410px; margin: 0 auto; padding: 24px 48px; border-top: 1px 
 .nav-links button { padding: 38px 0 34px; border-bottom: 2px solid transparent; }
 .nav-links button.active, .nav-links button:hover { color: #fffdf8; border-color: #d9ddff; }
 .setup-shell, .studio-shell { display: flex; min-height: 100vh; flex-direction: column; }
+/* These shells are flex columns, and `margin: 0 auto` on a flex item opts it out of cross-axis
+   stretching, so the bar and the footer shrank to fit-content and sat centred. */
+.topbar, .site-shell > footer { width: 100%; }
 .registry-shell { display: flex; min-height: 100vh; flex-direction: column; }
 .registry-layout { width: min(1180px, 100%); margin: auto; padding: 70px 48px 88px; display: grid; grid-template-columns: .8fr 1.2fr; gap: 72px; align-items: start; }
 .registry-head { position: sticky; top: 36px; }
@@ -116,9 +121,17 @@ footer { max-width: 1410px; margin: 0 auto; padding: 24px 48px; border-top: 1px 
 .studio-header h1 { margin: 0 0 12px; font-size: clamp(42px, 5.4vw, 76px); }
 .studio-header p:not(.eyebrow) { margin: 0; color: #afb5c6; }
 .studio-actions { display: flex; gap: 12px; flex-wrap: wrap; }
-.studio-grid { width: min(1410px, 100%); margin: 0 auto; padding: 0 48px 70px; display: grid; grid-template-columns: minmax(360px, .9fr) minmax(460px, 1.1fr); gap: 20px; }
+/* The conversation column is reader-adjustable through --chat-width; the scene column takes what
+   is left. Both tracks may shrink, because `.site-shell` clips overflow: a column wider than its
+   track is lost off the edge rather than scrolled to. */
+.studio-grid { width: min(1410px, 100%); margin: 0 auto; padding: 0 48px 70px; display: grid; grid-template-columns: clamp(260px, var(--chat-width, 38%), 62%) minmax(0, 1fr); gap: 20px; }
+.conversation-panel, .studio-scene { min-width: 0; }
 .conversation-panel, .queue-card { border: 1px solid #3c4969; background: linear-gradient(140deg, rgba(19, 28, 49, .95), rgba(10, 14, 24, .92)); }
-.conversation-panel { min-height: 590px; display: flex; flex-direction: column; padding: 26px; }
+.conversation-panel { position: relative; min-height: 590px; display: flex; flex-direction: column; padding: 26px; }
+.chat-resizer { position: absolute; top: 0; right: -14px; width: 14px; height: 100%; cursor: col-resize; touch-action: none; }
+.chat-resizer::after { content: ""; position: absolute; top: 0; bottom: 0; left: 6px; width: 2px; background: #3c4969; }
+.chat-resizer:hover::after, .chat-resizer:focus-visible::after { background: #bbc9ff; }
+.chat-resizer:focus-visible { outline: 2px solid #bbc9ff; outline-offset: 1px; }
 .panel-heading { display: flex; justify-content: space-between; gap: 20px; border-bottom: 1px solid #303a52; padding-bottom: 22px; }
 .panel-heading h2, .queue-card h2 { margin: 0; font-family: Fraunces, Georgia, serif; font-weight: 500; font-size: 31px; letter-spacing: -.03em; }
 .local-badge { align-self: start; padding: 7px 9px; border: 1px solid #526080; color: #c9d4ff; font: 10px "DM Mono", monospace; letter-spacing: .13em; }
@@ -132,11 +145,12 @@ footer { max-width: 1410px; margin: 0 auto; padding: 24px 48px; border-top: 1px 
 .contribution-form { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding-top: 18px; border-top: 1px solid #303a52; }
 .contribution-form textarea { min-height: 56px; resize: vertical; }
 .studio-scene { display: grid; gap: 20px; align-content: start; }
-.scene-card-compact { min-height: 390px; }
-.queue-card { display: flex; justify-content: space-between; gap: 30px; padding: 24px 26px; align-items: end; }
+.queue-card { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 30px; padding: 24px 26px; align-items: end; }
+.queue-card-stack { flex-direction: column; align-items: stretch; gap: 0; }
 .queue-card p:not(.eyebrow) { max-width: 270px; margin: 0; color: #aeb5c6; font-size: 14px; line-height: 1.5; }
+.queue-card-stack p:not(.eyebrow) { max-width: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-@media (max-width: 950px) { .setup-layout, .studio-grid, .registry-layout { grid-template-columns: 1fr; gap: 35px; } .setup-layout, .registry-layout { padding: 48px 24px 66px; } .registry-head { position: static; } .studio-header, .studio-grid { padding-left: 24px; padding-right: 24px; } .studio-header { align-items: start; flex-direction: column; } }
+@media (max-width: 950px) { .setup-layout, .studio-grid, .registry-layout { grid-template-columns: 1fr; gap: 35px; } .hero { grid-template-columns: 1fr; } .chat-resizer { display: none; } .setup-layout, .registry-layout { padding: 48px 24px 66px; } .registry-head { position: static; } .studio-header, .studio-grid { padding-left: 24px; padding-right: 24px; } .studio-header { align-items: start; flex-direction: column; } }
 @media (max-width: 600px) { .contribution-form { grid-template-columns: 1fr; } .studio-actions, .studio-actions .button, .registry-card .button { width: 100%; } .queue-card, .registry-card { align-items: start; flex-direction: column; } }
 
 /* Live room: connection state, roster and presence. */

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { authorName, type ConnectionState, type JamMember } from "../core/room";
-import { Footer, Header, LiveScene, Notice } from "../chrome";
+import { Footer, Header, Notice } from "../chrome";
 import { InvitePanel } from "./InvitePanel";
 import { JamPlayer } from "./JamPlayer";
 import { useAccessStatus } from "./useAccessStatus";
@@ -20,6 +20,7 @@ const CONNECTION_LABEL: Record<ConnectionState, string> = {
 export function Studio({ slug, onExit }: { slug: string; onExit: () => void }) {
   const { state, actions, actionError, contributionAllowed } = useJamRoom(slug);
   const [showInvite, setShowInvite] = useState(false);
+  const [chatWidth, setChatWidth] = useChatWidth();
   const jamId = state.snapshot?.jam.id ?? null;
   // Hooks run before the early returns below.
   const configuration = useMemo(() => (jamId ? readJamConfiguration(jamId) : null), [jamId]);
@@ -62,7 +63,7 @@ export function Studio({ slug, onExit }: { slug: string; onExit: () => void }) {
 
     {self?.status !== "active"
       ? <WaitingLobby jamId={jam.id} onAdmitted={actions.refresh} />
-      : <section className="studio-grid">
+      : <section className="studio-grid" style={{ "--chat-width": `${chatWidth}%` } as CSSProperties}>
           <aside className="conversation-panel">
             <div className="panel-heading"><div><p className="eyebrow">STORY CONVERSATION</p><h2>What should happen next?</h2></div><span className="local-badge">{CONNECTION_LABEL[state.connection]}</span></div>
             <div className="contribution-list" aria-live="polite">
@@ -72,12 +73,12 @@ export function Studio({ slug, onExit }: { slug: string; onExit: () => void }) {
               </article>)}
             </div>
             <Composer placeholder="Say something to the room…" maxLength={500} disabled={!contributionAllowed} label="Send" onSubmit={actions.sendMessage} />
+            <ChatResizer width={chatWidth} onChange={setChatWidth} />
           </aside>
 
           <div className="studio-scene">
             <JamPlayer jamId={jam.id} canDrive={isHost} configuration={configuration} />
-            <LiveScene compact />
-            <div className="queue-card">
+            <div className="queue-card queue-card-stack">
               <div><p className="eyebrow">UP NEXT</p><h2>Proposal queue</h2></div>
               <div className="contribution-list" aria-live="polite">
                 {proposals.length === 0 && <p>Nothing queued yet.</p>}
@@ -96,6 +97,74 @@ export function Studio({ slug, onExit }: { slug: string; onExit: () => void }) {
           </div>
         </section>}
   </Shell>;
+}
+
+const CHAT_WIDTH = { key: "reverie.studio.chatWidth", min: 22, max: 62, fallback: 38 };
+
+function clampChatWidth(value: number) {
+  return Math.min(CHAT_WIDTH.max, Math.max(CHAT_WIDTH.min, Math.round(value)));
+}
+
+/**
+ * How wide the conversation column sits, as a percentage of the studio grid. This is the
+ * reader's own preference rather than a property of the jam, so it is stored per browser
+ * and shared across every room. Storage can throw in a private window; the default stands.
+ */
+function useChatWidth(): [number, (next: number) => void] {
+  const [width, setWidth] = useState(() => {
+    try {
+      const stored = Number(window.localStorage.getItem(CHAT_WIDTH.key));
+      return stored > 0 ? clampChatWidth(stored) : CHAT_WIDTH.fallback;
+    } catch {
+      return CHAT_WIDTH.fallback;
+    }
+  });
+
+  const update = useCallback((next: number) => {
+    const clamped = clampChatWidth(next);
+    setWidth(clamped);
+    try {
+      window.localStorage.setItem(CHAT_WIDTH.key, String(clamped));
+    } catch {
+      // A browser that refuses storage still resizes for this visit.
+    }
+  }, []);
+
+  return [width, update];
+}
+
+/** Drag or arrow-key the divider between the conversation and the scene. */
+function ChatResizer({ width, onChange }: { width: number; onChange: (next: number) => void }) {
+  function startDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    const grid = event.currentTarget.closest(".studio-grid");
+    if (!grid) return;
+    event.preventDefault();
+    const bounds = grid.getBoundingClientRect();
+    const move = (moveEvent: globalThis.PointerEvent) => onChange(((moveEvent.clientX - bounds.left) / bounds.width) * 100);
+    const stop = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  }
+
+  return <div
+    className="chat-resizer"
+    role="separator"
+    tabIndex={0}
+    aria-orientation="vertical"
+    aria-label="Resize the conversation"
+    aria-valuenow={width}
+    aria-valuemin={CHAT_WIDTH.min}
+    aria-valuemax={CHAT_WIDTH.max}
+    onPointerDown={startDrag}
+    onKeyDown={(event) => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      onChange(width + (event.key === "ArrowLeft" ? -2 : 2));
+    }}
+  />;
 }
 
 function Shell({ children, onExit }: { children: ReactNode; onExit: () => void }) {
@@ -128,7 +197,7 @@ function WaitingLobby({ jamId, onAdmitted }: { jamId: string; onAdmitted: () => 
       ? "This session cannot enter this jam. Ask the host directly if that was not intended."
       : "The conversation and the proposal queue open when the host admits you. This page checks every few seconds."}</p>
     {access.error && <Notice>{access.error}</Notice>}
-  </aside><div className="studio-scene"><LiveScene compact /></div></section>;
+  </aside></section>;
 }
 
 function Roster({ members, selfId, isHost, onRemove }: {

@@ -11,7 +11,8 @@ Reverie uses Supabase as the authoritative store for Jam rooms, membership, chat
    `20260919170000_script_format_and_sessions.sql`, `20260919180000_jam_scripts.sql`,
    `20260919190000_jam_collaboration.sql`, `20260919200000_jam_invite_lifecycle.sql`, then
    `20260919210000_jam_live_media.sql`, `20260919211000_live_session_reservation.sql`, and
-   `20260919212000_fix_invite_code_randomness.sql`.
+   `20260919212000_fix_invite_code_randomness.sql` and
+   `20260919213000_persist_admission_throttle.sql`.
    The collaboration migration adds `jam_messages`,
    `jam_proposals` and `jam_members` to the `supabase_realtime` publication. Chat and
    proposals are authorized by their table RLS policies, so no manual publication step is

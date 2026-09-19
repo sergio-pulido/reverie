@@ -31,6 +31,10 @@ function check(name, run) {
   );
 }
 
+function denied(result) {
+  return Boolean(result.error || result.data?.status === "error");
+}
+
 /** Each session is an independent client with its own storage: a separate browser. */
 async function newSession(label) {
   const memory = new Map();
@@ -133,8 +137,8 @@ await check("a guest cannot read, rotate or revoke someone else's invite", async
 });
 
 await check("an unknown invite code is refused", async () => {
-  const { error } = await guest.client.rpc("request_jam_admission", { p_invite_code: "ZZZZZZZZ", p_display_name: "Guest" });
-  assert.ok(error, "an unknown code was accepted");
+  const result = await guest.client.rpc("request_jam_admission", { p_invite_code: "ZZZZZZZZ", p_display_name: "Guest" });
+  assert.ok(denied(result), "an unknown code was accepted");
 });
 
 await check("a guest cannot insert a membership row directly", async () => {
@@ -281,9 +285,9 @@ await check("a revoked invite stops admitting and is indistinguishable from an u
   assert.equal(revoked.data.state, "revoked");
 
   const attempt = await outsider.client.rpc("request_jam_admission", { p_invite_code: jam.invite_code, p_display_name: "Outsider" });
-  assert.ok(attempt.error, "a revoked invite still admitted");
+  assert.ok(denied(attempt), "a revoked invite still admitted");
   const unknown = await outsider.client.rpc("request_jam_admission", { p_invite_code: "ZZZZZZZZ", p_display_name: "Outsider" });
-  assert.equal(attempt.error.message, unknown.error.message, "a revoked invite is distinguishable from an unknown code");
+  assert.equal(attempt.data?.code, unknown.data?.code, "a revoked invite is distinguishable from an unknown code");
 });
 
 await check("rotating mints a new code and kills the old one", async () => {
@@ -295,7 +299,7 @@ await check("rotating mints a new code and kills the old one", async () => {
   assert.ok(Date.parse(rotated.data.expiresAt) > Date.now(), "the rotated invite is already expired");
 
   const stale = await outsider.client.rpc("request_jam_admission", { p_invite_code: jam.invite_code, p_display_name: "Outsider" });
-  assert.ok(stale.error, "the previous invite code still worked after rotation");
+  assert.ok(denied(stale), "the previous invite code still worked after rotation");
   jam.invite_code = rotated.data.code;
 });
 
@@ -317,9 +321,9 @@ await check("repeated wrong codes are throttled before a private room can be enu
   let throttledAt = null;
   for (let attempt = 1; attempt <= 12 && throttledAt === null; attempt += 1) {
     const guess = `Z${attempt.toString().padStart(7, "2")}`.slice(0, 8).toUpperCase();
-    const { error } = await prober.client.rpc("request_jam_admission", { p_invite_code: guess, p_display_name: "Prober" });
-    assert.ok(error, "a guessed code was accepted");
-    if (/too many invite attempts/.test(error.message)) throttledAt = attempt;
+    const result = await prober.client.rpc("request_jam_admission", { p_invite_code: guess, p_display_name: "Prober" });
+    assert.ok(denied(result), "a guessed code was accepted");
+    if (result.data?.code === "rate_limited") throttledAt = attempt;
   }
   assert.ok(throttledAt !== null, "an unlimited number of invite guesses was allowed");
   console.log(`      throttled after ${throttledAt} failed lookups`);
@@ -329,14 +333,14 @@ await check("repeated wrong codes are throttled before a private room can be enu
   // enumeration is the code's entropy plus Supabase Auth's anonymous sign-in limits.
   const reborn = await newSession("prober-reborn");
   const afterReset = await reborn.client.rpc("request_jam_admission", { p_invite_code: "ZZZZZZZZ", p_display_name: "Prober" });
-  assert.ok(afterReset.error, "a guessed code was accepted");
-  assert.equal(/too many invite attempts/.test(afterReset.error.message), false,
+  assert.ok(denied(afterReset), "a guessed code was accepted");
+  assert.equal(afterReset.data?.code === "rate_limited", false,
     "unexpected: the throttle survived a new anonymous identity, so this note is stale");
   await reborn.client.auth.signOut();
 
   // The throttle must not leak into the real invite either.
   const blocked = await prober.client.rpc("request_jam_admission", { p_invite_code: jam.invite_code, p_display_name: "Prober" });
-  assert.ok(blocked.error, "a throttled session still exchanged a valid invite");
+  assert.ok(denied(blocked), "a throttled session still exchanged a valid invite");
   await prober.client.auth.signOut();
 });
 

@@ -25,6 +25,15 @@ export async function requestAdmission(rawCode: string, rawName: string): Promis
   });
   if (error) throw toJamError(error, "The jam could not be joined right now.");
 
+  const denial = data as { status?: unknown; code?: unknown } | null;
+  if (denial?.status === "error") {
+    throw new JamError(
+      denial.code === "rate_limited" ? "rate_limited" : "not_found",
+      denial.code === "rate_limited" ? "Too many invite attempts. Try again shortly." : "That invite is not available.",
+      denial.code === "rate_limited",
+    );
+  }
+
   const parsed = admissionResultSchema.safeParse(data);
   if (!parsed.success) throw new JamError("unavailable", "The jam returned an unexpected response.", true);
   return parsed.data;

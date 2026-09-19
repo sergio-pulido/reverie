@@ -253,6 +253,9 @@ remain unproven until `scripts/verify-realtime.mjs` completes against the migrat
 - Supabase Cloud rejects policy changes on its service-owned `realtime.messages` table. The
   hosted collaboration transport therefore uses public channels only for Postgres Changes,
   whose durable tables enforce their own RLS; Presence and Broadcast remain disabled.
+- `20260919213000_persist_admission_throttle.sql` returns typed denied-admission results so
+  failed invite attempts commit their throttle counter instead of being rolled back with an
+  exception.
 
 ## Next milestones
 

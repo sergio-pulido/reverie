@@ -5,6 +5,7 @@ import catalogueTitle from "../../api/catalogue-title";
 import liveToken from "../../api/live/token";
 import discoverTurn from "../../api/discover/turn";
 import discoverRank from "../../api/discover/rank";
+import voiceTranscribe from "../../api/voice/transcribe";
 import { createJamsRouter, InMemoryJamStore, type JamStore } from "./jams";
 import { createPlaybackRouter } from "./playback";
 import { createSessionsRouter } from "./sessions";
@@ -33,6 +34,9 @@ export function createApiApp(store: JamStore = new InMemoryJamStore()): Express 
   });
   app.all("/api/discover/rank", (request, response) => {
     void discoverRank(request, response);
+  });
+  app.all("/api/voice/transcribe", (request, response) => {
+    void voiceTranscribe(request, response);
   });
   app.use(createJamsRouter(store));
   app.use(createSessionsRouter(store));

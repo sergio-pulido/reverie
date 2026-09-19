@@ -1,6 +1,9 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { MAX_MESSAGE_CHARS } from "../conversation/decision";
 import type { Conversation } from "../conversation/transcript";
+import { useVoiceInput } from "../voice/useVoiceInput";
+import { mergeIntoDraft } from "../voice/voiceState";
+import { VoiceButton } from "./VoiceButton";
 
 type ConversationBarProps = {
   conversation: Conversation;
@@ -17,9 +20,23 @@ type ConversationBarProps = {
  * Where the viewer says what they want in their own words. The assistant's acknowledgement and
  * any clarifying question appear beneath it; when the assistant cannot help, it says so here
  * and the chips below carry on.
+ *
+ * The viewer can also speak: the voice control to the left of the field records, and the final
+ * transcript lands in the field, where it can be read and corrected. It is never sent for them.
  */
 export function ConversationBar({ conversation, pending, inputRef, onSend, onExitUp, onExitDown }: ConversationBarProps) {
   const [draft, setDraft] = useState("");
+  const voiceRef = useRef<HTMLButtonElement | null>(null);
+  const voice = useVoiceInput({
+    onTranscript: (text) => {
+      setDraft((current) => mergeIntoDraft(current, text));
+      const input = inputRef.current;
+      if (!input) return;
+      input.focus();
+      // The caret goes after the transcript, ready for OK or a correction.
+      requestAnimationFrame(() => input.setSelectionRange(input.value.length, input.value.length));
+    },
+  });
   const placeholder = conversation.openQuestion ? "Answer, or say something else…" : "Tell me what you’re in the mood for…";
 
   return (
@@ -33,6 +50,16 @@ export function ConversationBar({ conversation, pending, inputRef, onSend, onExi
           setDraft("");
         }}
       >
+        <VoiceButton
+          phase={voice.phase}
+          level={voice.level}
+          secondsLeft={voice.secondsLeft}
+          buttonRef={voiceRef}
+          onPress={voice.press}
+          onExitRight={() => inputRef.current?.focus()}
+          onExitUp={onExitUp}
+          onExitDown={onExitDown}
+        />
         <label className="discover-talk-field">
           <span className="sr-only">Tell the assistant what you want</span>
           <input
@@ -45,6 +72,11 @@ export function ConversationBar({ conversation, pending, inputRef, onSend, onExi
             enterKeyHint="send"
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
+              const input = event.currentTarget;
+              if (event.key === "ArrowLeft" && input.selectionStart === 0 && input.selectionEnd === 0) {
+                event.preventDefault();
+                voiceRef.current?.focus();
+              }
               if (event.key === "ArrowDown") {
                 event.preventDefault();
                 onExitDown();
@@ -65,6 +97,19 @@ export function ConversationBar({ conversation, pending, inputRef, onSend, onExi
           {pending ? "Thinking…" : "Ask"}
         </button>
       </form>
+
+      {voice.partial && voice.phase !== "idle" && (
+        <p className="discover-talk-line discover-voice-partial" aria-live="polite">
+          <span className="sr-only">Hearing: </span>
+          {voice.partial}
+        </p>
+      )}
+
+      {voice.notice && (
+        <p className="discover-talk-line discover-talk-system discover-voice-notice" role="status">
+          {voice.notice}
+        </p>
+      )}
 
       {conversation.lines.length > 0 && (
         <ol className="discover-talk-log" aria-live="polite">

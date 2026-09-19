@@ -543,3 +543,24 @@ hand. The catalogue read is provided through a React context, which the app leav
 `/api/catalogue` and tests replace with their own titles, so App-level tests exercise real posters
 through the real code. `jsdom` is a dev dependency with no effect on the build; tests render
 real screens, drive them with key events and fail on any React or jsdom error.
+
+## 2026-09-19 — Discover voice: SLNG behind our server, final transcripts only, streaming with an upload underneath
+
+Voice produces text for the conversation field and nothing else. Only a final transcript can
+reach the field, and only the viewer sends it, so the engine's rule that every quote is a literal
+substring of the sent message still holds, and a misheard sentence costs a correction rather than
+one of the session's twelve turns. Partials are shown and never sent.
+
+SLNG is called only from the server: `POST /api/voice/transcribe` (HTTP, one recording) and a
+WebSocket relay at `/api/voice/stream` (live partials). The relay runs on the long-lived Node server
+only. It is not a Vercel function, and the rule against a custom long-lived WebSocket server on
+Vercel stands; there, the browser's socket fails and the recording is uploaded. The browser records
+Opus for the upload and streams PCM at the same time, because SLNG's streaming route accepts only
+linear16 and a failed stream must never lose what the viewer said.
+
+SLNG's streaming route ignores every control message in its reference, so the end of an utterance
+is found by appending silence and waiting until a result has heard past the stop point. Model
+(`slng/deepgram/nova:3-en`) and region (`us-east`, or `us-west`) are server allowlists. Over HTTP,
+the model is named explicitly (`nova-3-general`), because the upstream default is rejected whenever
+an option is sent. Probe receipts and measurements are in `docs/PROJECT_STATE.md`.
+

@@ -342,6 +342,42 @@
 }
 .discover-talk-send:disabled { opacity: .55; }
 .discover-talk-send:focus-visible, :root:not([data-input="pointer"]) .discover-talk-send:focus { outline: 5px solid var(--focus); outline-offset: 5px; }
+/* Voice: one control left of the field. Red and counting down while it records, with a level bar
+   tall enough to see move from across the room. */
+.discover-voice {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-rows: 1fr auto;
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 8px;
+  min-width: 176px;
+  padding: 12px 22px;
+  border: 2px solid #6f7bb8;
+  border-radius: 12px;
+  background: rgba(24, 30, 56, .92);
+  color: var(--ink);
+  font-size: 22px;
+  font-weight: 700;
+}
+.discover-voice:focus-visible, :root:not([data-input="pointer"]) .discover-voice:focus { outline: 5px solid var(--focus); outline-offset: 5px; }
+.discover-voice-dot { width: 18px; height: 18px; border-radius: 50%; background: #cfd7ff; }
+.discover-voice-label { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.discover-voice-meter { grid-column: 1 / -1; height: 8px; border-radius: 4px; background: rgba(255, 255, 255, .12); overflow: hidden; visibility: hidden; }
+.discover-voice-meter-fill { display: block; height: 100%; width: 100%; background: #ffd9a8; transform-origin: left; transform: scaleX(var(--voice-level, 0)); transition: transform 60ms linear; }
+.discover-voice-recording { background: #b3261e; border-color: #ffb4ab; color: #fff; }
+.discover-voice-recording .discover-voice-dot { background: #fff; animation: discover-voice-pulse 1s ease-in-out infinite; }
+.discover-voice-recording .discover-voice-meter { visibility: visible; }
+.discover-voice-starting, .discover-voice-transcribing { opacity: .8; }
+.discover-voice-transcribing .discover-voice-dot { background: #ffd9a8; }
+/* What is being heard, as it is heard: shown, never sent, and never in the field. */
+.discover-voice-partial { color: #ffe6b8; font-style: italic; }
+.discover-voice-partial::before { content: "Hearing · "; color: #8d93ad; font-family: "DM Mono", monospace; font-size: 16px; font-style: normal; letter-spacing: .1em; }
+@keyframes discover-voice-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) {
+  .discover-voice-recording .discover-voice-dot { animation: none; }
+}
 .discover-talk-log { display: grid; gap: 8px; max-width: 1100px; margin: 0; padding: 0; list-style: none; }
 .discover-talk-line { margin: 0; font-size: 21px; line-height: 1.4; overflow-wrap: anywhere; }
 .discover-talk-viewer { color: var(--muted); }
@@ -548,6 +584,8 @@ html.film-page-open { overflow: hidden; }
   .discover-note, .discover-search input, .discover-talk-field input { font-size: 18px; }
   .discover-talk-line, .discover-spotlight-reason { font-size: 17px; }
   .discover-talk-send { min-width: 88px; padding: 0 16px; font-size: 18px; }
+  .discover-voice { min-width: 0; padding: 10px 14px; font-size: 18px; }
+  .discover-eyebrow { font-size: 14px; }
   .discover-card-title { font-size: 18px; }
   .discover-card-meta, .discover-attribution { font-size: 15px; }
   .film-hero { grid-template-columns: minmax(0, 1fr); }

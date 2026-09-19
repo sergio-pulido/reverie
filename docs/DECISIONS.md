@@ -564,3 +564,37 @@ is found by appending silence and waiting until a result has heard past the stop
 the model is named explicitly (`nova-3-general`), because the upstream default is rejected whenever
 an option is sent. Probe receipts and measurements are in `docs/PROJECT_STATE.md`.
 
+
+## 2026-09-19 — Search is a conversation whose answers are snapshots
+
+Finding something to watch moved from the Discover grid to `/search`, where the conversation is
+the page and each answer's films sit under the reply that produced them. `/discover` now leads to
+`/search`; a film's page keeps its address, `/discover/:id`, so no link breaks.
+
+**A turn's films are a snapshot.** Once a result set is attached to an assistant line it is never
+replaced or re-ranked, whatever the state becomes afterwards: a scrollback that rewrites itself is
+worse than one that is honestly stale, and "how the search narrowed" is only visible if each step
+keeps what it showed. Each turn's films are read and ranked for the state its own reply left,
+by a preparer that outlives later changes: a filter changed or another message sent meanwhile
+never alters what that turn shows, because a ranking is valid for one state only. The transcript
+is bounded by turns (20), never by lines, so a turn leaves whole with its posters.
+
+**Filters are a separate surface.** Genre, era and running time live in a panel with its own live
+results, and changing them writes nothing to the conversation and rewrites no turn. They narrow
+the same engine state, so the next turn composes with them. The panel orders by the scorer, so a
+filter never costs a model call.
+
+**Speech is shown, never sent.** Partials fill a pending line, merged by overlap, with chips and
+a poster preview derived from them by a word list; only a final transcript reaches the field, and
+only the viewer sends it. The engine's grounding rule applies to the sent text as before. Filler
+(including a speech service's rendering of a trailing "or" as "four") fires nothing.
+
+## 2026-09-19 — A catalogue film is found here, never played here
+
+The catalogue is a curated TMDB snapshot for discovery. It is not a licence to show films, and
+the data says nothing about where a film can be watched. So nothing in Reverie plays a catalogue
+film or implies that it can: a film's preview offers its own page and "Start a Jam from this",
+which opens the Movie Jam form seeded with a title and premise *inspired by* the film. That Jam
+makes an original film; the seed names the catalogue film as its inspiration and never as its
+content. Availability stays empty and unrendered, and the TMDB attribution stays wherever films
+are shown, the preview included.

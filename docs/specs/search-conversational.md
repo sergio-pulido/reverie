@@ -1,7 +1,13 @@
 # Conversational search at `/search`
 
-**Status: intended, not implemented.** This records the product design for a dedicated search
-screen. No `/search` route, result-card modal or transcript-embedded result set exists yet.
+**Status: implemented** (2026-09-19, branch `claude/search`; see `docs/PROJECT_STATE.md`).
+`/search` exists with the empty resting state, turns that carry their films as snapshots, the
+preview modal and both of its actions, and filters in their own panel. Where the build differs
+from this design: `/discover` no longer browses and leads to `/search`, and the top bar's Discover
+destination became Search. While the viewer speaks, a pending line in the conversation fills with
+the partial transcript, and chips and a poster preview follow what is heard, beyond the plain
+field described below. The preview shows no accessibility flags, because no record in the
+catalogue carries them.
 
 ## Problem
 

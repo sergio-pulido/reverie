@@ -13,7 +13,11 @@ import {
 import { DirectorStream, type DirectorPeer } from "./directorStream";
 import { attachViewer, type ViewerPeer } from "./directorViewers";
 import { DirectorFileRecorder } from "./directorFileRecorder";
-import { DirectorSegmenter } from "./directorSegmenter";
+import {
+  DirectorSegmenter,
+  type DirectorSegmentSink,
+  type DirectorTrackConsumer,
+} from "./directorSegmenter";
 import { DirectorLiveSink } from "./directorLiveSink";
 import {
   configurationKey,
@@ -132,6 +136,17 @@ export interface DirectorRouterOptions {
   segmentWindow?: number;
   /** Overrides the REVERIE_DIRECTOR_HLS flag; injected in tests. */
   liveDelivery?: boolean;
+  /**
+   * Further places a session's segments go — the durable archive, in practice.
+   *
+   * Per session, because a sink needs to know which session it is writing for.
+   * Segments are muxed whenever *any* sink wants them: live delivery is one
+   * such sink, not the reason the muxer exists, so an archive keeps receiving
+   * segments with HLS delivery switched off.
+   */
+  createSegmentSinks?: (session: { jamId: string; sessionId: string }) => DirectorSegmentSink[];
+  /** Injected in tests so the delivery routes can be fed segments without a muxer. */
+  createLiveSink?: () => DirectorLiveSink;
 }
 
 /** A live session: the provider stream, and what serves it to the room. */
@@ -298,21 +313,32 @@ export function createDirectorRouter(
       return;
     }
 
-    // Live delivery is off unless asked for, and the reason is measured rather
-    // than cautious: depacketizing and muxing RTP on the thread that serves
-    // HTTP drove a real 480p session to 99% CPU and stalled the event loop, so
-    // /api/health and the route that *ends the paid session* both stopped
-    // answering (docs/DECISIONS.md). A server that cannot answer is a server
-    // that cannot stop spending. Until the muxer runs off the main thread this
-    // stays opt-in, and a room that does not enable it keeps the stop path.
-    const live = new DirectorLiveSink(options.segmentWindow ?? 6);
-    const segmenter = new DirectorSegmenter({
-      sinks: [live],
-      targetSegmentSeconds: options.segmentSeconds ?? 2,
-    });
-    const consumers = [
-      new DirectorFileRecorder(jam.id, session.sessionId, recordings),
-      ...(deliverLive ? [segmenter] : []),
+    // Capture is opt-in and off by default (REVERIE_DIRECTOR_RECORD), because
+    // muxing WebM on this thread is what pinned the event loop. The flag
+    // decides whether the recorder exists at all, not whether it is consulted.
+    //
+    // Segments are a different matter: they are muxed off this thread, and
+    // they are produced whenever anything wants them — the live window when
+    // HLS delivery is on, the durable archive when one is configured. With no
+    // sink there is no muxer, so nothing is depacketized for nobody. HLS
+    // delivery itself stays opt-in until a real session has shown /end
+    // answering while the worker is mid-segment.
+    const live = deliverLive
+      ? (options.createLiveSink?.() ?? new DirectorLiveSink(options.segmentWindow ?? 6))
+      : null;
+    const sinks: DirectorSegmentSink[] = [
+      ...(live ? [live] : []),
+      ...(options.createSegmentSinks?.({ jamId: jam.id, sessionId: session.sessionId }) ?? []),
+    ];
+    const segmenter =
+      sinks.length > 0
+        ? new DirectorSegmenter({ sinks, targetSegmentSeconds: options.segmentSeconds ?? 2 })
+        : null;
+    const consumers: DirectorTrackConsumer[] = [
+      ...(active.record
+        ? [new DirectorFileRecorder(jam.id, session.sessionId, recordings)]
+        : []),
+      ...(segmenter ? [segmenter] : []),
     ];
     const stream = new DirectorStream({
       jamId: jam.id,
@@ -337,7 +363,7 @@ export function createDirectorRouter(
       throw error;
     }
     streams.set(session.sessionId, stream);
-    delivery.set(session.sessionId, { live, segmenter });
+    if (live && segmenter) delivery.set(session.sessionId, { live, segmenter });
     response.status(201).json({
       sessionId: session.sessionId,
       viewerId: ledger.attach(session.sessionId),
@@ -527,8 +553,10 @@ export function createDirectorRouter(
    * the container's connection budget.
    */
   router.get("/api/jams/:id/director/session/:sessionId/playlist.m3u8", (request, response) => {
-    const served = delivery.get(request.params.sessionId);
-    if (!served) {
+    // Order matters: "not open" and "not delivered live" are different answers,
+    // and a server with delivery off has no delivery entry for any session, so
+    // asking the delivery map first would report every stream as missing.
+    if (!streams.get(request.params.sessionId)) {
       sendError(response, 404, "not_found", "That director session is not open.", false);
       return;
     }
@@ -542,17 +570,37 @@ export function createDirectorRouter(
       );
       return;
     }
-    if (served.segmenter.refusedBecause === "unsupported_codec") {
-      // The negotiated codec cannot go into fMP4. Saying so is the point: the
-      // alternative is serving a playlist whose segments no browser can decode.
-      sendError(
-        response,
-        503,
-        "unsupported_codec",
-        "The provider is sending a video codec this server cannot deliver live.",
-        false,
-      );
+    const served = delivery.get(request.params.sessionId);
+    if (!served) {
+      sendError(response, 404, "not_found", "That stream is not being delivered.", false);
       return;
+    }
+    switch (served.segmenter.refusedBecause) {
+      case "unsupported_codec":
+        // The negotiated codec cannot go into fMP4. Saying so is the point:
+        // the alternative is a playlist whose segments no browser can decode.
+        sendError(
+          response,
+          503,
+          "unsupported_codec",
+          "The provider is sending a video codec this server cannot deliver live.",
+          false,
+        );
+        return;
+      case "worker_failed":
+        // The muxer thread died. That is a different fact from a codec
+        // problem and is reported as one: the session, its recording and the
+        // route that ends the spend are all still running.
+        sendError(
+          response,
+          503,
+          "live_delivery_failed",
+          "Live delivery for this stream stopped. The stream itself is still running.",
+          false,
+        );
+        return;
+      case null:
+        break;
     }
     // A playlist is only ever as current as the segment it was built from, and
     // a cached one strands a player one window behind live.

@@ -51,8 +51,15 @@ export interface DirectorSegmentSink {
   finish(): Promise<void> | void;
 }
 
-/** Why a stream has no segments, when it has none. */
-export type SegmenterRefusal = "unsupported_codec";
+/**
+ * Why a stream has no segments, when it has none.
+ *
+ * Two different facts, kept apart on purpose: a codec fMP4 cannot carry is a
+ * property of what the provider answered, while a muxer thread dying is a
+ * failure of ours. Reporting the second as the first would send someone
+ * looking at codec negotiation for a bug that lives in the worker.
+ */
+export type SegmenterRefusal = "unsupported_codec" | "worker_failed";
 
 export interface DirectorSegmenterOptions {
   sinks?: DirectorSegmentSink[];
@@ -102,7 +109,7 @@ export class DirectorSegmenter implements DirectorTrackConsumer {
     return this.negotiated;
   }
 
-  /** Set when the negotiated codec cannot go into fMP4. Never guessed. */
+  /** Why nothing is being delivered, if nothing is. Never guessed. */
   get refusedBecause(): SegmenterRefusal | null {
     return this.refusal;
   }
@@ -177,11 +184,15 @@ export class DirectorSegmenter implements DirectorTrackConsumer {
       execArgv: ["--import", "tsx"],
     });
     worker.on("message", (event: SegmentWorkerEvent) => this.onWorkerEvent(event));
-    worker.on("error", () => {
+    const died = () => {
       // The muxer thread died. Live delivery stops; the session, the recording
       // and the route that ends the spend are all untouched, which is the point
       // of it being a separate thread in the first place.
-      this.refusal = this.refusal ?? "unsupported_codec";
+      if (!this.stopped) this.refusal ??= "worker_failed";
+    };
+    worker.on("error", died);
+    worker.on("exit", (code) => {
+      if (code !== 0) died();
     });
     // A muxer thread must never hold the process open by itself.
     worker.unref();

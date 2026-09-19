@@ -5,7 +5,8 @@ import type { Server } from "node:http";
 import express from "express";
 import type { Jam } from "../src/core/jam";
 import { InMemoryJamStore } from "../apps/server/jams";
-import { createDirectorRouter } from "../apps/server/director";
+import { createDirectorRouter, type DirectorRouterOptions } from "../apps/server/director";
+import { DirectorLiveSink } from "../apps/server/directorLiveSink";
 import { InMemoryDirectorRecordingStore } from "../apps/server/directorRecordings";
 import type { DirectorConfig } from "../apps/server/providers/falDirector";
 import { FakeDirectorPeer } from "./fakeDirectorPeer";
@@ -44,15 +45,21 @@ let delivering: { server: Server; baseUrl: string };
 let withheld: { server: Server; baseUrl: string };
 
 async function listen(liveDelivery: boolean): Promise<{ server: Server; baseUrl: string }> {
+  return listenWith({ liveDelivery });
+}
+
+async function listenWith(
+  extra: Partial<DirectorRouterOptions>,
+): Promise<{ server: Server; baseUrl: string }> {
   const app = express();
   app.use(
     createDirectorRouter(store, {
       config: CONFIG,
       limits: LIMITS,
       recordings: new InMemoryDirectorRecordingStore(),
-      liveDelivery,
       createPeer: () => new FakeDirectorPeer(),
       startSession: async () => "v=0\r\nanswer\r\n",
+      ...extra,
     }),
   );
   const server = await new Promise<Server>((resolve) => {
@@ -272,4 +279,102 @@ test("the host's stop ends the stream even while others are watching", async () 
     `${delivering.baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/playlist.m3u8`,
   );
   assert.equal(gone.status, 404);
+});
+
+/**
+ * The routes fed real bytes, without a muxer.
+ *
+ * `createLiveSink` hands the router a sink the test holds, so init and media
+ * segments can be pushed in directly and read back over HTTP. This is what
+ * proves the segment address actually parses — `:sequence.m4s` is only a
+ * working route if the number survives the extension — and that the bytes and
+ * cache headers a player depends on come back intact.
+ */
+let fedSink: DirectorLiveSink | null = null;
+let fed: { server: Server; baseUrl: string };
+let archiveCalls: { jamId: string; sessionId: string }[] = [];
+let archived: { server: Server; baseUrl: string };
+
+before(async () => {
+  fed = await listenWith({
+    liveDelivery: true,
+    createLiveSink: () => {
+      fedSink = new DirectorLiveSink(3);
+      return fedSink;
+    },
+  });
+  archived = await listenWith({
+    liveDelivery: false,
+    createSegmentSinks: (session) => {
+      archiveCalls.push(session);
+      return [{ init() {}, segment() {}, finish() {} }];
+    },
+  });
+});
+
+after(async () => {
+  await new Promise<void>((resolve) => fed.server.close(() => resolve()));
+  await new Promise<void>((resolve) => archived.server.close(() => resolve()));
+});
+
+test("segments pushed into the live window are served back byte for byte", async () => {
+  const { jam, sessionId } = await openSession(fed.baseUrl);
+  assert.ok(fedSink);
+  fedSink.init(Buffer.from("init-bytes"), "h264");
+  fedSink.segment(0, Buffer.from("segment-zero"), 0, 2);
+  fedSink.segment(1, Buffer.from("segment-one"), 2, 2);
+  const base = `${fed.baseUrl}/api/jams/${jam.id}/director/session/${sessionId}`;
+
+  const playlist = await (await fetch(`${base}/playlist.m3u8`)).text();
+  assert.match(playlist, /#EXT-X-MAP:URI="init\.mp4"/);
+  assert.ok(playlist.includes("segment/0.m4s"));
+  assert.ok(playlist.includes("segment/1.m4s"));
+
+  const init = await fetch(`${base}/init.mp4`);
+  assert.equal(init.status, 200);
+  assert.equal(init.headers.get("content-type"), "video/mp4");
+  // Immutable for the session's life: every viewer after the first can be
+  // served a cached copy.
+  assert.match(init.headers.get("cache-control") ?? "", /immutable/);
+  assert.equal(Buffer.from(await init.arrayBuffer()).toString(), "init-bytes");
+
+  // The number has to survive the `.m4s` extension for this to be a route at all.
+  const segment = await fetch(`${base}/segment/1.m4s`);
+  assert.equal(segment.status, 200);
+  assert.equal(segment.headers.get("content-type"), "video/iso.segment");
+  assert.match(segment.headers.get("cache-control") ?? "", /immutable/);
+  assert.equal(Buffer.from(await segment.arrayBuffer()).toString(), "segment-one");
+
+  assert.equal((await fetch(`${base}/segment/7.m4s`)).status, 404);
+});
+
+test("a segment that left the window is gone, not replaced by another", async () => {
+  const { jam, sessionId } = await openSession(fed.baseUrl);
+  assert.ok(fedSink);
+  fedSink.init(Buffer.from("init"), "h264");
+  for (let index = 0; index < 5; index += 1) {
+    fedSink.segment(index, Buffer.from(`segment-${index}`), index * 2, 2);
+  }
+  const base = `${fed.baseUrl}/api/jams/${jam.id}/director/session/${sessionId}`;
+  // Window of three: 0 and 1 have been evicted.
+  assert.equal((await fetch(`${base}/segment/0.m4s`)).status, 404);
+  assert.equal((await fetch(`${base}/segment/4.m4s`)).status, 200);
+  const playlist = await (await fetch(`${base}/playlist.m3u8`)).text();
+  // The media sequence tells a late player where the window now starts.
+  assert.match(playlist, /#EXT-X-MEDIA-SEQUENCE:2\n/);
+});
+
+test("the archive gets a segmenter even with live delivery switched off", async () => {
+  // The muxer exists because a sink wants segments, not because HLS is on.
+  // An archive configured on a server that does not deliver live must still
+  // receive them, or durability would silently depend on a viewing flag.
+  archiveCalls = [];
+  const { jam, sessionId } = await openSession(archived.baseUrl);
+  assert.deepEqual(archiveCalls, [{ jamId: jam.id, sessionId }]);
+  // And the live routes still refuse honestly, rather than serving an empty film.
+  const playlist = await fetch(
+    `${archived.baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/playlist.m3u8`,
+  );
+  assert.equal(playlist.status, 503);
+  assert.equal((await playlist.json()).error.code, "live_delivery_disabled");
 });

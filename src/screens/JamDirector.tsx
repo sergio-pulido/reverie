@@ -7,7 +7,6 @@ import {
 import type { DirectorAuditEntry } from "../core/directorAudit";
 import type { DirectorBeatWindow } from "../core/directorBeats";
 import type { SessionSettings } from "../core/session";
-import { configurationKey, DEFAULT_CONFIGURATION } from "../core/configuration";
 import { attachHlsStream } from "../lib/hlsPlayback";
 import {
   attachDirectorSession,
@@ -122,9 +121,10 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
       cancelled = true;
       clearInterval(poll);
     };
-    // Keyed by the configuration's value: two settings that normalize to the
-    // same key are the same stream, and must not re-attach on every render.
-  }, [adopt, configuration, configurationKey(configuration ?? DEFAULT_CONFIGURATION), jamId, sessionId]);
+    // `configuration` is memoized per jam by the studio, so this does not
+    // re-attach on every render; the server normalizes it, so two settings that
+    // differ only cosmetically resolve to the same stream there regardless.
+  }, [adopt, configuration, jamId, sessionId]);
 
   // Polling is the surface until Realtime events land, matching the player.
   useEffect(() => {
@@ -181,7 +181,6 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
     };
   }, [jamId, liveDelivery, sessionId]);
 
-  // A stream left open keeps billing, so it is closed when this unmounts.
   // A stream left open keeps billing, so this viewer leaves it when this
   // unmounts — which ends it only if nobody else is still watching.
   useEffect(

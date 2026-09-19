@@ -1451,9 +1451,31 @@ and the consent rules were then exercised as two real participants:
   withdrawal; an active member of the room who was not the owner was refused identically; the
   owner's own withdrawal succeeded, and a fresh grant was then allowed
 
+### Run in a browser, against the hosted project
+
+`pnpm dev` on port 4357, an imported-script jam created for the purpose
+(`likeness-check-4c3dc2f8`), Studio opened as its host:
+
+- The panel renders beside the live stage and reads the register without error. The stage's
+  own contribution selector still offers Camera, Microphone and Screen and nothing else, so the
+  new kind did not leak into the list of things that can be published.
+- With nobody agreed it says "Nobody has agreed to appear. Beats are generated without anyone
+  in the room," and the badge reads NOT IN IT.
+- Pressing "Turn on my camera" with camera access refused said "Your browser refused access.
+  Allow it in the address bar, then try again." Nothing was captured, nothing was claimed, and
+  the panel stayed at NOT IN IT. The capture and approval steps themselves were not reachable
+  in this environment, which has no camera.
+- **The hosted project has not had the migration applied, and it fails closed.** Driving the
+  real client path (`agreeToAppear`) returned "That consent could not be recorded"; the
+  underlying refusal was `23514`, the register's old kind check. The feature is inert there
+  until `20260920100000_likeness_consent.sql` is applied — it does not half-work.
+- That refusal was reported as `unavailable`, which read as a transient fault and invited a
+  retry that would send the same value again. `23514` is now mapped to `invalid_input`,
+  not retryable, naming a possibly missing migration.
+
 ### Verification
 
-- `npx tsc --noEmit` clean, `pnpm test` 821/821 (was 790), `pnpm build` passes. New tests:
+- `npx tsc --noEmit` clean, `pnpm test` 822/822 (was 790), `pnpm build` passes. New tests:
   `tests/likeness.test.ts` (14, the pure rules), `tests/likenessRoutes.test.ts` (22, the routes
   over a fake Supabase and a fake provider) and `tests/appearInFilm.dom.test.tsx` (9, the panel).
 - The consent gate was checked by breaking it: removing the effectiveness filter from

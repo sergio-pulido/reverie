@@ -12,6 +12,8 @@ export const TOTAL_MAX_SECONDS = 900;
 export const PORTION_ABSOLUTE_MIN_SECONDS = 4;
 export const PORTION_ABSOLUTE_MAX_SECONDS = 60;
 export const PORTION_SLACK_SECONDS = 2;
+// Bounds scriptwriter output: a format may never require more portions than this.
+export const MAX_PORTIONS = 48;
 
 export const scriptFormatSchema = z
   .object({
@@ -47,6 +49,13 @@ export const scriptFormatSchema = z
         code: "custom",
         path: ["portionMaxSeconds"],
         message: "A single portion cannot be longer than the whole script.",
+      });
+    }
+    if (format.totalSeconds / format.portionMinSeconds > MAX_PORTIONS) {
+      context.addIssue({
+        code: "custom",
+        path: ["portionMinSeconds"],
+        message: `This format could need more than ${MAX_PORTIONS} portions; raise the minimum portion length or shorten the script.`,
       });
     }
   });

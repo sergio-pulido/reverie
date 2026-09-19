@@ -13,7 +13,9 @@ alter table public.jams
 
 alter table public.jams
   add constraint jams_portion_band check (portion_min_seconds <= portion_max_seconds),
-  add constraint jams_portion_fits_total check (portion_max_seconds <= total_seconds);
+  add constraint jams_portion_fits_total check (portion_max_seconds <= total_seconds),
+  -- Bounds scriptwriter output at 48 portions, mirroring MAX_PORTIONS in core.
+  add constraint jams_portion_count_bounded check (total_seconds <= portion_min_seconds * 48);
 
 create table if not exists public.jam_sessions (
   id uuid primary key default gen_random_uuid(),

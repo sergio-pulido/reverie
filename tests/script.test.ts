@@ -61,6 +61,24 @@ test("format rejects out-of-range totals", () => {
   assert.equal(scriptFormatSchema.safeParse({ totalSeconds: 3600 }).success, false);
 });
 
+test("format rejects combinations needing more than 48 portions", () => {
+  // 900s of 4s portions could need 225 portions.
+  const result = scriptFormatSchema.safeParse({
+    totalSeconds: 900,
+    portionMinSeconds: 4,
+    portionMaxSeconds: 20,
+  });
+  assert.equal(result.success, false);
+  // 900s at ≥19s stays within the cap.
+  assert.ok(
+    scriptFormatSchema.safeParse({
+      totalSeconds: 900,
+      portionMinSeconds: 19,
+      portionMaxSeconds: 30,
+    }).success,
+  );
+});
+
 test("a custom format validates scripts against its own target", () => {
   const format = scriptFormatSchema.parse({
     totalSeconds: 480,

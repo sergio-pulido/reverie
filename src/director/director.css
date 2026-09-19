@@ -1,0 +1,308 @@
+/*
+ * A Director session, at 1920, 1440 and 390.
+ *
+ * Three zones. On a desk the stage and its timeline take the width they need
+ * and the direction column stands beside them at a fixed, readable measure —
+ * turns are read, not scanned, so the column does not grow with the screen.
+ * On a phone the three stack in the order you work in them: what it looks
+ * like, what it is made of, what you asked for, with the composer last and in
+ * reach of a thumb.
+ */
+
+.director-shell { display: flex; min-height: 100vh; flex-direction: column; }
+
+.director-head {
+  width: min(1720px, 100%);
+  margin: 0 auto;
+  padding: 44px 48px 24px;
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 40px;
+}
+.director-head h1 { margin: 0 0 12px; font-size: clamp(38px, 4vw, 68px); }
+.director-head .intro { margin: 0; }
+
+/* What this session has spent, against the server's ceiling. */
+.director-spend { flex: 0 0 auto; width: 260px; }
+.director-spend .eyebrow { margin: 0 0 8px; }
+.director-spend-figure {
+  margin: 0 0 10px;
+  font: 500 34px/1 "DM Mono", monospace;
+  letter-spacing: .02em;
+  color: #eef2ff;
+  font-variant-numeric: tabular-nums;
+}
+.director-spend-ceiling { color: #8e94a8; font-size: 18px; }
+.director-spend-bar { height: 6px; border: 1px solid #3f4a68; background: #10162a; }
+.director-spend-bar span { display: block; height: 100%; background: #bbc9ff; }
+.director-spend-note { margin: 8px 0 0; color: #949bad; font-size: 12px; line-height: 1.5; }
+
+.director-grid {
+  width: min(1720px, 100%);
+  margin: 0 auto;
+  padding: 0 48px 70px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(360px, 26%, 520px);
+  gap: 20px;
+  align-items: start;
+}
+.director-column-stage, .director-column-direction { min-width: 0; display: grid; gap: 16px; align-content: start; }
+
+.director-zone-head { display: flex; justify-content: space-between; align-items: start; gap: 20px; margin-bottom: 14px; }
+.director-zone-head h2 { margin: 0; font: 500 27px Fraunces, Georgia, serif; letter-spacing: -.03em; }
+.director-zone-head .eyebrow { margin: 0 0 6px; }
+.director-zone-note { margin: 0; max-width: 46ch; color: #949bad; font-size: 12px; line-height: 1.5; }
+.director-empty-line { margin: 0; color: #aeb5c6; font-size: 14px; line-height: 1.55; }
+
+/* The stage. */
+.director-stage, .director-timeline, .director-directions, .director-review, .director-composer {
+  border: 1px solid #3c4969;
+  background: linear-gradient(140deg, rgba(19, 28, 49, .95), rgba(10, 14, 24, .92));
+  padding: 22px 24px;
+}
+.director-frame {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  border: 1px solid #39435f;
+  background: #070a13;
+  overflow: hidden;
+}
+.director-frame video { width: 100%; height: 100%; object-fit: contain; background: #070a13; }
+.director-frame-empty { padding: 0 8%; text-align: center; }
+.director-frame-empty h2 { margin: 0 0 12px; font: 500 clamp(26px, 2.6vw, 42px) Fraunces, Georgia, serif; letter-spacing: -.03em; }
+.director-frame-empty p:not(.eyebrow) { margin: 0 auto; max-width: 44ch; color: #aeb5c6; font-size: 14px; line-height: 1.6; }
+
+.director-stage-foot { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; padding-top: 16px; }
+.director-stage-line { margin: 0; color: #c2c8dc; font-size: 13px; line-height: 1.5; }
+.director-stage-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.director-live-dot { display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: #ff6b5a; box-shadow: 0 0 14px #ff6b5a; }
+
+/* The transport: the room's clock, with a tick where each beat begins. */
+.director-transport { display: grid; gap: 10px; padding-top: 16px; border-top: 1px solid #303a52; }
+.director-transport-absent { margin: 14px 0 0; padding-top: 14px; border-top: 1px solid #303a52; color: #949bad; font-size: 12px; }
+.director-transport-controls { display: flex; gap: 8px; }
+.director-transport-button { padding: 8px 16px; border: 1px solid #48506a; border-radius: 5px; background: #f6f4ee; color: #10131d; font-size: 13px; font-weight: 600; }
+.director-transport-quiet { background: transparent; color: #eaebf0; }
+.director-transport-button:disabled { opacity: .45; cursor: not-allowed; }
+.director-track { position: relative; height: 26px; border: 1px solid #3f4a68; background: #10162a; }
+.director-tick { position: absolute; top: 0; bottom: 0; left: calc(var(--at) * 100%); width: 1px; background: #4c587d; }
+.director-tick[data-state="ready"] { background: #7fb894; }
+.director-tick[data-state="generating"] { background: #bbc9ff; }
+.director-tick[data-state="blocked"] { background: #c98189; }
+.director-playhead { position: absolute; top: -3px; bottom: -3px; left: calc(var(--playhead) * 100%); width: 2px; background: #f6f4ee; box-shadow: 0 0 10px rgba(246, 244, 238, .7); }
+.director-transport-clock { margin: 0; font: 500 14px "DM Mono", monospace; color: #eef2ff; font-variant-numeric: tabular-nums; }
+.director-transport-state { color: #8e94a8; letter-spacing: .1em; text-transform: uppercase; font-size: 11px; }
+
+/* The mode switch: the most prominent control after the stage. */
+.director-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.director-mode {
+  display: grid;
+  gap: 6px;
+  padding: 16px 18px;
+  text-align: left;
+  border: 1px solid #48506a;
+  border-radius: 6px;
+  background: transparent;
+  color: #c2c4d0;
+}
+.director-mode[aria-pressed="true"] { background: #f6f4ee; border-color: #f6f4ee; color: #10131d; }
+.director-mode-label { font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
+.director-mode-meaning { font-size: 12px; line-height: 1.5; opacity: .82; }
+
+/* The timeline. One run of beats, each a fixed width, so 24 scroll rather
+   than shrinking to slivers and 3 do not stretch across the screen. */
+.director-beats {
+  display: flex;
+  gap: 10px;
+  margin: 0;
+  padding: 4px 2px 12px;
+  list-style: none;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scroll-snap-type: x proximity;
+}
+.director-beats > li { flex: 0 0 auto; scroll-snap-align: start; }
+.director-beat {
+  display: grid;
+  gap: 8px;
+  width: 148px;
+  padding: 10px;
+  text-align: left;
+  border: 1px dashed #4c587d;
+  border-radius: 6px;
+  background: transparent;
+  color: #dfe4f5;
+}
+.director-beat-top { display: flex; justify-content: space-between; align-items: baseline; }
+.director-beat-number { font: 500 18px "DM Mono", monospace; font-variant-numeric: tabular-nums; }
+.director-beat-time { font: 400 11px "DM Mono", monospace; color: #8e94a8; }
+.director-beat-frame {
+  display: grid;
+  align-items: end;
+  aspect-ratio: 16 / 9;
+  padding: 8px;
+  border-radius: 4px;
+  background: rgba(8, 11, 18, .72);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow: hidden;
+}
+.director-beat-unnamed { color: #6c7488; font-style: italic; }
+.director-beat-foot { display: flex; justify-content: space-between; gap: 8px; font: 400 10px "DM Mono", monospace; letter-spacing: .1em; text-transform: uppercase; color: #9aa3bd; }
+
+/* The four treatments, plus blocked, which is marked differently again. */
+.director-beat[data-state="written"] { border-style: dashed; border-color: #4c587d; }
+.director-beat[data-state="generating"] { border-style: solid; border-color: #bbc9ff; background: #2b3768; color: #f2f4ff; }
+.director-beat[data-state="ready"] { border-style: solid; border-color: #7fb894; }
+.director-beat[data-state="locked"] { border-style: solid; border-color: #3a4159; background: #262b3a; color: #98a0b5; }
+.director-beat[data-state="blocked"] { border-style: dotted; border-width: 2px; border-color: #c98189; background: repeating-linear-gradient(135deg, rgba(201, 129, 137, .12) 0 6px, transparent 6px 12px); color: #e4bfc3; }
+
+.director-beat[data-linked], .director-beat:hover, .director-beat:focus-visible { outline: 2px solid #f6f4ee; outline-offset: 2px; }
+.director-beat[aria-pressed="true"] { box-shadow: inset 0 0 0 2px rgba(246, 244, 238, .5); }
+
+.director-legend { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 0; padding: 0; list-style: none; color: #949bad; font-size: 12px; line-height: 1.5; }
+.director-legend li { display: flex; align-items: center; gap: 8px; }
+.director-legend strong { color: #dfe4f5; font-weight: 600; }
+.director-legend-swatch { width: 14px; height: 14px; border: 1px dashed #4c587d; border-radius: 3px; }
+.director-legend li[data-state="generating"] .director-legend-swatch { border-style: solid; border-color: #bbc9ff; background: #2b3768; }
+.director-legend li[data-state="ready"] .director-legend-swatch { border-style: solid; border-color: #7fb894; }
+.director-legend li[data-state="locked"] .director-legend-swatch { border-style: solid; border-color: #3a4159; background: #262b3a; }
+.director-legend li[data-state="blocked"] .director-legend-swatch { border-style: dotted; border-width: 2px; border-color: #c98189; }
+
+/* The direction column. */
+.director-turns { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; max-height: 44vh; overflow-y: auto; }
+.director-turn { padding: 12px 13px; border: 1px solid #455c89; border-radius: 8px; background: #22304c; }
+.director-turn[data-outcome="rejected"] { border-color: #8a4f56; background: #33212a; }
+.director-turn[data-outcome="pending"] { border-color: #8a7c4a; background: #2f2b1f; }
+.director-turn[data-linked] { outline: 2px solid #f6f4ee; outline-offset: 2px; }
+.director-turn-body { margin: 0 0 9px; color: #edf0fb; font-size: 14px; line-height: 1.45; }
+.director-turn-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0; }
+.director-turn-outcome { font: 400 10px "DM Mono", monospace; letter-spacing: .13em; text-transform: uppercase; color: #bac5ec; }
+
+/* A turn's beat tag wears that beat's own treatment. */
+.director-tag {
+  padding: 4px 9px;
+  border: 1px dashed #4c587d;
+  border-radius: 4px;
+  background: transparent;
+  color: #dfe4f5;
+  font: 400 11px "DM Mono", monospace;
+  letter-spacing: .08em;
+}
+.director-tag[data-state="generating"] { border-style: solid; border-color: #bbc9ff; background: #2b3768; }
+.director-tag[data-state="ready"] { border-style: solid; border-color: #7fb894; }
+.director-tag[data-state="locked"] { border-style: solid; border-color: #3a4159; background: #262b3a; color: #98a0b5; }
+.director-tag[data-state="blocked"] { border-style: dotted; border-width: 2px; border-color: #c98189; color: #e4bfc3; }
+.director-tag-none { color: #6c7488; font-style: italic; }
+
+/* The composer. */
+.director-composer { display: grid; gap: 12px; }
+.director-aim { margin: 0; color: #bbc9ff; font-size: 12px; }
+.director-aim-clear { margin-left: 8px; border: 0; background: transparent; color: #8e94a8; font-size: 12px; text-decoration: underline; padding: 0; }
+.director-heard { display: grid; gap: 6px; margin: 0; padding: 10px 12px; border: 1px solid #455c89; border-radius: 8px; background: rgba(38, 53, 83, .7); }
+.director-heard-status { display: flex; align-items: center; gap: 8px; font: 400 10px "DM Mono", monospace; letter-spacing: .13em; text-transform: uppercase; color: #bac5ec; }
+.director-heard-text { color: #edf0fb; font-size: 14px; line-height: 1.45; }
+.director-heard-placeholder { color: #6c7488; font-style: italic; font-size: 14px; }
+.director-level { display: inline-flex; align-items: center; gap: 3px; height: 12px; }
+.director-level i { width: 3px; height: calc(4px + var(--voice-level, 0) * 10px); background: #ff6b5a; border-radius: 2px; }
+
+.director-composer-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 10px; align-items: end; }
+.director-composer-row[data-dragging] { outline: 2px dashed #bbc9ff; outline-offset: 6px; }
+.director-field { display: block; min-width: 0; }
+.director-field textarea {
+  width: 100%;
+  min-height: 62px;
+  padding: 12px 13px;
+  border: 1px solid #465476;
+  border-radius: 5px;
+  background: #151e32;
+  color: #f3f3f6;
+  font: inherit;
+  line-height: 1.45;
+  resize: vertical;
+  outline: 0;
+}
+.director-field textarea:focus { border-color: #bbc9ff; box-shadow: 0 0 0 3px rgba(165, 183, 255, .14); }
+.director-send:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+.director-attach { position: relative; display: grid; place-items: center; width: 52px; height: 52px; border: 1px solid #48506a; border-radius: 50%; color: #dfe4f5; font-size: 22px; cursor: pointer; }
+.director-attach input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.director-attached { display: grid; gap: 10px; padding: 12px 13px; border: 1px solid #455c89; border-radius: 8px; }
+.director-attached-file { display: flex; align-items: baseline; gap: 10px; margin: 0; color: #edf0fb; font-size: 13px; flex-wrap: wrap; }
+.director-attached-file span { color: #8e94a8; font: 400 11px "DM Mono", monospace; }
+.director-intents { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 0; padding: 0; list-style: none; }
+.director-intent { display: grid; gap: 4px; width: 100%; padding: 10px; text-align: left; border: 1px solid #48506a; border-radius: 6px; background: transparent; color: #dfe4f5; }
+.director-intent[aria-pressed="true"] { border-color: #bbc9ff; background: #2b3768; }
+.director-intent-label { font-size: 13px; font-weight: 600; }
+.director-intent-detail { font-size: 11px; line-height: 1.4; color: #949bad; }
+.director-composer-notes { display: grid; gap: 5px; }
+.director-composer-note { margin: 0; color: #f0dfa8; font-size: 12px; line-height: 1.55; }
+
+/* Deliverables. */
+.director-drawer { border: 1px solid #3c4969; background: rgba(10, 14, 24, .7); }
+.director-drawer-toggle { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; border: 0; background: transparent; color: #eaebf0; font-size: 15px; font-weight: 600; }
+.director-drawer-count { font: 400 11px "DM Mono", monospace; letter-spacing: .1em; color: #8e94a8; }
+.director-drawer-list { margin: 0; padding: 0 20px 18px; list-style: none; display: grid; gap: 12px; }
+.director-deliverable { display: flex; align-items: start; justify-content: space-between; gap: 16px; padding-top: 12px; border-top: 1px solid #2a3350; }
+.director-deliverable-name { display: flex; align-items: baseline; gap: 10px; margin: 0 0 4px; color: #edf0fb; font-size: 14px; font-weight: 600; flex-wrap: wrap; }
+.director-deliverable-state { padding: 2px 7px; border: 1px solid #526080; border-radius: 3px; font: 400 10px "DM Mono", monospace; letter-spacing: .1em; color: #c9d4ff; }
+.director-deliverable[data-state="ready"] .director-deliverable-state { border-color: #5f8f6d; color: #b7e7c4; }
+.director-deliverable[data-state="generating"] .director-deliverable-state { border-color: #8a7c4a; color: #f0dfa8; }
+.director-deliverable[data-state="absent"] .director-deliverable-state { border-color: #4a5573; color: #8e94a8; }
+.director-deliverable-detail, .director-deliverable-missing { margin: 0; color: #949bad; font-size: 12px; line-height: 1.5; max-width: 48ch; }
+.director-deliverable-missing { margin-top: 5px; color: #b4a37a; }
+.director-deliverable .button { flex: 0 0 auto; padding: 9px 14px; font-size: 13px; }
+
+/* Review's beat tools. */
+.director-review { display: grid; gap: 10px; }
+.director-review h2 { margin: 0; font: 500 22px Fraunces, Georgia, serif; letter-spacing: -.02em; }
+.director-review .eyebrow { margin: 0; }
+
+/* 1440: the direction column keeps its measure; the stage gives up the width. */
+@media (max-width: 1500px) {
+  .director-head, .director-grid { padding-left: 36px; padding-right: 36px; }
+  .director-grid { grid-template-columns: minmax(0, 1fr) clamp(340px, 30%, 440px); }
+}
+
+/* Narrow enough that two columns would halve both: the zones stack. */
+@media (max-width: 1080px) {
+  .director-grid { grid-template-columns: 1fr; }
+  .director-turns { max-height: none; }
+}
+
+/* A phone. The zones stack in the order you work in them, and the composer
+   stays against the bottom of the screen where a thumb is. */
+@media (max-width: 700px) {
+  .director-head { flex-direction: column; align-items: stretch; gap: 22px; padding: 26px 16px 16px; }
+  .director-head h1 { font-size: clamp(30px, 9vw, 40px); }
+  .director-spend { width: auto; }
+  .director-grid { padding: 0 16px 24px; gap: 14px; }
+  .director-stage, .director-timeline, .director-directions, .director-review, .director-composer { padding: 16px; }
+  .director-zone-head { flex-direction: column; gap: 8px; }
+  .director-stage-foot { flex-direction: column; align-items: stretch; }
+  .director-stage-actions .button { flex: 1 1 auto; }
+  .director-modes { grid-template-columns: 1fr; }
+  /* The row runs from the gutter off the right edge, the way the app's other
+     rows do on a phone, and keeps a sideways drag to itself. */
+  .director-beats { margin: 0 -16px; padding-left: 16px; padding-right: 16px; overscroll-behavior-x: contain; touch-action: pan-x; }
+  .director-beat { width: 132px; }
+  .director-composer {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    background: linear-gradient(180deg, rgba(10, 14, 24, .94), rgba(10, 14, 24, .99));
+  }
+  /* Three controls do not share 390 pixels evenly: the microphone keeps a
+     thumb-sized circle, the field keeps the row, and Direct goes under them. */
+  .director-composer-row { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .director-send { grid-column: 1 / -1; width: 100%; }
+  .director-intents { grid-template-columns: 1fr 1fr; }
+  .director-deliverable { flex-direction: column; }
+  .director-deliverable .button { width: 100%; text-align: center; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .director-beats { scroll-behavior: auto; }
+}

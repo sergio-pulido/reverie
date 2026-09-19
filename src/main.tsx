@@ -5,5 +5,6 @@ import "./shell/shell.css";
 import "./discover/discover.css";
 import "./search/search.css";
 import "./home/home.css";
+import "./director/director.css";
 
 createRoot(document.getElementById("root")!).render(<App />);

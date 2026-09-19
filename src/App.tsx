@@ -20,6 +20,7 @@ import {
   DISCOVER_PATH,
   JOIN_PATH,
   NEW_JAM_PATH,
+  destinationOf,
   filmFromPath,
   filmPath,
   jamSlugFromPath,
@@ -48,6 +49,13 @@ const LandingRoute = lazy(() => import("./landing/LandingRoute"));
 
 /** Screens with no rows of their own to land in: a remote arrives on their top bar. */
 const LANDS_ON_TOP_BAR: ReadonlySet<Screen> = new Set(["catalog", "community", "jams", "create", "join", "script", "studio"]);
+
+/**
+ * Screens a film page is drawn as a layer over rather than in place of, so they keep their scroll,
+ * what they have loaded and their focus target while the page is open. Every other film page
+ * belongs to Discover, which is also where one reached by URL lands.
+ */
+const FILM_LAYER_OVER: ReadonlySet<Screen> = new Set(["home", "catalog"]);
 
 function inviteCodeFromLocation() {
   return new URLSearchParams(window.location.search).get("code") ?? "";
@@ -130,8 +138,9 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
   }, [screen, slug]);
 
   const filmOpen = screen === "discover" && film !== null;
-  /** A film opened from the home (at whatever path it was served) is a layer over the home. */
-  const filmOrigin: Destination = filmOpen && from !== null && screenFromPath(from) === "home" ? "home" : "discover";
+  /** Where the open film was chosen (at whatever path that screen was served), or Discover. */
+  const openedFrom = filmOpen && from !== null ? screenFromPath(from) : null;
+  const filmOrigin: Destination = openedFrom && FILM_LAYER_OVER.has(openedFrom) ? destinationOf(openedFrom) : "discover";
 
   /** Back from the top bar. Answers false on the home, whose Back belongs to the platform. */
   function leave() {
@@ -284,6 +293,19 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
         />
       </>;
     }
+    const filmOverCatalog = filmOpen && filmOrigin === "catalog";
+    if (screen === "catalog" || filmOverCatalog) {
+      // One tree for both, so the catalogue stays mounted (pages, scroll, focus) under a film.
+      return <>
+        {filmOverCatalog && film && <FilmPage
+          providerId={"id" in film ? film.id : null}
+          seed={filmSeed && "id" in film && filmSeed.providerId === film.id ? filmSeed.title : undefined}
+          origin="catalog"
+          attributionFallback={TMDB_ATTRIBUTION_FALLBACK}
+        />}
+        <CatalogScreen inert={filmOverCatalog} onOpenFilm={(title) => openFilm(title, providerIdOf(title.id))} />
+      </>;
+    }
     if (screen === "discover") {
       return <SearchScreen
         film={film}
@@ -293,7 +315,6 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
         onStartJam={startJamFrom}
       />;
     }
-    if (screen === "catalog") return <CatalogScreen />;
     if (screen === "community") return <CommunityScreen />;
     if (screen === "jams") return <JamRegistry onNew={startJam} onOpen={(jam, mode) => { applyJam(jam, mode); navigate("studio", `/jams/${jam.slug}`); }} />;
     if (screen === "create") {

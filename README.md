@@ -47,7 +47,7 @@ The participant always states the purpose of an image or video — for example, 
 
 ### Live co-direction with Vonage + fal.ai
 
-Vonage will make Movie Jam a real collaborative studio rather than a text chat with a video result. Hosts and remote participants can join a WebRTC room, contribute a live camera or screen, receive captions, and see the evolving film together. Vonage signaling carries room interaction such as chat, proposal, and control events; its broadcast and archive capabilities can power a public Watch page, optional RTMP output, and a Jam replay.
+Vonage will make Movie Jam a real collaborative studio rather than a text chat with a video result. Hosts and remote participants can join a WebRTC room, contribute a live camera or screen, receive captions, and see the evolving film together. Supabase Realtime carries authoritative room updates, chat, and proposal notifications. Vonage signaling is limited to media-session coordination; its broadcast and archive capabilities can power a public Watch page, optional RTMP output, and a Jam replay.
 
 fal.ai then becomes the creative media layer: it can transform a permitted camera feed or uploaded media into the Jam's visual world, while the screenplay and production package keep the result coherent. The Vonage starter shown at HackBarna demonstrates this exact category of integration: Vonage Video API broadcast, archiving, and signaling alongside a WebRTC camera feed passed to fal for live video editing. [Vonage Video API × fal starter](https://github.com/Vonage-Community/demo-video-javascript-fal-starter)
 
@@ -55,7 +55,7 @@ Live and uploaded media are opt-in contributions. The product will show who is l
 
 ## Sponsor-first technical direction
 
-Reverie will be built to showcase the strongest relevant HackBarna 2027 sponsor technologies, while keeping each provider behind a replaceable adapter.
+Reverie will be built to showcase the strongest relevant HackBarna 2026 sponsor technologies, while keeping each provider behind a replaceable adapter.
 
 Potential capabilities include:
 
@@ -68,25 +68,42 @@ Potential capabilities include:
 | Live rooms, events, presence, and voting | Event-supported real-time / cloud infrastructure |
 | Media storage, rendering, and exports | Event-supported cloud and media tools |
 
-The exact provider stack will follow the official HackBarna 2027 sponsor list and available APIs. No provider is assumed to be enabled until it has been confirmed for the event.
+The exact provider stack will follow the official HackBarna 2026 sponsor list and available APIs. No provider is assumed to be enabled until it has been confirmed for the event.
 
 ## Technology stack
 
-Reverie uses the same deliberately small, real-time architecture validated in the rehearsal project. It is a single TypeScript application for the first public build: a React TV/web client, one Node server, and provider adapters that keep sponsor integrations replaceable.
+The deployed application uses React, TypeScript and Vite on **Vercel**, with **Supabase** for persistent rooms, anonymous identity, RLS and Realtime. The local Express process serves the app during development; it is not a production room server.
 
 | Layer | Technology | Responsibility |
 | --- | --- | --- |
-| Client | React, TypeScript, Vite | TV-first discovery catalogue, Jam hub, host and participant rooms, responsive audience UI, accessible focus states |
-| Real-time | WebSocket (`ws`) | Room presence, proposal queue, chat, votes, scene state and reconnect snapshots |
-| Server | Node.js, Express, TypeScript | Session authorization, orchestration, rate/budget limits, provider credentials and safe errors |
-| Validation | Zod | Validate browser commands, provider output and state transitions at every boundary |
-| Creative reasoning | Nebius Token Factory adapter | Convert user turns into a structured story, script and production-direction bundle |
-| Speech | SLNG adapter | Real-time speech-to-text, partial/final transcripts and optional voice responses |
-| Generative media | fal.ai adapter | Generate and direct stills, video, scene updates and other synthetic film assets |
-| QR invites | `qrcode.react` | Invite an audience into a specific Jam through a shareable room link |
-| Core domain | Provider-free TypeScript modules | Versioned story state, queue/vote rules, validation, deterministic ordering and forks |
+| Client | React, TypeScript, Vite | Discover, Jam host and participant experiences |
+| Deployment and private APIs | Vercel Node functions | Health endpoint now; provider calls, media operations, budgets and token signing later |
+| Persistent collaboration | Supabase Postgres, Auth, RLS, Realtime | Room records and host identity now; admission, proposals, chat, votes and presence next |
+| Validation | Zod | Boundary schemas for commands and provider responses |
+| Creative reasoning | Nebius | Planned structured story and catalogue reasoning |
+| Speech | SLNG | Planned transcription and optional speech responses |
+| Generated media | fal.ai | Planned image/video generation and visual transformations |
+| Live media | Vonage Video API | Planned opt-in camera/screen sessions and media controls |
+| Real-title discovery | Titan catalogue | Planned licensed, genuine film/series records |
+| Invites | `qrcode.react` | Installed; QR and admission UI not wired yet |
 
-Keys always remain server-side in a local `.env.local` file. Browser clients never choose arbitrary model IDs, provider URLs or budget limits. The initial deployment target is one instance with in-memory rooms; persistence and multi-instance infrastructure come only when the public product needs them.
+Only `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are browser configuration. Provider secrets stay in ignored local environment files or Vercel server environment variables. No provider is verified or enabled yet.
+
+## Run and deploy
+
+```bash
+pnpm install --frozen-lockfile
+pnpm dev
+# Open http://127.0.0.1:4317
+```
+
+```bash
+pnpm typecheck
+pnpm build
+curl --fail http://127.0.0.1:4317/api/health
+```
+
+Create `.env.local` from `.env.example`, then follow [Supabase setup](docs/SUPABASE_SETUP.md) and [Vercel deployment](docs/VERCEL_SETUP.md). No Supabase configuration means an explicitly non-persistent local preview. Configuration failures must not silently become previews.
 
 Technical design documents:
 
@@ -110,8 +127,8 @@ The HackBarna demo will start with a host-led story, then reveal a QR code so au
 
 ## Status
 
-This repository is being restarted as the public HackBarna 2027 build. The first milestone is a credible multi-user Jam: shared room state, participant identity, proposal queue and voting, editable story artifacts, and a visible generation pipeline.
+Implemented: landing page, create/join/studio routes, local preview, Supabase-backed room creation and host membership migration, plus local and Vercel health handlers. Admission, shared chat/proposals, presence, voting, Discover catalogue data and live media remain unimplemented. Hosted deployment and live Supabase verification are still pending.
 
 ## Contributing
 
-This is an early public project. Product, design, film, AI, real-time systems, and creative-tool contributors are all welcome. The initial architecture and contribution workflow will be added as the build begins.
+The primary agent ships small verified commits to `main`; the collaborating developer uses PRs and auto-merge. Read [the collaboration workflow](docs/CONTRIBUTING.md) before editing shared files. Current milestones and limitations live in [project state](docs/PROJECT_STATE.md).

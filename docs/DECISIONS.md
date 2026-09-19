@@ -6,7 +6,7 @@ The public prototype deploys the Vite frontend and privileged Node functions to 
 
 ## 2026-09-19 — Retain a local same-origin development server
 
-The first public build uses a React/Vite client and one TypeScript Node/Express server with `ws` WebSockets and in-memory rooms. This makes the live demo small, inspectable, and easy to run. Restarts reset rooms visibly; distributed persistence is deferred until it is required.
+Superseded for deployment by the Vercel/Supabase decision above. Express remains the local Vite/static-preview host; persistent room state belongs in Supabase, and collaboration uses Supabase Realtime.
 
 ## 2026-09-19 — Keep sponsor technologies behind adapters
 
@@ -27,3 +27,9 @@ Images, uploaded clips, and live camera are inputs to a shared creative turn, no
 ## 2026-09-19 — Start with one same-origin local development server
 
 The first runnable baseline serves the Vite client through the Node/Express process at `127.0.0.1:4317`. This keeps browser-to-server contracts and provider boundaries easy to iterate on locally. It is a local development baseline, not the public deployment configuration.
+
+## 2026-09-19 — Align deployment and collaboration foundation
+
+Vercel serves the Vite SPA and `/api` Node functions. API paths are excluded from the SPA rewrite; health does not assert provider/database readiness. Supabase owns identity and persistent state. No extra database, WebSocket service or provider integration is introduced.
+
+The primary agent commits and pushes completed verified slices directly to `main`, including documentation. The collaborator uses isolated PR branches and auto-merge after checks. Fetch before publication, stage owned files explicitly, and never force-push shared history.

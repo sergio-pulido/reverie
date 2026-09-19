@@ -2,23 +2,29 @@
 
 These are Reverie application contracts, not provider API endpoints.
 
-## HTTP interfaces
+## Implemented interfaces
+
+- `GET /api/health`: `{ "status": "ok", "service": "reverie-movie-jam" }`, in local Express and a Vercel Node function. This reports process health, not database or provider readiness.
+- Browser calls Supabase Auth for anonymous sign-in, then inserts/selects `jams` under RLS. A database trigger creates the active host membership.
+- No HTTP room API, join/admission RPC, Realtime subscriber or provider endpoint is implemented yet.
+
+## Planned privileged HTTP interfaces
 
 | Route | Purpose |
 | --- | --- |
-| `POST /api/jams` | Create a public, private, or link-invite Jam |
+
 | `GET /api/catalogue` | Read validated, real-title catalogue records allowed by the Titan integration |
 | `POST /api/discover/turns` | Apply a natural-language discovery refinement to real catalogue results |
-| `GET /api/jams/:id` | Read a safe room snapshot |
+
 | `POST /api/jams/:id/join` | Request admission using a display name and invite entitlement |
 | `POST /api/jams/:id/members/:memberId/admit` | Host-only lobby admission |
 | `POST /api/jams/:id/scene/accept` | Host or configured vote rule accepts the next turn |
 | `POST /api/jams/:id/forks` | Fork from a declared past scene version |
 | `POST /api/jams/:id/close` | Close a room and release active resources |
 
-## WebSocket interface
+## Planned Supabase mutation and Realtime contracts
 
-Supabase Realtime carries authenticated room events. Each command has `schemaVersion`, `requestId`, `expectedStateVersion`, `type`, and typed payload. Events have `eventId`, `roomId`, `stateVersion`, `occurredAt`, `type`, and payload. Vercel functions handle privileged operations such as issuing Vonage session tokens and calling providers.
+Supabase Realtime carries authenticated room notifications over its managed WebSocket transport. Durable chat/proposals/votes use RLS-protected database writes; multi-row admission and scene transitions use constrained transactional RPCs. Broadcast cannot grant membership or accept a scene. The HTTP routes above remain design candidates, not available endpoints; admission may be implemented as an authenticated RPC instead. Each command has `schemaVersion`, `requestId`, `expectedStateVersion`, `type`, and typed payload. Events have `eventId`, `roomId`, `stateVersion`, `occurredAt`, `type`, and payload. Vercel functions handle privileged operations such as issuing Vonage session tokens and calling providers.
 
 Commands: `chat.send`, `proposal.create`, `vote.cast`, `room.open`, `room.start`, `scene.accept`, `member.leave`, `audio.start`, and `audio.stop`.
 

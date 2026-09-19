@@ -2,7 +2,7 @@
 
 ## 2026-09-19 — Public repository initialized
 
-- The public HackBarna 2027 Movie Jam vision is documented in the root README.
+- The public HackBarna 2026 Movie Jam vision is documented in the root README.
 - The target stack, provider boundaries, application contracts and state machines are defined as implementation guides.
 - No application code, provider connection, model access, generated media, or live multi-user capability has been claimed or implemented in this repository yet.
 
@@ -43,6 +43,20 @@
 - Without that configuration, the UI explicitly creates a local preview URL and labels it as non-shareable; it does not present local state as a persistent room.
 - Room membership, invite lookup, proposal persistence, Realtime subscriptions, voting, and host admission remain the next milestones.
 
-## Next milestone
+## 2026-09-19 — Deployment and documentation aligned
 
-Implement an independently testable local Jam room: server-owned room state, name/admission flow, shared WebSocket presence and chat, proposal queue, vote state, and a host-controlled scene transition. Provider adapters remain disabled until their individual probes pass.
+- Vercel config defines the Vite build/output and SPA routing that excludes API paths; `/api/health` has a Node handler shared with local Express.
+- Local production preview supports deep links and returns JSON 404s for unknown API routes.
+- README, architecture, stack, contracts, contributor guidance and setup guides now consistently use Supabase as room authority and Realtime transport.
+- Hosted Vercel deployment, Supabase project configuration/migration execution and live provider probes remain unverified. Existing join UI and Studio contributions are still placeholders/local state.
+
+## Foundation verification
+
+Passed: `pnpm install --frozen-lockfile`, `pnpm typecheck`, `pnpm build`, `git diff --check`; `PORT=4328 pnpm start` with `SMOKE_BASE_URL=http://127.0.0.1:4328 node scripts/smoke.mjs` verified health, three SPA deep links and unknown-API 404. No lint script exists. These are local checks, not a hosted deployment or live database test.
+
+## Next milestones
+
+1. Supabase invite entitlement, display names, waiting lobby and host admission/removal with RLS tests.
+2. Persist proposals/chat and synchronize Studio using Supabase Realtime; add presence and atomic voting/scene transitions.
+3. Separate Titan Discover UI grounded only in verified catalogue records.
+4. Vonage opt-in live-media controls and consent metadata; provider adapters after documented probes.

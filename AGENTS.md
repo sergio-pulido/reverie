@@ -1,6 +1,6 @@
 # Reverie contributor instructions
 
-Reverie is the public HackBarna 2027 Movie Jam project. Read `README.md`, `docs/PROJECT_STATE.md`, `docs/ARCHITECTURE.md`, and the task brief before changing code.
+Reverie is the public HackBarna 2026 Movie Jam project. Read `README.md`, `docs/PROJECT_STATE.md`, `docs/ARCHITECTURE.md`, and the task brief before changing code.
 
 ## Product boundary
 
@@ -14,7 +14,8 @@ Reverie is the public HackBarna 2027 Movie Jam project. Read `README.md`, `docs/
 - Isolate Nebius, SLNG, fal.ai, and future sponsor integrations behind typed provider adapters.
 - The server owns rooms, authorization, budgets, queue ordering, votes, scene transitions, and provider calls. Browser state is a projection, never the authority.
 - Validate all commands and external output with Zod. Treat participant input and model output as data, never executable instructions or HTML.
-- Prefer one Node process and documented limits for the initial demo. Do not add databases, queues, vector stores, or extra services without a measured requirement.
+- Deploy React/Vite and privileged Node functions on Vercel. Supabase owns Postgres, anonymous Auth, RLS and Realtime. Express is local development/static-preview tooling only.
+- Use Supabase Realtime for collaboration; never deploy a custom long-lived WebSocket server on Vercel. Do not add other infrastructure without a measured requirement.
 
 ## Security and cost controls
 
@@ -28,5 +29,7 @@ Reverie is the public HackBarna 2027 Movie Jam project. Read `README.md`, `docs/
 - Make focused changes with tests that exercise the affected behavior.
 - Update `docs/PROJECT_STATE.md` and `docs/DECISIONS.md` when architecture or product behavior changes materially.
 - Report commands actually run, results, known gaps, and any provider probe receipts.
-- Use `codex/rv-NN-description` branches and `[RV-NN]` commit references for implementation work.
+- The primary agent commits small, verified changes directly to `main` and pushes each completed slice, including documentation. Disable signing with `git -c commit.gpgsign=false commit`.
+- The collaborating developer uses separate worktrees/branches, opens PRs and enables auto-merge after checks. Use `codex/rv-NN-description` for those branches and `[RV-NN]` commit references where applicable.
+- Fetch before publishing, stage only owned files, and reconcile incoming changes without force pushes. Never stage another developer’s work implicitly. See `docs/CONTRIBUTING.md`.
 - Preserve unrelated user changes. Do not use destructive Git commands or amend history unless explicitly asked.

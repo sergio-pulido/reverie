@@ -4,3 +4,7 @@ dist/
 .DS_Store
 coverage/
 secret/
+.vercel/
+.env
+.env.*
+!.env.example

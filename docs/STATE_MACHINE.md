@@ -1,5 +1,7 @@
 # State machines
 
+These describe target behaviour. Currently only draft rooms and active host membership are persisted; transitions, admission and media are not implemented.
+
 ## Room lifecycle
 
 `draft → lobby → live → paused → completed | closed`
@@ -13,7 +15,9 @@
 
 ## Participant lifecycle
 
-`joining → waiting → admitted → active → left | removed`
+`joining (UI) → waiting → active → left | removed`
+
+Admission is the authorized transition from `waiting` to `active`, not a separate stored status.
 
 Only an active participant can submit proposals or votes. The host is an active participant with additional configuration, admission, moderation and transition permissions.
 

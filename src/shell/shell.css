@@ -28,7 +28,26 @@
   letter-spacing: .25em;
 }
 .top-bar-brand-mark { color: #cfd7ff; font-size: 34px; line-height: 1; font-weight: 400; letter-spacing: 0; }
-.top-bar-destinations { display: flex; align-items: center; gap: 6px; margin: 0; padding: 0; list-style: none; }
+/* Five destinations plus the account must fit a 360px phone with no horizontal page scroll.
+   The brand and the account are pinned (`flex: none`) and the destinations take whatever is
+   left: `min-width: 0` lets that strip shrink below its content, and it scrolls sideways inside
+   the bar rather than pushing the page wider. On a TV there is room for all five, so it never
+   scrolls there. */
+.top-bar-destinations {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.top-bar-destinations::-webkit-scrollbar { display: none; }
+.top-bar-destinations > li { flex: none; }
 .top-bar-item {
   display: inline-flex;
   align-items: center;
@@ -48,6 +67,76 @@
 .top-bar-item:hover { color: #fffdf8; }
 /* Over a film's backdrop, the bar keeps its own dark ground so every item stays legible. */
 .film-page .top-bar { background: linear-gradient(180deg, rgba(8, 11, 19, .88) 0%, rgba(8, 11, 19, .55) 65%, rgba(8, 11, 19, 0) 100%); }
+/* The viewer, pinned to the trailing edge: the destinations scroll past it, never under it. */
+.top-bar-account { position: relative; flex: none; margin-left: auto; }
+.account-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border: 3px solid rgba(207, 215, 255, .55);
+  border-radius: 50%;
+  color: #ffffff;
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  cursor: pointer;
+  transition: transform .16s ease, box-shadow .16s ease;
+}
+/* No name to draw initials from: a plain mark, which claims nothing about who this is. */
+.account-avatar-neutral { width: 18px; height: 18px; border: 3px solid rgba(255, 255, 255, .85); border-radius: 50%; }
+.account-avatar:focus-visible, :root:not([data-input="pointer"]) .account-avatar:focus {
+  outline: 4px solid #ffffff;
+  outline-offset: 4px;
+  transform: scale(1.08);
+}
+.account-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 6;
+  min-width: 232px;
+  padding: 10px;
+  border: 2px solid #46507a;
+  border-radius: 12px;
+  background: #10162a;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, .6);
+  text-align: left;
+}
+.account-menu-name {
+  margin: 0 0 8px;
+  padding: 6px 12px;
+  color: #aeb5c6;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+.account-menu-item {
+  display: block;
+  width: 100%;
+  padding: 12px 14px;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: #f7f4ec;
+  font-size: 19px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.account-menu-item:hover { background: rgba(207, 215, 255, .12); }
+.account-menu-item:focus-visible, :root:not([data-input="pointer"]) .account-menu-item:focus {
+  outline: 3px solid #ffffff;
+  outline-offset: 2px;
+  background: #f6f4ee;
+  color: #0b0f1a;
+}
+.account-menu-failure { margin: 8px 0 2px; padding: 0 14px; color: #ffb4a2; font-size: 15px; line-height: 1.4; }
+
 /* Search carries its lens beside its name. */
 .top-bar-search-icon { display: block; flex: none; margin-right: 10px; }
 .top-bar-item:focus-visible, :root:not([data-input="pointer"]) .top-bar-item:focus {
@@ -119,13 +208,17 @@
 .site-shell input, .site-shell textarea, .site-shell select { transition: transform .16s ease, background-color .16s ease; }
 
 @media (max-width: 720px) {
-  .top-bar { gap: 6px; padding: 12px 16px 8px; }
+  .top-bar { gap: 6px; padding: 12px 12px 8px; }
   .top-bar-brand-name { display: none; }
   .top-bar-brand-mark { font-size: 26px; }
   .top-bar-destinations { gap: 0; min-width: 0; }
   .top-bar-item { min-height: 44px; padding: 6px 8px; border-width: 2px; font-size: 14px; }
   .top-bar-search-icon { width: 18px; height: 18px; margin-right: 5px; }
   .tv-action { min-height: 48px; padding: 10px 18px; font-size: 18px; }
+  .account-avatar { width: 40px; height: 40px; border-width: 2px; font-size: 15px; }
+  .account-avatar-neutral { width: 13px; height: 13px; border-width: 2px; }
+  .account-menu { min-width: 200px; }
+  .account-menu-item { padding: 11px 12px; font-size: 17px; }
 }
 /* On the narrowest phones the destinations need the brand mark's room. */
 @media (max-width: 350px) {

@@ -80,7 +80,39 @@ export function createIdentity(client: AuthClient | null) {
     return token;
   }
 
-  return { currentUserId, ensureUserId, ensureAccessToken };
+  /**
+   * A real sign-out: Supabase discards the anonymous session and the identity confirmed during
+   * this page load is forgotten, so the next `ensureUserId` mints a new anonymous user rather
+   * than handing back the one that was just abandoned.
+   *
+   * The local state is cleared first, so a sign-out that fails at the auth server still leaves
+   * nothing here pointing at the old identity.
+   */
+  async function signOut(): Promise<void> {
+    confirmedUserId = null;
+    inFlight = null;
+    if (!client) return;
+    const { error } = await client.auth.signOut();
+    if (error) throw new JamError("unavailable", "You could not be signed out. Check your connection and try again.", true);
+  }
+
+  /**
+   * Reports the signed-in user id now and again whenever Supabase Auth changes it, so a surface
+   * that only *shows* the viewer (the account avatar) never signs anyone in to find out who they
+   * are — it waits for the sign-in the screens themselves cause.
+   */
+  function observeUserId(listener: (userId: string | null) => void): () => void {
+    void currentUserId().then(listener);
+    if (!client) return () => undefined;
+    const { data } = client.auth.onAuthStateChange((_event, session) => {
+      // Only ever invalidates the cache: an id is confirmed with `getUser` before it is trusted.
+      if (!session) confirmedUserId = null;
+      listener(session?.user.id ?? null);
+    });
+    return () => data.subscription.unsubscribe();
+  }
+
+  return { currentUserId, ensureUserId, ensureAccessToken, signOut, observeUserId };
 }
 
 const identity = createIdentity(supabase);
@@ -88,3 +120,5 @@ const identity = createIdentity(supabase);
 export const currentUserId = identity.currentUserId;
 export const ensureUserId = identity.ensureUserId;
 export const ensureAccessToken = identity.ensureAccessToken;
+export const signOutViewer = identity.signOut;
+export const observeUserId = identity.observeUserId;

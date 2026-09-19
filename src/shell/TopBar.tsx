@@ -1,4 +1,5 @@
 import type { KeyboardEvent, MouseEvent } from "react";
+import { AccountMenu } from "./AccountMenu";
 import { BAR_DESTINATIONS, DESTINATION_PATH, HOME_PATH, type Destination } from "../lib/routes";
 import { useShell } from "./ShellContext";
 import { focusFirstContent, scrollPageBelow, topBarItems } from "./topBarFocus";
@@ -53,6 +54,7 @@ export function TopBar({ current, onEnterPage }: { current: Destination; onEnter
           </li>
         ))}
       </ul>
+      <AccountMenu />
     </nav>
   );
 }

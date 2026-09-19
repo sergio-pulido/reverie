@@ -16,6 +16,7 @@ import { createJam as createJamRoom, type JamPersistence, type JamRoom, type Jam
 import {
   DESTINATION_PATH,
   JAMS_PATH,
+  LANDING_PATH,
   DISCOVER_PATH,
   JOIN_PATH,
   NEW_JAM_PATH,
@@ -27,6 +28,7 @@ import {
   type Screen,
 } from "./lib/routes";
 import { hasSupabaseConfiguration } from "./lib/supabase";
+import { useViewerSource } from "./shell/ViewerContext";
 import { ScriptScreen } from "./ScriptScreen";
 import { CreateRoom, type SourceKind } from "./screens/CreateRoom";
 import { JamRegistry } from "./screens/JamRegistry";
@@ -161,6 +163,8 @@ export function App() {
     window.scrollTo({ top: 0 });
   }
 
+  const viewerSource = useViewerSource();
+
   const shell = useMemo<Shell>(() => {
     function search() {
       searchRequests += 1;
@@ -187,8 +191,16 @@ export function App() {
         navigate(destination === "jam" ? "jams" : destination, DESTINATION_PATH[destination]);
       },
       search,
+      /**
+       * A real sign-out, then the public landing. `/` is deliberately outside the app's own
+       * screens: nothing the signed-out viewer was looking at is carried into it.
+       */
+      async logOut() {
+        await viewerSource.signOut();
+        navigate("landing", LANDING_PATH);
+      },
     };
-  }, [screen, filmOpen, filmOrigin, from]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [screen, filmOpen, filmOrigin, from, viewerSource]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function applyJam(jam: JamRoom, mode: JamPersistence) {
     setRoomTitle(jam.title);

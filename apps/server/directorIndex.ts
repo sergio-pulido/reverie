@@ -1,8 +1,8 @@
 import {
   MediaStorageError,
-  resolvePortionStorageConfig,
-  type PortionStorageConfig,
-} from "./supabaseMedia";
+  resolveObjectStorageConfig,
+  type ObjectStorageConfig,
+} from "./objectStorage";
 
 /**
  * The reproduction record for director sessions.
@@ -181,7 +181,7 @@ export class SupabaseDirectorIndexStore implements DirectorIndexStore {
   private readonly fetchImpl: typeof fetch;
 
   constructor(
-    private readonly config: PortionStorageConfig,
+    private readonly config: ObjectStorageConfig,
     options: { fetchImpl?: typeof fetch } = {},
   ) {
     this.fetchImpl = options.fetchImpl ?? fetch;
@@ -386,7 +386,7 @@ function nullableString(value: unknown): string | undefined {
 export function resolveDirectorIndexStore(
   env: NodeJS.ProcessEnv = process.env,
 ): DirectorIndexStore {
-  const config = resolvePortionStorageConfig(env);
+  const config = resolveObjectStorageConfig(env);
   return config
     ? new SupabaseDirectorIndexStore(config)
     : new InMemoryDirectorIndexStore();

@@ -1,7 +1,7 @@
 import { useState, type FormEvent, type ReactNode } from "react";
-import { authorName, type ConnectionState, type JamMember } from "../core/jam";
+import { authorName, type ConnectionState, type JamMember } from "../core/room";
 import { inviteUrl } from "../core/invite";
-import { Footer, Header, LiveScene, Notice } from "./chrome";
+import { Footer, Header, LiveScene, Notice } from "../chrome";
 import { useJamRoom } from "./useJamRoom";
 
 const CONNECTION_LABEL: Record<ConnectionState, string> = {

@@ -1,7 +1,7 @@
 // Membership mutations. Every one of these is a constrained database function: the
 // browser cannot insert, update or delete a jam_members row directly.
 
-import { admissionResultSchema, memberMutationResultSchema, type AdmissionResult, type MemberMutationResult } from "../core/jam";
+import { admissionResultSchema, memberMutationResultSchema, type AdmissionResult, type MemberMutationResult } from "../core/room";
 import { normalizeDisplayName, normalizeInviteCode } from "../core/invite";
 import { JamError, notConfigured, toJamError } from "./errors";
 import { ensureUserId } from "./session";

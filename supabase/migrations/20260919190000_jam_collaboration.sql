@@ -1,5 +1,5 @@
 -- Reverie Movie Jam: durable chat and proposals plus Realtime authorization.
--- Apply after 20260919160000_jam_lobby_admission.sql.
+-- Apply after 20260919180000_jam_scripts.sql.
 --
 -- Authority model: Postgres rows under RLS are the durable truth. Postgres Changes
 -- notifies clients about those rows. Presence reports who is connected right now and

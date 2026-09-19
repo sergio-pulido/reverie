@@ -9,10 +9,10 @@ import {
   mergeMember,
   mergeRow,
   mergeRows,
-  type Jam,
+  type JamRoom,
   type JamMember,
   type JamMessage,
-} from "./jam";
+} from "../src/core/room";
 
 const JAM_ID = "11111111-1111-4111-8111-111111111111";
 const HOST_ID = "22222222-2222-4222-8222-222222222222";
@@ -26,7 +26,7 @@ function member(user_id: string, status: JamMember["status"], joined_at = "2026-
   return { jam_id: JAM_ID, user_id, display_name: `name-${user_id.slice(0, 4)}`, role: user_id === HOST_ID ? "host" : "member", status, joined_at };
 }
 
-const jam: Jam = { id: JAM_ID, slug: "night-signal", title: "Night Signal", premise: "A signal arrives.", visibility: "invite_only", status: "live" };
+const jam: JamRoom = { id: JAM_ID, slug: "night-signal", title: "Night Signal", premise: "A signal arrives.", visibility: "invite_only", status: "live" };
 
 describe("mergeRow", () => {
   it("orders by creation time", () => {

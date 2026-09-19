@@ -8,16 +8,16 @@ import {
   jamMemberSchema,
   jamMessageSchema,
   jamProposalSchema,
-  jamSchema,
+  jamRoomSchema,
   presenceEntrySchema,
   type ConnectionState,
-  type Jam,
+  type JamRoom,
   type JamMember,
   type JamMessage,
   type JamProposal,
   type JamRoomSnapshot,
   type PresenceEntry,
-} from "../core/jam";
+} from "../core/room";
 import { JamError, notConfigured, toJamError } from "./errors";
 import { currentUserId } from "./session";
 import { supabase } from "./supabase";
@@ -55,9 +55,9 @@ export async function loadJamSnapshot(slug: string): Promise<JamRoomSnapshot> {
     throw new JamError("forbidden", "This jam is not open to your session. Join with the code the host shared.");
   }
 
-  const jamParsed = jamSchema.safeParse(jamResult.data);
+  const jamParsed = jamRoomSchema.safeParse(jamResult.data);
   if (!jamParsed.success) throw new JamError("unavailable", "This jam returned an unexpected record.", true);
-  const jam: Jam = jamParsed.data;
+  const jam: JamRoom = jamParsed.data;
 
   const memberResult = await supabase.from("jam_members").select(MEMBER_COLUMNS).eq("jam_id", jam.id);
   if (memberResult.error) throw toJamError(memberResult.error, "The participant list could not be loaded.");
@@ -118,7 +118,7 @@ export type JamRoomHandlers = {
  * stops every callback, so a React effect can tear the subscription down on unmount or
  * when the participant changes.
  */
-export function subscribeToJamRoom(jam: Jam, self: JamMember, handlers: JamRoomHandlers): () => void {
+export function subscribeToJamRoom(jam: JamRoom, self: JamMember, handlers: JamRoomHandlers): () => void {
   if (!supabase) {
     handlers.onError(notConfigured("Live collaboration"));
     return () => {};

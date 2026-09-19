@@ -1,5 +1,3 @@
-// Shared page chrome. Extracted from main.tsx so screens can be owned by separate files.
-
 import type { ReactNode } from "react";
 
 export function Header({ onHome }: { onHome: () => void }) {

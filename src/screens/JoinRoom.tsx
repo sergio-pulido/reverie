@@ -1,9 +1,9 @@
 import { useState, type FormEvent } from "react";
-import type { AdmissionResult } from "../core/jam";
+import type { AdmissionResult } from "../core/room";
 import { safeMessageOf } from "../lib/errors";
 import { requestAdmission } from "../lib/membership";
 import { hasSupabaseConfiguration } from "../lib/supabase";
-import { Footer, Header, Notice } from "./chrome";
+import { Footer, Header, Notice } from "../chrome";
 
 type JoinRoomProps = {
   initialCode: string;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { JamError, safeMessageOf, toJamError } from "./errors";
+import { JamError, safeMessageOf, toJamError } from "../src/lib/errors";
 
 describe("toJamError", () => {
   it("shows a message our own schema authored, without the marker", () => {

@@ -1,14 +1,14 @@
-import { jamSchema, type Jam } from "../core/jam";
+import { jamRoomSchema, type JamRoom } from "../core/room";
 import { JamError, toJamError } from "./errors";
 import { ensureUserId } from "./session";
 import { hasSupabaseConfiguration, supabase } from "./supabase";
 
-export type JamVisibility = Jam["visibility"];
+export type JamVisibility = JamRoom["visibility"];
 export type JamPersistence = "remote" | "preview";
-export type { Jam };
+export type { JamRoom };
 
-type CreateJamInput = Pick<Jam, "title" | "premise" | "visibility">;
-type CreatedJam = { jam: Jam; persistence: JamPersistence };
+type CreateJamInput = Pick<JamRoom, "title" | "premise" | "visibility">;
+type CreatedJam = { jam: JamRoom; persistence: JamPersistence };
 
 const JAM_COLUMNS = "id, slug, title, premise, visibility, status, host_id, invite_code";
 
@@ -37,7 +37,7 @@ export async function createJam(input: CreateJamInput): Promise<CreatedJam> {
     .single();
 
   if (error) throw toJamError(error, "The Jam room could not be created.");
-  const parsed = jamSchema.safeParse(data);
+  const parsed = jamRoomSchema.safeParse(data);
   if (!parsed.success) throw new JamError("unavailable", "The Jam room returned an unexpected record.", true);
   return { jam: parsed.data, persistence: "remote" };
 }

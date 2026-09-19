@@ -49,12 +49,25 @@ until the versioned scene contract below is implemented.
 
 | `GET /api/catalogue` | Read validated, real-title catalogue records allowed by the Titan integration |
 | `POST /api/discover/turns` | Apply a natural-language discovery refinement to real catalogue results |
-
+| `POST /api/jams` | Create a jam and generate its script from scratch or from an existing movie |
+| `GET /api/jams/:id` | Read a generated jam snapshot |
+| `GET /api/jams/:id/script.md` | Read the current script markdown (the latest revision, including live edits) |
+| `PUT /api/jams/:id/script` | Append a live markdown edit as a new script revision |
+| `POST /api/jams/:id/script/revert` | Restore an earlier revision as a new revision (undo/redo) |
+| `GET /api/jams/:id/script/revisions` | List revision metadata (no markdown bodies) |
+| `GET /api/jams/:id/script/revisions/:revision` | Read one full revision including its markdown |
+| `POST /api/jams/:id/sessions` | Attach a user session to a jam; returns the session plus a one-time owner token |
+| `GET /api/jams/:id/sessions` | List a jam's sessions (public projections, never owner tokens) |
+| `GET /api/sessions/:id` | Read one session |
+| `PATCH /api/sessions/:id` | Owner-only (Bearer owner token) update of playback settings: `language`, `ambientation` |
+| `GET /api/sessions/:id/script.md` | Read the shared script annotated with the session's playback settings |
 | ~~`POST /api/jams/:id/join`~~ | Superseded: implemented as the `request_jam_admission` RPC above |
 | ~~`POST /api/jams/:id/members/:memberId/admit`~~ | Superseded: implemented as the `set_jam_member_status` RPC above |
 | `POST /api/jams/:id/scene/accept` | Host or configured vote rule accepts the next turn |
 | `POST /api/jams/:id/forks` | Fork from a declared past scene version |
 | `POST /api/jams/:id/close` | Close a room and release active resources |
+
+`POST /api/jams` accepts an optional `format` object (`totalSeconds`, `portionMinSeconds`, `portionMaxSeconds`); omitted fields default to a 4-minute script of 10–20 second portions. The jam stores its format and all generation and validation follow it.
 
 ## Planned Supabase mutation and Realtime contracts
 

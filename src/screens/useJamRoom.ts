@@ -7,7 +7,7 @@ import {
   type JamMember,
   type JamRoomSnapshot,
   type PresenceEntry,
-} from "../core/jam";
+} from "../core/room";
 import { JamError, safeMessageOf } from "../lib/errors";
 import { createJamProposal, loadJamSnapshot, sendJamMessage, subscribeToJamRoom } from "../lib/jamRoom";
 import { setMemberStatus } from "../lib/membership";

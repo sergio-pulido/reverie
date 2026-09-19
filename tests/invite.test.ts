@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { inviteUrl, normalizeDisplayName, normalizeInviteCode } from "./invite";
+import { inviteUrl, normalizeDisplayName, normalizeInviteCode } from "../src/core/invite";
 
 describe("normalizeInviteCode", () => {
   it("accepts a bare code", () => {

@@ -11,8 +11,8 @@
     "dev": "tsx apps/server/index.ts",
     "build": "pnpm typecheck && vite build",
     "start": "NODE_ENV=production tsx apps/server/index.ts",
-    "test": "node --import tsx --test src/core/*.test.ts src/lib/*.test.ts",
     "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test \"tests/*.test.ts\"",
     "verify:realtime": "node scripts/verify-realtime.mjs"
   },
   "dependencies": {

@@ -1,23 +1,54 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { HOME_PATH, LANDING_PATH, filmFromPath, filmPath, jamSlugFromPath, screenFromPath } from "../src/lib/routes";
+import {
+  DESTINATION_PATH,
+  HOME_PATH,
+  LANDING_PATH,
+  SEARCH_PATH,
+  destinationOf,
+  filmFromPath,
+  filmPath,
+  jamSlugFromPath,
+  movedPath,
+  screenFromPath,
+} from "../src/lib/routes";
 
-test("a film path opens Discover on that film", () => {
-  assert.equal(screenFromPath("/discover/27205"), "discover");
+test("search is its own screen at exactly /search", () => {
+  assert.equal(SEARCH_PATH, "/search");
+  assert.equal(screenFromPath("/search"), "search");
+  assert.equal(screenFromPath("/search/"), "search");
+  assert.equal(filmFromPath("/search"), null, "search names no film");
+  for (const path of ["/search/inception", "/searches", "/search/603", "/jams/search"]) {
+    assert.notEqual(screenFromPath(path), "search", path);
+  }
+});
+
+test("the top bar reaches search as a destination of its own", () => {
+  assert.equal(destinationOf("search"), "search");
+  assert.equal(DESTINATION_PATH.search, "/search");
+  assert.deepEqual(Object.keys(DESTINATION_PATH).sort(), ["home", "jam", "search"]);
+  assert.equal(destinationOf("home"), "home");
+  for (const screen of ["jams", "create", "join", "script", "studio"] as const) assert.equal(destinationOf(screen), "jam", screen);
+});
+
+test("the old browsing path leads to search, and nothing else has moved", () => {
+  assert.equal(movedPath("/discover"), "/search");
+  assert.equal(movedPath("/discover/"), "/search");
+  assert.equal(screenFromPath("/discover"), "search", "a moved path resolves to the screen it moved to");
+  for (const path of ["/", "/search", "/discover/27205", "/discover/abc", "/jams", "/jams/new", "/join", "/elsewhere"]) {
+    assert.equal(movedPath(path), null, path);
+  }
+});
+
+test("a film page keeps its address and opens over search when reached directly", () => {
+  assert.equal(screenFromPath("/discover/27205"), "search");
   assert.deepEqual(filmFromPath("/discover/27205"), { id: "27205" });
   assert.deepEqual(filmFromPath("/discover/27205/"), { id: "27205" });
 });
 
-test("the bare Discover path is the grid, with no film", () => {
-  assert.equal(screenFromPath("/discover"), "discover");
-  assert.equal(screenFromPath("/discover/"), "discover");
-  assert.equal(filmFromPath("/discover"), null);
-  assert.equal(filmFromPath("/discover/"), null);
-});
-
-test("a segment that is not a film id is named invalid, not quietly shown as the grid", () => {
+test("a segment that is not a film id is named invalid, not quietly shown as something else", () => {
   for (const path of ["/discover/abc", "/discover/0", "/discover/-3", "/discover/012", "/discover/1.5", "/discover/1234567890123"]) {
-    assert.equal(screenFromPath(path), "discover", path);
+    assert.equal(screenFromPath(path), "search", path);
     assert.deepEqual(filmFromPath(path), { invalid: true }, path);
   }
 });

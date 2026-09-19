@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { CATALOGUE_CONFIGURATION } from "../src/catalogue/domain";
 import {
+  FILTER_GROUPS,
   REFINEMENTS,
   activeRefinements,
   isApplied,
@@ -150,5 +151,53 @@ describe("activeRefinements and withdrawal", () => {
 
   it("withdrawing something no longer in effect is not a turn", () => {
     assert.equal(refinementWithdrawal(byId("under-90"), newState("s")), null);
+  });
+});
+
+describe("the filter panel's filters", () => {
+  const all = FILTER_GROUPS.flatMap(({ filters }) => filters);
+  const filter = (id: string) => {
+    const found = all.find((candidate) => candidate.id === id);
+    assert.ok(found, id);
+    return found;
+  };
+
+  it("offer every genre but TV Movie, the eras and the running times, each id once", () => {
+    assert.deepEqual(FILTER_GROUPS.map(({ id }) => id), ["genre", "era", "runtime"]);
+    assert.equal(FILTER_GROUPS[0].filters.length, 18);
+    assert.equal(FILTER_GROUPS[0].filters.some(({ sentence }) => sentence === "TV Movie"), false);
+    assert.equal(new Set(all.map(({ id }) => id)).size, all.length);
+    assert.equal(new Set(all.map(({ id }) => id)).size + REFINEMENTS.length, new Set([...all, ...REFINEMENTS].map(({ id }) => id)).size, "no id is shared with a chip");
+  });
+
+  it("are grounded in their own words, so the engine accepts every one", () => {
+    for (const refinement of all) {
+      const turn = refinementTurn(refinement, newState("s"));
+      for (const quote of quotesOf(turn)) assert.ok(turn.transcript.includes(quote), `${refinement.id}: "${quote}"`);
+      const state = applyTurn(newState("s"), turn, CATALOGUE_CONFIGURATION);
+      assert.equal(isApplied(refinement, state), true, refinement.id);
+    }
+  });
+
+  it("hold one era and one running time at a time, and any number of genres", () => {
+    const state = [filter("genre-comedy"), filter("genre-horror"), filter("era-1990s"), filter("era-since-2020"), filter("runtime-90"), filter("runtime-150")].reduce(
+      (current, refinement) => apply(current, refinementTurn(refinement, current)),
+      newState("s"),
+    );
+    assert.equal(isApplied(filter("genre-comedy"), state), true);
+    assert.equal(isApplied(filter("genre-horror"), state), true);
+    assert.equal(isApplied(filter("era-1990s"), state), false, "a later era replaced it");
+    assert.equal(isApplied(filter("era-since-2020"), state), true);
+    assert.equal(isApplied(filter("runtime-90"), state), false);
+    assert.equal(isApplied(filter("runtime-150"), state), true);
+    assert.deepEqual(activeRefinements(state).map(({ label }) => label), ["Comedy", "Horror", "Under 150 min", "From 2020"]);
+  });
+
+  it("withdraw what they stated when chosen again", () => {
+    const comedy = filter("genre-comedy");
+    const chosen = apply(newState("s"), refinementTurn(comedy, newState("s")));
+    const withdrawn = apply(chosen, refinementWithdrawal(comedy, chosen));
+    assert.equal(isApplied(comedy, withdrawn), false);
+    assert.deepEqual(activeRefinements(withdrawn), []);
   });
 });

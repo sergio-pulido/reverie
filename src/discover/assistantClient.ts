@@ -22,7 +22,7 @@ const UNREACHABLE = {
 const UNREADABLE = {
   status: "error",
   code: "ASSISTANT_INVALID_RESPONSE",
-  safeMessage: "The assistant sent a response Discover could not trust.",
+  safeMessage: "The assistant sent a response that could not be trusted.",
   retryable: false,
 } as const;
 

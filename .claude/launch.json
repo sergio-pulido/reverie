@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "reverie-dev",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "--env-file-if-exists=.env.local",
+        "--import",
+        "tsx",
+        "apps/server/index.ts"
+      ],
+      "port": 4317
+    },
+    {
+      "name": "reverie-dev-alt",
+      "runtimeExecutable": "/usr/bin/env",
+      "runtimeArgs": [
+        "PORT=4327",
+        "node",
+        "--env-file-if-exists=.env.local",
+        "--import",
+        "tsx",
+        "apps/server/index.ts"
+      ],
+      "port": 4327
+    }
+  ]
+}

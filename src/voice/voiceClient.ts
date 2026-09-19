@@ -5,7 +5,7 @@ import { VOICE_LIMITS, voiceResponseSchema, type VoiceResponse } from "./contrac
 const UNREADABLE: VoiceResponse = {
   status: "error",
   code: "VOICE_INVALID_RESPONSE",
-  safeMessage: "Voice input sent a response Discover could not trust.",
+  safeMessage: "Voice input sent a response that could not be trusted.",
   retryable: false,
 };
 

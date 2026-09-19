@@ -26,48 +26,42 @@ async function type(field: HTMLInputElement | HTMLTextAreaElement, text: string)
   await settle(1);
 }
 
-describe("Discover", () => {
-  it("goes up from its first row, the search field, into the top bar", async () => {
-    await render(<App />, "/discover");
-    await focusOn(document.querySelector('input[type="search"]'));
+describe("search", () => {
+  const field = () => document.querySelector<HTMLInputElement>('.search-field input[type="search"]')!;
+
+  it("goes up from its field, the first row of an empty conversation, into the top bar", async () => {
+    await render(<App />, "/search");
+    assert.equal(focused(), field(), "the field has focus on arrival");
     assert.equal(await press("ArrowUp"), true);
-    assert.equal(current(), "Discover");
+    assert.equal(current(), "Search");
   });
 
-  it("clears a typed search with Escape first, and only then treats Escape as Back", async () => {
-    await render(<App />, "/discover");
-    const search = document.querySelector<HTMLInputElement>('input[type="search"]')!;
-    await focusOn(search);
-    await type(search, "heist");
+  it("clears what was typed with Escape first, and only then treats Escape as Back", async () => {
+    await render(<App />, "/search");
+    await type(field(), "something light");
     assert.equal(await press("Escape"), true);
-    assert.equal(search.value, "");
-    assert.equal(focused(), search, "clearing the field keeps focus in it");
+    assert.equal(field().value, "");
+    assert.equal(focused(), field(), "clearing the field keeps focus in it");
     await press("Escape");
-    assert.equal(current(), "Discover");
+    assert.equal(current(), "Search");
   });
 
-  it("returns from the conversation field to the bar on Back, after clearing a draft", async () => {
-    await render(<App />, "/discover");
-    const talk = document.querySelector<HTMLInputElement>(".discover-talk-field input")!;
-    await focusOn(talk);
-    await type(talk, "something light");
-    await press("Escape");
-    assert.equal(talk.value, "");
-    assert.equal(focused(), talk);
-    await press("Escape");
-    assert.equal(current(), "Discover");
+  it("keeps Backspace for the field", async () => {
+    await render(<App />, "/search");
+    await type(field(), "heist");
+    assert.equal(await press("Backspace"), false);
+    assert.equal(focused(), field());
   });
 
-  it("returns from a refinement chip to the bar on Back, not to the conversation", async () => {
-    await render(<App />, "/discover");
-    await focusOn(document.querySelector(".discover-chip"));
-    await press("Escape");
-    assert.equal(current(), "Discover");
+  it("returns from the voice control to the bar on Back", async () => {
+    await render(<App />, "/search");
+    await focusOn(document.querySelector(".voice-control"));
+    assert.equal(await press("Escape"), true);
+    assert.equal(current(), "Search");
   });
 
   it("leaves for the home when Back is pressed on the bar", async () => {
-    await render(<App />, [{ path: "/home" }, { path: "/discover", state: { [FROM]: "/home" } }]);
-    await focusOn(document.querySelector('input[type="search"]'));
+    await render(<App />, [{ path: "/home" }, { path: "/search", state: { [FROM]: "/home" } }]);
     await press("Escape");
     assert.equal(await press("Escape"), true);
     await settle();
@@ -75,9 +69,8 @@ describe("Discover", () => {
     assert.ok(document.querySelector(".home-shell"));
   });
 
-  it("goes home even when Discover was the first page opened", async () => {
-    await render(<App />, "/discover");
-    await focusOn(document.querySelector('input[type="search"]'));
+  it("goes home even when search was the first page opened", async () => {
+    await render(<App />, "/search");
     await press("Escape");
     await press("Escape");
     assert.equal(window.location.pathname, "/home");
@@ -85,15 +78,27 @@ describe("Discover", () => {
 });
 
 describe("a film page", () => {
-  it("opens with focus on the bar, so one Back closes it to the grid", async () => {
-    await render(<App />, [{ path: "/discover" }, { path: "/discover/603", state: { [FROM]: "/discover" } }]);
-    assert.equal(document.querySelectorAll('nav[aria-label="Primary"]').length, 2, "the grid's bar is still there, underneath");
+  it("opens with focus on the bar, so one Back closes it to search", async () => {
+    await render(<App />, [{ path: "/search" }, { path: "/discover/603", state: { [FROM]: "/search" } }]);
+    assert.equal(document.querySelectorAll('nav[aria-label="Primary"]').length, 2, "the search screen's bar is still there, underneath");
     assert.ok(liveTopBar()!.closest(".film-page"), "the live bar is the page's own");
-    assert.equal(current(), "Discover");
+    assert.equal(current(), "Search");
     assert.equal(await press("Escape"), true);
     await settle();
-    assert.equal(window.location.pathname, "/discover");
+    assert.equal(window.location.pathname, "/search");
     assert.equal(document.querySelector(".film-page"), null);
+  });
+
+  it("reached by URL, closes to search by replacing itself", async () => {
+    await render(<App />, "/discover/603");
+    assert.equal(current(), "Search");
+    const entries = window.history.length;
+    await press("Escape");
+    await settle();
+    assert.equal(window.location.pathname, "/search");
+    assert.equal(window.history.length, entries, "no entry was added");
+    assert.equal(document.querySelector(".film-page"), null);
+    assert.equal(focused().getAttribute("type"), "search", "the field takes focus once the page is uncovered");
   });
 
   it("closes the same way when its current destination is chosen, without adding history", async () => {
@@ -119,22 +124,22 @@ describe("a film page", () => {
     const rejected: string[] = [];
     await render(
       <Page>
-        <FilmPage providerId="603" seed={seed} origin="discover" attributionFallback="TMDB" onReject={(id) => rejected.push(id)} />
+        <FilmPage providerId="603" seed={seed} origin="search" attributionFallback="TMDB" onReject={(id) => rejected.push(id)} />
       </Page>,
       "/discover/603",
     );
-    assert.equal(current(), "Discover");
+    assert.equal(current(), "Search");
     await press("ArrowDown");
     assert.equal(focused().textContent, "Not this one");
     assert.equal(await press("ArrowUp"), true);
-    assert.equal(current(), "Discover", "Up from the first control reaches the bar");
+    assert.equal(current(), "Search", "Up from the first control reaches the bar");
 
     await press("ArrowDown");
     const layer = document.querySelector<HTMLElement>(".film-page")!;
     layer.scrollTop = 400;
     scrollCalls.length = 0;
     assert.equal(await press("Escape"), true);
-    assert.equal(current(), "Discover");
+    assert.equal(current(), "Search");
     assert.equal(layer.scrollTop, 0, "the page scrolls back to its top");
     assert.deepEqual(scrollCalls, [], "the screen under the page keeps its place");
     assert.deepEqual(rejected, [], "Back never rejects the film");

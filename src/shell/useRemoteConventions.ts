@@ -15,7 +15,7 @@ const NAVIGATION_KEYS: ReadonlySet<string> = new Set(["ArrowUp", "ArrowDown", "A
  * already consumed (a field clearing its text) does neither, and a held Back never leaves.
  *
  * Up from the first thing on a page moves into the bar, for every screen that does not steer its
- * own rows. Screens that do (the home, the Discover grid) hand focus to the bar themselves.
+ * own rows. Screens that do (the home, search) hand focus to the bar themselves.
  *
  * With nothing focused, a remote's key lands on the top bar instead of on nothing. A held OK
  * acts once: its repeats are swallowed, so holding it on a poster cannot also press whatever the

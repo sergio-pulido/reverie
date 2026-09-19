@@ -5,7 +5,7 @@
  * Leaving a screen uses the record to step back through real history when the entry behind is
  * where the viewer should go, and to replace the entry otherwise, so repeated Back always climbs
  * towards the home instead of replaying every screen visited. A film page also reads it to know
- * whether it was opened from the home or from the Discover grid.
+ * whether it was opened from the home or from search.
  *
  * Replacing an entry changes what lies behind the entries after it (browser Forward can reach
  * them again). Their record would then be stale, so every replaced key is remembered, for the

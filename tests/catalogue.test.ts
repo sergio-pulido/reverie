@@ -237,7 +237,13 @@ test("the endpoint answers 401 without a bearer token and forwards the viewer's 
 
 test("nothing that draws a title implies where it can be watched", () => {
   const renderers = [
-    "../src/discover/DiscoverScreen.tsx",
+    "../src/search/SearchScreen.tsx",
+    "../src/search/SearchTranscript.tsx",
+    "../src/search/ResultRow.tsx",
+    "../src/search/ResultCard.tsx",
+    "../src/search/PendingVoice.tsx",
+    "../src/search/FilterPanel.tsx",
+    "../src/search/FilmPreview.tsx",
     "../src/discover/Artwork.tsx",
     "../src/discover/FilmPage.tsx",
     "../src/home/HomeScreen.tsx",

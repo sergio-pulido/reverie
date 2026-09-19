@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { MAX_MESSAGE_CHARS } from "../src/conversation/decision";
 import { acceptedContentType } from "../src/voice/contract";
 import { toPcm16 } from "../src/voice/pcmCapture";
-import { mergeIntoDraft, outcomeOf, pressAction, streamedAnswer, voiceLabel } from "../src/voice/voiceState";
+import { mergeIntoDraft, outcomeOf, pressAction, streamedAnswer, voiceName } from "../src/voice/voiceState";
 
 describe("voice outcomes", () => {
   it("puts only a final, non-blank transcript into the field", () => {
@@ -41,11 +41,14 @@ describe("the voice control", () => {
     assert.equal(pressAction("transcribing"), "ignore");
   });
 
-  it("shows what it is doing and the time left", () => {
-    assert.equal(voiceLabel("idle", 20), "Speak");
-    assert.equal(voiceLabel("recording", 12.2), "Stop · 13s");
-    assert.equal(voiceLabel("recording", -1), "Stop · 0s");
-    assert.equal(voiceLabel("transcribing", 0), "Transcribing…");
+  it("names what pressing it does in every state, without a countdown", () => {
+    assert.equal(voiceName("idle"), "Speak instead of typing");
+    assert.equal(voiceName("starting"), "Opening the microphone. Press to cancel.");
+    assert.equal(voiceName("recording"), "Listening. Press to stop.");
+    assert.equal(voiceName("transcribing"), "Finishing what you said");
+    for (const phase of ["idle", "starting", "recording", "transcribing"] as const) {
+      assert.equal(/\d/.test(voiceName(phase)), false, `${phase} names no time`);
+    }
   });
 
   it("accepts the recorder's containers and nothing else", () => {

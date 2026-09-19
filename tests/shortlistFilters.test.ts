@@ -163,7 +163,7 @@ describe("filters over HTTP and into the database", () => {
 
 describe("the shortlist migration", () => {
   const sql = readFileSync(
-    new URL("../supabase/migrations/20260919230000_constrained_catalogue_shortlist.sql", import.meta.url),
+    new URL("../supabase/migrations/20260919231000_constrained_catalogue_shortlist.sql", import.meta.url),
     "utf8",
   );
   const code = sql.replace(/--.*$/gm, "");

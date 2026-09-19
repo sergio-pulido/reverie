@@ -449,7 +449,7 @@ project (it was applied by hand, so no tracking table records it). Each run of
   weighted by confidence, 10% shortlist position as tie-break) and passes that ranking through
   `acceptRanking`; its top three are marked "Top pick". `shortlistFilters.ts` turns the state
   into database filters. `refinements.ts` defines the chips and the withdrawal turns.
-- `supabase/migrations/20260919230000_constrained_catalogue_shortlist.sql` replaces
+- `supabase/migrations/20260919231000_constrained_catalogue_shortlist.sql` replaces
   `search_catalogue_titles` with a ten-argument form (the first three unchanged): runtime and
   year bounds, wanted and refused genres, and turned-down ids, all filtered in SQL against an
   indexed `genre_slugs` column. A missing runtime or date never satisfies a bound. It still

@@ -1101,17 +1101,6 @@ shift while it grows.
   rebuilt; the remaining layout shift is the web-font swap (preloading the fonts removed it but
   delayed the first paint by about 250 ms); not yet deployed to Vercel from here.
 
-## Next milestones
-
-1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.
-   Next, adopt a Supabase CLI link so future migrations get applied and tracked, not pasted.
-2. Done: Discover serves the TMDB snapshot. Next, deploy it and confirm that `/api/catalogue`
-   answers `ok` on Vercel with the Supabase server variables set.
-3. Versioned transactional scene contract: atomic voting, `expectedStateVersion`, idempotent
-   `requestId`, and serialized scene acceptance. Generation only after that contract exists.
-4. `pnpm probe:vonage` passes with the application credentials; next, verify the live stage in
-   two browsers against the migrated Supabase project.
-
 ## 2026-09-19 — The story outline: a centralized artifact the room steers (RV-17)
 
 - An **outline** sits between the script and the reader: one brief phrase (a **beat**) per
@@ -1146,3 +1135,14 @@ shift while it grows.
   mechanism (direct, vote, poll, chat), the outline routes, the client surface, and delivery into
   the director seam. No provider call has been made for a cascade, so cascade quality is specified
   and unit-tested at its pure boundaries, not demonstrated.
+
+## Next milestones
+
+1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.
+   Next, adopt a Supabase CLI link so future migrations get applied and tracked, not pasted.
+2. Done: Discover serves the TMDB snapshot. Next, deploy it and confirm that `/api/catalogue`
+   answers `ok` on Vercel with the Supabase server variables set.
+3. Versioned transactional scene contract: atomic voting, `expectedStateVersion`, idempotent
+   `requestId`, and serialized scene acceptance. Generation only after that contract exists.
+4. `pnpm probe:vonage` passes with the application credentials; next, verify the live stage in
+   two browsers against the migrated Supabase project.

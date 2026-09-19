@@ -279,7 +279,6 @@ outside the critical section and committed atomically inside it, refused with `p
 the boundary moved meanwhile. A cascade in a fast-playing room can therefore be paid for and
 discarded, which is preferred over a half-rewritten story or a room frozen for the length of a
 provider call.
-
 ## 2026-09-19 — Generated streams are keyed by configuration, and a cap makes the room attach
 
 Per-participant overrides select a configuration (today `language` + `ambientation`), and Reverie
@@ -903,3 +902,60 @@ Fonts are self-hosted latin subsets of only the faces the page uses. With the sa
 from Google, the same layout painted about 190 ms later on that profile (a render-blocking
 stylesheet from a second origin, then files from a third). Preloading them was measured too and rejected: it removed a
 few pixels of swap shift but delayed the first paint by about 250 ms.
+
+## 2026-09-19 — The story outline is a centralized artifact, and every way to modify it is an adapter
+
+A jam's script is the right artifact to generate and to play, and the wrong one to **steer**: no
+participant can be asked to read four minutes of screenplay to change where the story is going.
+The **outline** — one brief phrase (a **beat**) per portion, ordered and coherent — is the
+readable projection that makes the film glanceable.
+
+The load-bearing reason it is a *named, centralized* artifact is different, and is the product
+goal: there are to be **several ways to modify the story** — up and down votes on parts of the
+future, chat, polls, a direct rewrite, and mechanisms not yet imagined. Without a central target,
+each of those would have to know how to edit a screenplay: validate the portion schema, respect
+the playback lock window, hold the runtime inside the jam format, preserve the flat portion
+indices that key generation jobs, and serialize against the others. That is the same dangerous
+logic written four times, with four chances to corrupt a script the room has already paid for.
+
+So every mechanism is an **input adapter** that produces one typed intent against one beat, and
+everything downstream happens once behind a single boundary. Two intents exist because votes
+demand it: `set` (this beat becomes this phrase) and `reroll` (not this — the model chooses, and
+is told what was rejected). A down-vote carries no replacement text, and collapsing `reroll` into
+`set` would force voting mechanisms to fabricate prose they were never given. Adding a fifth
+mechanism should mean adding an adapter and touching none of the machinery below.
+
+The layer is called the outline, not "history", because `scriptHistory.ts` / `JamScriptHistory`
+already means the append-only revision log; this repository has already paid once for that kind
+of collision, when `Jam` had to be split into `JamRoom`. See `docs/specs/story-outline.md`.
+
+## 2026-09-19 — A beat edit re-derives the rest of the story, in one call, without touching timing
+
+Editing a beat re-derives **every beat after it** and rewrites their portions. The room asked for
+an outline that stays coherent, so coherence is enforced rather than hoped for: changing "she
+finds the key" to "she loses the key" must not leave later beats assuming she has it. The
+accepted cost is explicit — a later beat another participant contributed can be rewritten by
+someone else's earlier edit — and the alternative, a self-contradicting outline, defeats the
+artifact's purpose.
+
+Three bounds make that affordable and safe. **One completion rewrites the whole tail**, never one
+call per portion: cheaper (one paid call per edit rather than up to forty-six), but chosen mainly
+because a model that sees the entire remainder at once writes a coherent tail where a chain of
+local rewrites reproduces the incoherence being prevented. **Durations are never rewritten**, so
+the runtime stays inside the jam format by construction and needs none of the fitting retries
+generation requires. **Structure is never rewritten**: the reply is a flat list covering the tail
+exactly, re-attached to existing scenes by position, because flat portion indices key the
+generation jobs and renumbering them would silently re-key every clip already bought.
+
+Edits are **serialized** per jam — admitted to a queue and processed one at a time, each cascade
+computed against the previous result — because two parallel cascades would each re-derive the
+same tail from a different story and the second would erase the first. With many mechanisms
+feeding one artifact, simultaneous edits are the normal case.
+
+The lock window applies unchanged, and the check is smaller than it looks: the window is a prefix
+and a cascade only runs forward, so only the **edited** beat needs checking. The real hazard is a
+race — playback advances during the provider call — so a cascade is computed optimistically
+outside the critical section and committed atomically inside it, refused with `portion_locked` if
+the boundary moved meanwhile. A cascade in a fast-playing room can therefore be paid for and
+discarded, which is preferred over a half-rewritten story or a room frozen for the length of a
+provider call.

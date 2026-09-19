@@ -57,3 +57,47 @@ h1 em { color: #cbd5ff; font-weight: 500; }
 .steps p { color: #b4b8c7; line-height: 1.5; margin-bottom: 0; }
 footer { max-width: 1410px; margin: 0 auto; padding: 24px 48px; border-top: 1px solid rgba(213, 218, 255, .12); display: flex; justify-content: space-between; color: #8e94a8; }
 @media (max-width: 850px) { .topbar { height: 75px; padding: 0 24px; } .nav-links, .status { display: none; } .hero { padding: 62px 24px 50px; grid-template-columns: 1fr; gap: 45px; } .scene-card { min-height: 420px; } .steps { padding: 16px 24px 50px; grid-template-columns: 1fr; } footer { padding: 24px; gap: 13px; flex-direction: column; } }
+
+.brand-button, .nav-links button { color: inherit; background: transparent; border: 0; }
+.brand-button { padding: 0; }
+.nav-links button { padding: 38px 0 34px; border-bottom: 2px solid transparent; }
+.nav-links button.active, .nav-links button:hover { color: #fffdf8; border-color: #d9ddff; }
+.setup-shell, .studio-shell { display: flex; min-height: 100vh; flex-direction: column; }
+.setup-layout, .join-layout { width: min(1180px, 100%); margin: auto; padding: 70px 48px 88px; display: grid; grid-template-columns: .9fr 1.1fr; gap: 100px; align-items: center; }
+.back-link { margin: 0 0 58px; border: 0; padding: 0; color: #c6cbdb; background: transparent; font-size: 14px; }
+.back-link:hover { color: #fff; }
+.room-form, .join-card { padding: 34px; border: 1px solid #3e4969; background: rgba(16, 24, 43, .86); box-shadow: 0 25px 70px rgba(0, 0, 0, .25); }
+.room-form label, .join-card label { display: grid; gap: 9px; color: #c8ccdb; font-size: 13px; font-weight: 600; margin-bottom: 21px; }
+.room-form input, .room-form textarea, .room-form select, .join-card input, .contribution-form textarea { width: 100%; padding: 14px 15px; border: 1px solid #465476; border-radius: 5px; color: #f3f3f6; background: #151e32; outline: 0; font: inherit; }
+.room-form textarea { min-height: 120px; resize: vertical; line-height: 1.5; }
+.room-form input:focus, .room-form textarea:focus, .room-form select:focus, .join-card input:focus, .contribution-form textarea:focus { border-color: #bbc9ff; box-shadow: 0 0 0 3px rgba(165, 183, 255, .14); }
+.form-note { color: #949bad; font-size: 13px; line-height: 1.5; }
+.form-submit { width: 100%; margin-top: 12px; }
+.join-layout { display: block; max-width: 720px; }
+.join-card h1 { font-size: clamp(48px, 6vw, 75px); }
+.studio-header { width: min(1410px, 100%); margin: 0 auto; padding: 52px 48px 36px; display: flex; align-items: end; justify-content: space-between; gap: 32px; }
+.studio-header h1 { margin: 0 0 12px; font-size: clamp(42px, 5.4vw, 76px); }
+.studio-header p:not(.eyebrow) { margin: 0; color: #afb5c6; }
+.studio-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.studio-grid { width: min(1410px, 100%); margin: 0 auto; padding: 0 48px 70px; display: grid; grid-template-columns: minmax(360px, .9fr) minmax(460px, 1.1fr); gap: 20px; }
+.conversation-panel, .queue-card { border: 1px solid #3c4969; background: linear-gradient(140deg, rgba(19, 28, 49, .95), rgba(10, 14, 24, .92)); }
+.conversation-panel { min-height: 590px; display: flex; flex-direction: column; padding: 26px; }
+.panel-heading { display: flex; justify-content: space-between; gap: 20px; border-bottom: 1px solid #303a52; padding-bottom: 22px; }
+.panel-heading h2, .queue-card h2 { margin: 0; font-family: Fraunces, Georgia, serif; font-weight: 500; font-size: 31px; letter-spacing: -.03em; }
+.local-badge { align-self: start; padding: 7px 9px; border: 1px solid #526080; color: #c9d4ff; font: 10px "DM Mono", monospace; letter-spacing: .13em; }
+.contribution-list { flex: 1; display: flex; flex-direction: column; justify-content: end; gap: 14px; min-height: 270px; padding: 26px 0; overflow: auto; }
+.contribution { max-width: 85%; padding: 13px 14px; border-radius: 8px; }
+.contribution span { display: block; margin-bottom: 6px; color: #bac5ec; font: 10px "DM Mono", monospace; letter-spacing: .13em; }
+.contribution p { margin: 0; color: #edf0fb; line-height: 1.45; font-size: 14px; }
+.contribution.director { align-self: flex-start; background: #263553; border: 1px solid #455c89; }
+.contribution.host { align-self: flex-end; background: #eeeeea; }
+.contribution.host span, .contribution.host p { color: #182033; }
+.contribution-form { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding-top: 18px; border-top: 1px solid #303a52; }
+.contribution-form textarea { min-height: 56px; resize: vertical; }
+.studio-scene { display: grid; gap: 20px; align-content: start; }
+.scene-card-compact { min-height: 390px; }
+.queue-card { display: flex; justify-content: space-between; gap: 30px; padding: 24px 26px; align-items: end; }
+.queue-card p:not(.eyebrow) { max-width: 270px; margin: 0; color: #aeb5c6; font-size: 14px; line-height: 1.5; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+@media (max-width: 950px) { .setup-layout, .studio-grid { grid-template-columns: 1fr; gap: 35px; } .setup-layout { padding: 48px 24px 66px; } .studio-header, .studio-grid { padding-left: 24px; padding-right: 24px; } .studio-header { align-items: start; flex-direction: column; } }
+@media (max-width: 600px) { .contribution-form { grid-template-columns: 1fr; } .studio-actions, .studio-actions .button { width: 100%; } .queue-card { align-items: start; flex-direction: column; } }

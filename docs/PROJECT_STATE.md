@@ -181,52 +181,6 @@
   and unit-tested at their pure boundaries but unproven end to end. That needs both a
   video-capable Vonage application and a migrated Supabase project.
 
-## 2026-09-19 — The director stream is delivered live to the whole room (RV-19)
-
-- The shared stream is now watchable while it runs. A session serves an HLS playlist and fMP4
-  segments (`playlist.m3u8`, `init.mp4`, `segment/:n.m4s` under
-  `/api/jams/:id/director/session/:sessionId`), so every viewer on a configuration reads the same
-  plain HTTP addresses. Segments are immutable and cacheable; the playlist never is. A second
-  viewer costs a cache hit rather than a second paid session, and no viewer holds a socket.
-- **The peer had been offering VP8 only, and nothing had noticed.** werift 0.24.4 defaults to VP8
-  alone, and the director built a bare `RTCPeerConnection`, so fal could never have sent H.264
-  whatever it supports. That matters because werift's `Mp4Container` carries `avc1` and `opus` and
-  nothing else. The offer now prefers H.264 and keeps VP8 as a fallback; a codec fMP4 cannot carry
-  produces a typed `unsupported_codec` and no segments, never an undecodable playlist.
-- **Muxing runs in a worker thread.** A real 480p session with a recorder attached drove Node to
-  99% CPU and stalled the event loop, so `/api/health` and the route that ends the paid session
-  both stopped answering — a server that cannot answer is a server that cannot stop spending.
-  `SegmentMuxer` takes serialized RTP and emits segments with no knowledge of peers or HTTP; the
-  main thread only serializes and posts. A dead worker stops delivery and touches neither the
-  recording nor `/end`, and stopping is bounded at two seconds then terminated.
-- One segmenter per session fans segments out to sinks, so live delivery and durable archiving
-  publish the same bytes under the same numbering rather than muxing two timelines the audit
-  trail could drift between.
-- **Viewers are counted, as a spend control.** Each checks in under a server-issued id; one
-  leaving no longer ends the stream for the room, and the last one leaving settles the session
-  instead of letting it be reclaimed ninety seconds later at full reservation. A reclaimed
-  session now tells the router to stop the stream it was paying for.
-- **Opening a jam that is streaming shows the film, and only its owner directs it.** The screen
-  attaches to whatever is running for its configuration; the attach is `attachOnly` and can never
-  open a stream, so arriving in a room cannot start a paid session — a participant who arrives
-  before the host presses start gets a retryable `no_stream` and waits. Non-hosts are given no
-  controls rather than disabled ones. The host's Stop ends the stream for the room; the host
-  merely leaving the screen only detaches them.
-- Playback takes the native HLS path on Safari and iOS — the only one that works on iPhone, where
-  MSE does not exist — and hls.js elsewhere. A browser that can do neither is told so.
-- Live delivery is off unless `REVERIE_DIRECTOR_HLS=true`, alongside recording's own
-  `REVERIE_DIRECTOR_RECORD`, and stays off until a real session shows `/end` answering while the
-  worker is mid-segment.
-- Verified: `pnpm typecheck`, `pnpm test` (526 passing, 26 covering this slice: playlist shape and
-  target-duration rounding, the sliding window and its refusal to reuse an evicted address, viewer
-  attach/detach/renew and reclaim, the delivery routes' served and refused states, and the real
-  worker thread starting, returning a codec verdict and stopping within bounds), `pnpm build`.
-- **Not probed, and not claimed.** No Director session has been opened with a valid key on this
-  branch. Which codec fal answers now that H.264 is offered, its keyframe cadence — which sets
-  segment length and therefore live latency — and whether segment starts correspond to the `chunk`
-  messages' `chunk_index`/`script_offset_seconds` are all unknown. No synthetic H.264 was fed
-  through the muxer either, so muxing of real frames is unexercised.
-
 ## Foundation verification
 
 Passed: `pnpm install --frozen-lockfile`, `pnpm typecheck`, `pnpm build`, `git diff --check`; `PORT=4328 pnpm start` with `SMOKE_BASE_URL=http://127.0.0.1:4328 node scripts/smoke.mjs` verified health, three SPA deep links and unknown-API 404. No lint script exists. These are local checks, not a hosted deployment or live database test.
@@ -1353,6 +1307,52 @@ Delivery now has a single rule instead of two: rebase onto the latest `main`, pu
 open a PR, merge the PR. The previous split between a "primary agent" pushing directly and a
 "collaborating developer" going through PRs is retired — see `docs/DECISIONS.md` for why. `AGENTS.md`,
 `docs/CONTRIBUTING.md` and `README.md` are updated; no code changed.
+
+## 2026-09-19 — The director stream is delivered live to the whole room (RV-19)
+
+- The shared stream is now watchable while it runs. A session serves an HLS playlist and fMP4
+  segments (`playlist.m3u8`, `init.mp4`, `segment/:n.m4s` under
+  `/api/jams/:id/director/session/:sessionId`), so every viewer on a configuration reads the same
+  plain HTTP addresses. Segments are immutable and cacheable; the playlist never is. A second
+  viewer costs a cache hit rather than a second paid session, and no viewer holds a socket.
+- **The peer had been offering VP8 only, and nothing had noticed.** werift 0.24.4 defaults to VP8
+  alone, and the director built a bare `RTCPeerConnection`, so fal could never have sent H.264
+  whatever it supports. That matters because werift's `Mp4Container` carries `avc1` and `opus` and
+  nothing else. The offer now prefers H.264 and keeps VP8 as a fallback; a codec fMP4 cannot carry
+  produces a typed `unsupported_codec` and no segments, never an undecodable playlist.
+- **Muxing runs in a worker thread.** A real 480p session with a recorder attached drove Node to
+  99% CPU and stalled the event loop, so `/api/health` and the route that ends the paid session
+  both stopped answering — a server that cannot answer is a server that cannot stop spending.
+  `SegmentMuxer` takes serialized RTP and emits segments with no knowledge of peers or HTTP; the
+  main thread only serializes and posts. A dead worker stops delivery and touches neither the
+  recording nor `/end`, and stopping is bounded at two seconds then terminated.
+- One segmenter per session fans segments out to sinks, so live delivery and durable archiving
+  publish the same bytes under the same numbering rather than muxing two timelines the audit
+  trail could drift between.
+- **Viewers are counted, as a spend control.** Each checks in under a server-issued id; one
+  leaving no longer ends the stream for the room, and the last one leaving settles the session
+  instead of letting it be reclaimed ninety seconds later at full reservation. A reclaimed
+  session now tells the router to stop the stream it was paying for.
+- **Opening a jam that is streaming shows the film, and only its owner directs it.** The screen
+  attaches to whatever is running for its configuration; the attach is `attachOnly` and can never
+  open a stream, so arriving in a room cannot start a paid session — a participant who arrives
+  before the host presses start gets a retryable `no_stream` and waits. Non-hosts are given no
+  controls rather than disabled ones. The host's Stop ends the stream for the room; the host
+  merely leaving the screen only detaches them.
+- Playback takes the native HLS path on Safari and iOS — the only one that works on iPhone, where
+  MSE does not exist — and hls.js elsewhere. A browser that can do neither is told so.
+- Live delivery is off unless `REVERIE_DIRECTOR_HLS=true`, alongside recording's own
+  `REVERIE_DIRECTOR_RECORD`, and stays off until a real session shows `/end` answering while the
+  worker is mid-segment.
+- Verified: `pnpm typecheck`, `pnpm test` (526 passing, 26 covering this slice: playlist shape and
+  target-duration rounding, the sliding window and its refusal to reuse an evicted address, viewer
+  attach/detach/renew and reclaim, the delivery routes' served and refused states, and the real
+  worker thread starting, returning a codec verdict and stopping within bounds), `pnpm build`.
+- **Not probed, and not claimed.** No Director session has been opened with a valid key on this
+  branch. Which codec fal answers now that H.264 is offered, its keyframe cadence — which sets
+  segment length and therefore live latency — and whether segment starts correspond to the `chunk`
+  messages' `chunk_index`/`script_offset_seconds` are all unknown. No synthetic H.264 was fed
+  through the muxer either, so muxing of real frames is unexercised.
 
 ## 2026-09-20 — The shell opens: five destinations, and a real account menu
 

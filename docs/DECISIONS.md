@@ -1,5 +1,154 @@
 # Decisions
 
+## 2026-09-19 — A jam is live, then playing, then ended, and ended is terminal (RV-18)
+
+A room now has one readable state instead of an implied one. `live` is a room that
+exists and can be joined; `playing` is a room generating; `ended` is a room whose
+recording is what remains of it. Previously "is this room running" was inferred from
+whether a session id happened to be open in a browser tab, which no two clients
+agreed on and no reopened tab could recover.
+
+Server-owned, like every other room transition (`JamStore.advanceLifecycle`). The
+browser projects it and never decides it: `start` and `stop` both answer with the
+resulting lifecycle, so a client does not have to re-read the jam to find out what it
+just did, and a client that missed a stop reads `ended` on its next look.
+
+**`ended` is terminal, and the director refuses to open a session on an ended room.**
+A finished room's recording is its artifact; a second session would leave two
+different films behind one room URL. The refusal is checked before the spend ledger
+is touched, so it costs nothing. This is a real behaviour change: a room could
+previously open a fresh stream after stopping, and that is now a new jam instead.
+Starting is also hidden in the UI for an ended room rather than offered and refused.
+
+**The recording plays without a player library.** fMP4 is an init segment followed by
+its media segments, so concatenating them in order IS a valid MP4 file:
+`GET /api/jams/:id/director/archive/:sessionId/video` streams them and a finished
+session plays in a plain `<video>` element. Streamed as assembled rather than
+buffered, because a session archive can be hundreds of megabytes. An archive missing
+its init segment is refused rather than served unplayable, and a missing segment
+truncates rather than corrupting the tail. Segments stay individually addressable for
+anything that wants to seek, and an HLS VOD playlist remains available later without
+changing what is stored.
+
+**Known limit, unverified: seeking, and only seeking.** A concatenated fMP4 plays
+start to finish in the ordinary case; what it lacks is a `sidx` or fragment index, so
+players differ on whether they will let a viewer scrub one. The `<video controls>` element offers a
+scrub bar regardless, so if scrubbing matters it needs testing in Safari as well as
+Chrome, and the fix is the HLS VOD playlist over the same segment rows rather than a
+change to what is stored.
+
+Verified by tests, including the reopened-tab case, and end to end against the local
+stack's real Postgres: a session opened, a direction reached `jam_director_audit` as
+it was sent, and the room read `live` then `playing` then `ended`. **Not** verified
+with real director media: the archive has only been exercised with synthetic
+segments, because the segmenter that feeds it is off by default
+(`REVERIE_DIRECTOR_HLS`) pending one real session confirming `/end` answers while the
+muxer worker is mid-segment. The off-thread work itself is done, not pending —
+`SegmentMuxer` runs in a worker thread. Note this is a DIFFERENT flag from
+`REVERIE_DIRECTOR_RECORD`, which gates the in-thread WebM recorder and is off because
+that one pins the event loop.
+
+**A live route answers an ended room with `409 jam_ended` and a pointer, not `404`.**
+The room exists and so does its recording; only the live stream is gone, and a
+missing-thing answer sends a viewer looking for something that is right there. The
+pointer is the archive COLLECTION rather than a resolved session, since which session
+was the last one is a read the archive side already does. Applied to the live relay's
+`watch` route here; any other route that serves a live stream answers the same way.
+
+**The audit trail is now durable.** `DirectorAuditLog` takes an optional listener and
+the director route writes each entry to `jam_director_audit` as it is recorded —
+fire-and-forget, so a durable write that fails or hangs cannot stall the stream it
+describes, and the bounded in-memory trail the live session reads is unaffected. The
+session row is opened WITH the session rather than at its end, because the audit rows
+reference it and a session that dies mid-stream must still have somewhere for what it
+managed to record.
+
+## 2026-09-19 — A director session reproduces from durable rows, not from a closing process (RV-18)
+
+The archive is written as the session runs and read back by reconstruction, not
+written once at the end.
+
+**One segmenter, two sinks** (agreed with RV-19). `DirectorStream` owns the track and
+feeds a single muxer; the live HLS sink and this archive sink consume the same
+numbered segments. Two independent muxers were rejected because they produce two
+timelines for one session, and the audit trail records which beat and script offset
+each direction landed on — if the audit describes one timeline and the archive is
+another, the join drifts silently and a reproduction can no longer be explained.
+
+**Segments, not one file at stop.** Each segment is uploaded as produced and its row
+written only after that upload succeeds. A crash therefore costs the segment in
+flight, not the session; and a reader can trust that every indexed segment exists,
+because nothing is indexed before its bytes land. The previous design held a temp
+file and persisted at `stop()`, which lost everything if the process died — the
+failure that has actually been observed.
+
+**Nothing reproduction needs is written at the end.** The segmenter delivers
+`finish()` fire-and-forget and does not await it, so `/end` can return, and the
+process exit, before any closing write completes. The playlist is therefore BUILT
+FROM `jam_director_segments` when requested rather than uploaded at close, and
+`complete` stays false for a session that died. A partial archive is reported as
+partial.
+
+**The record lives in Postgres, the bytes in Storage.** `jam_director_sessions`
+carries the configuration key and script revision — a `<jamId>/<sessionId>` pair
+does not say what was being watched, since streams are keyed by jam AND
+configuration. This is the container server's first Postgres write path; it holds a
+service-role key, which the Vercel functions deliberately never do. The tables carry
+RLS with no policies and grants only to `service_role`, so no browser identity
+reaches them.
+
+Consequence worth stating: every reproduction route is a plain read of durable state,
+with no in-process stream map and no container-local file, so reproducing a session
+could run as a serverless function even though the live director cannot.
+
+Verified 2026-09-19 against the local stack's real Postgres and real Storage: session,
+segments and audit round-tripped, the API reported `durable: true`, and archived bytes
+were served by our own route. **Not** verified against hosted Supabase, and no real
+director media has been through this path. The segmenter that feeds the archive is
+off by default (`REVERIE_DIRECTOR_HLS`) pending one real session's measurement; the
+off-thread muxing it depends on is built, not pending.
+
+
+## 2026-09-19 — The local stack runs Storage, and it found two broken paths (RV-18)
+
+`docker/compose.yaml` had no Storage service. Postgres, Auth, PostgREST and Realtime
+ran; nothing served `/storage/v1`. Every media store therefore fell back to memory
+locally and reported success, and the guarded bucket migrations skipped, so
+`SupabasePortionMediaStore` and `SupabaseDirectorRecordingStore` had never once
+addressed a real bucket. A storage path that is never exercised is not a storage path.
+
+The stack now runs `supabase/storage-api:v1.19.3`, ordered **before** `migrate` so
+`to_regclass('storage.buckets')` finds a real schema and the guards actually fire.
+Three things had to be true that were not obvious:
+
+- Storage connects as `supabase_admin` and creates the `storage` schema itself, so
+  an existing `reverie-db` volume needs no recreation.
+- It grants nothing to the API roles. `service_role` had no `usage` on the schema, and
+  an unqualified lookup then reports `relation "buckets" does not exist` rather than a
+  permission error. `apply-migrations.sh` grants it, and only it: the buckets are
+  private and no browser identity reads them.
+- Its healthcheck must use `127.0.0.1`. The server binds IPv4 only and the image's
+  `wget` resolves `localhost` to `::1`.
+
+**Two real defects surfaced the moment a real bucket existed**, both in
+`SupabaseDirectorRecordingStore`, both previously invisible:
+
+1. **Every director upload would have been rejected.** It wrote `video/webm` into
+   `jam-portions`, a bucket whose `allowed_mime_types` is `{video/mp4}` and whose size
+   limit is 64MB against the store's own 512MB cap. Verified by upload: `video/webm`
+   refused, `video/mp4` accepted. `persistRecording()` swallows storage errors so the
+   session can still close, so this would have lost every archive in silence. The
+   archive now has its own bucket (`jam-director`, WebM + fMP4 + HLS playlist, 512MB)
+   created by `20260919234000_jam_director_archive.sql`.
+2. **A missing recording was reported as a store outage.** Storage answers a missing
+   object with **HTTP 400** and a body whose `statusCode` is `"404"`, so the
+   `status === 404` check never matched and the route returned 503 instead of 404.
+   `SupabasePortionMediaStore` already handled 400; the director store did not.
+
+Observed on the local stack on 2026-09-19 against `storage-api` v1.19.3, not against
+hosted Supabase. The object key now follows the negotiated container (`.webm` or
+`.mp4`) and a read tries each, because the codec fal answers is still unprobed.
+
 ## 2026-09-20 — Every integration goes through a PR; nobody pushes to `main` directly (RV-20)
 
 `AGENTS.md` and `docs/CONTRIBUTING.md` described a two-tier delivery model: a "primary agent"
@@ -959,151 +1108,3 @@ The conversation is served at `/discover`, and `/discover/:id` sits beneath it. 
 moved path and nothing redirects: one screen, one address, and a film page whose URL says
 which screen it belongs to. The top bar shows it as Discover, with the search icon beside it,
 so the label, the route and the screen's own name all agree.
-## 2026-09-19 — The local stack runs Storage, and it found two broken paths (RV-18)
-
-`docker/compose.yaml` had no Storage service. Postgres, Auth, PostgREST and Realtime
-ran; nothing served `/storage/v1`. Every media store therefore fell back to memory
-locally and reported success, and the guarded bucket migrations skipped, so
-`SupabasePortionMediaStore` and `SupabaseDirectorRecordingStore` had never once
-addressed a real bucket. A storage path that is never exercised is not a storage path.
-
-The stack now runs `supabase/storage-api:v1.19.3`, ordered **before** `migrate` so
-`to_regclass('storage.buckets')` finds a real schema and the guards actually fire.
-Three things had to be true that were not obvious:
-
-- Storage connects as `supabase_admin` and creates the `storage` schema itself, so
-  an existing `reverie-db` volume needs no recreation.
-- It grants nothing to the API roles. `service_role` had no `usage` on the schema, and
-  an unqualified lookup then reports `relation "buckets" does not exist` rather than a
-  permission error. `apply-migrations.sh` grants it, and only it: the buckets are
-  private and no browser identity reads them.
-- Its healthcheck must use `127.0.0.1`. The server binds IPv4 only and the image's
-  `wget` resolves `localhost` to `::1`.
-
-**Two real defects surfaced the moment a real bucket existed**, both in
-`SupabaseDirectorRecordingStore`, both previously invisible:
-
-1. **Every director upload would have been rejected.** It wrote `video/webm` into
-   `jam-portions`, a bucket whose `allowed_mime_types` is `{video/mp4}` and whose size
-   limit is 64MB against the store's own 512MB cap. Verified by upload: `video/webm`
-   refused, `video/mp4` accepted. `persistRecording()` swallows storage errors so the
-   session can still close, so this would have lost every archive in silence. The
-   archive now has its own bucket (`jam-director`, WebM + fMP4 + HLS playlist, 512MB)
-   created by `20260919234000_jam_director_archive.sql`.
-2. **A missing recording was reported as a store outage.** Storage answers a missing
-   object with **HTTP 400** and a body whose `statusCode` is `"404"`, so the
-   `status === 404` check never matched and the route returned 503 instead of 404.
-   `SupabasePortionMediaStore` already handled 400; the director store did not.
-
-Observed on the local stack on 2026-09-19 against `storage-api` v1.19.3, not against
-hosted Supabase. The object key now follows the negotiated container (`.webm` or
-`.mp4`) and a read tries each, because the codec fal answers is still unprobed.
-
-## 2026-09-19 — A director session reproduces from durable rows, not from a closing process (RV-18)
-
-The archive is written as the session runs and read back by reconstruction, not
-written once at the end.
-
-**One segmenter, two sinks** (agreed with RV-19). `DirectorStream` owns the track and
-feeds a single muxer; the live HLS sink and this archive sink consume the same
-numbered segments. Two independent muxers were rejected because they produce two
-timelines for one session, and the audit trail records which beat and script offset
-each direction landed on — if the audit describes one timeline and the archive is
-another, the join drifts silently and a reproduction can no longer be explained.
-
-**Segments, not one file at stop.** Each segment is uploaded as produced and its row
-written only after that upload succeeds. A crash therefore costs the segment in
-flight, not the session; and a reader can trust that every indexed segment exists,
-because nothing is indexed before its bytes land. The previous design held a temp
-file and persisted at `stop()`, which lost everything if the process died — the
-failure that has actually been observed.
-
-**Nothing reproduction needs is written at the end.** The segmenter delivers
-`finish()` fire-and-forget and does not await it, so `/end` can return, and the
-process exit, before any closing write completes. The playlist is therefore BUILT
-FROM `jam_director_segments` when requested rather than uploaded at close, and
-`complete` stays false for a session that died. A partial archive is reported as
-partial.
-
-**The record lives in Postgres, the bytes in Storage.** `jam_director_sessions`
-carries the configuration key and script revision — a `<jamId>/<sessionId>` pair
-does not say what was being watched, since streams are keyed by jam AND
-configuration. This is the container server's first Postgres write path; it holds a
-service-role key, which the Vercel functions deliberately never do. The tables carry
-RLS with no policies and grants only to `service_role`, so no browser identity
-reaches them.
-
-Consequence worth stating: every reproduction route is a plain read of durable state,
-with no in-process stream map and no container-local file, so reproducing a session
-could run as a serverless function even though the live director cannot.
-
-Verified 2026-09-19 against the local stack's real Postgres and real Storage: session,
-segments and audit round-tripped, the API reported `durable: true`, and archived bytes
-were served by our own route. **Not** verified against hosted Supabase, and no real
-director media has been through this path. The segmenter that feeds the archive is
-off by default (`REVERIE_DIRECTOR_HLS`) pending one real session's measurement; the
-off-thread muxing it depends on is built, not pending.
-
-
-## 2026-09-19 — A jam is live, then playing, then ended, and ended is terminal (RV-18)
-
-A room now has one readable state instead of an implied one. `live` is a room that
-exists and can be joined; `playing` is a room generating; `ended` is a room whose
-recording is what remains of it. Previously "is this room running" was inferred from
-whether a session id happened to be open in a browser tab, which no two clients
-agreed on and no reopened tab could recover.
-
-Server-owned, like every other room transition (`JamStore.advanceLifecycle`). The
-browser projects it and never decides it: `start` and `stop` both answer with the
-resulting lifecycle, so a client does not have to re-read the jam to find out what it
-just did, and a client that missed a stop reads `ended` on its next look.
-
-**`ended` is terminal, and the director refuses to open a session on an ended room.**
-A finished room's recording is its artifact; a second session would leave two
-different films behind one room URL. The refusal is checked before the spend ledger
-is touched, so it costs nothing. This is a real behaviour change: a room could
-previously open a fresh stream after stopping, and that is now a new jam instead.
-Starting is also hidden in the UI for an ended room rather than offered and refused.
-
-**The recording plays without a player library.** fMP4 is an init segment followed by
-its media segments, so concatenating them in order IS a valid MP4 file:
-`GET /api/jams/:id/director/archive/:sessionId/video` streams them and a finished
-session plays in a plain `<video>` element. Streamed as assembled rather than
-buffered, because a session archive can be hundreds of megabytes. An archive missing
-its init segment is refused rather than served unplayable, and a missing segment
-truncates rather than corrupting the tail. Segments stay individually addressable for
-anything that wants to seek, and an HLS VOD playlist remains available later without
-changing what is stored.
-
-**Known limit, unverified: seeking, and only seeking.** A concatenated fMP4 plays
-start to finish in the ordinary case; what it lacks is a `sidx` or fragment index, so
-players differ on whether they will let a viewer scrub one. The `<video controls>` element offers a
-scrub bar regardless, so if scrubbing matters it needs testing in Safari as well as
-Chrome, and the fix is the HLS VOD playlist over the same segment rows rather than a
-change to what is stored.
-
-Verified by tests, including the reopened-tab case, and end to end against the local
-stack's real Postgres: a session opened, a direction reached `jam_director_audit` as
-it was sent, and the room read `live` then `playing` then `ended`. **Not** verified
-with real director media: the archive has only been exercised with synthetic
-segments, because the segmenter that feeds it is off by default
-(`REVERIE_DIRECTOR_HLS`) pending one real session confirming `/end` answers while the
-muxer worker is mid-segment. The off-thread work itself is done, not pending —
-`SegmentMuxer` runs in a worker thread. Note this is a DIFFERENT flag from
-`REVERIE_DIRECTOR_RECORD`, which gates the in-thread WebM recorder and is off because
-that one pins the event loop.
-
-**A live route answers an ended room with `409 jam_ended` and a pointer, not `404`.**
-The room exists and so does its recording; only the live stream is gone, and a
-missing-thing answer sends a viewer looking for something that is right there. The
-pointer is the archive COLLECTION rather than a resolved session, since which session
-was the last one is a read the archive side already does. Applied to the live relay's
-`watch` route here; any other route that serves a live stream answers the same way.
-
-**The audit trail is now durable.** `DirectorAuditLog` takes an optional listener and
-the director route writes each entry to `jam_director_audit` as it is recorded —
-fire-and-forget, so a durable write that fails or hangs cannot stall the stream it
-describes, and the bounded in-memory trail the live session reads is unaffected. The
-session row is opened WITH the session rather than at its end, because the audit rows
-reference it and a session that dies mid-stream must still have somewhere for what it
-managed to record.

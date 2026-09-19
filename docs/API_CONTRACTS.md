@@ -166,7 +166,7 @@ Both modes answer `outline: { complete: boolean }` beside the jam: `false` means
 
 ## Outline edits
 
-An outline edit is the one command every way of steering the story produces
+**Status: routes written on `codex/rv-22-outline-edits`, untested.** An outline edit is the one command every way of steering the story produces
 (`docs/specs/story-outline.md`). `POST /api/jams/:id/outline/edits` takes
 `{ requestId, intent: "set", beatIndex, summary }` or `{ requestId, intent: "reroll", beatIndex, reason? }`,
 plus optional `expectedRevision` (the script revision the client read; behind → `409 stale_state_version`

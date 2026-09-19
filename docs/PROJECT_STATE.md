@@ -1334,9 +1334,12 @@ open a PR, merge the PR. The previous split between a "primary agent" pushing di
   generating / editable state, "Rewrite" and "Not this" on editable beats, the ledger, and honest
   "no beat yet" and "no script on this server" states. `GET /api/jams/:id/outline` also returns
   the current script so the screenplay under the panel follows the revision the beats describe.
-- **Verified offline** with injected completions: see the test counts in the PR. **Not verified
-  live:** no cascade or fill-in has been run against Nebius from this repository; the route
-  authorization gap is unchanged (no script route on the Express host checks the caller).
+- **Status: documented, code written, nothing verified.** The user paused implementation with
+  the documentation complete. The modules above exist on the branch and `pnpm typecheck` is
+  clean, but no tests were written for them and none of it has been run, offline or against
+  Nebius. Treat every "as built" sentence in `docs/specs/story-outline.md` as the target the
+  code was written to, not as behaviour. The route authorization gap is unchanged (no script
+  route on the Express host checks the caller).
 
 ## Next milestones
 

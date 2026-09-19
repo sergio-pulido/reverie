@@ -1,10 +1,12 @@
 # The story outline
 
-**Status: implemented in the container host, exercised with injected completions.** The outline
-projection, the cascade and its provider wiring, the per-jam edit queue, the outline routes and
-the client panel are built (RV-22) and tested offline. Beats are created with the script. No
-cascade has been run against Nebius from this repository yet; `docs/PROJECT_STATE.md` carries
-the dated receipt when one is.
+**Status: specified; code written on `codex/rv-22-outline-edits`, untested.** This document is
+the specification the RV-22 work builds to. The cascade provider wiring, the fill-in, the per-jam
+edit queue, the outline routes, the store commit and the client panel exist on that branch and
+typecheck, but **no tests have been written for them and nothing has been run**, offline or
+against a provider. Implementation was paused by the user on 2026-09-20 with the documentation
+complete; the code is kept as a starting point, not as a claim. `docs/PROJECT_STATE.md` carries
+the dated receipt when any of it is verified.
 
 ## Why an outline exists
 
@@ -426,8 +428,8 @@ write path per field rather than re-deriving a beat on every prose edit.
 
 ## Implementation status
 
-Implemented (RV-22, tested offline with injected completions): `summary` requested by the
-scriptwriter and accepted by the draft schema; the one-call fill-in for missing beats on generated
+Written on `codex/rv-22-outline-edits` (RV-22), typechecked, **not tested and not run**:
+`summary` requested by the scriptwriter and accepted by the draft schema; the one-call fill-in for missing beats on generated
 and imported scripts (`src/core/outlineSummary.ts`, `apps/server/outlineWriter.ts`); the edit
 intent and command schemas (`src/core/outlineEdit.ts`); the cascade prompt for both intents and
 its provider wiring; `JamStore.commitScript` with the boundary and revision guards; the per-jam

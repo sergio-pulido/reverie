@@ -1308,6 +1308,46 @@ open a PR, merge the PR. The previous split between a "primary agent" pushing di
 "collaborating developer" going through PRs is retired — see `docs/DECISIONS.md` for why. `AGENTS.md`,
 `docs/CONTRIBUTING.md` and `README.md` are updated; no code changed.
 
+## 2026-09-20 — The shell opens: five destinations, and a real account menu
+
+- **Two new screens.** `/catalog` (`src/catalog/CatalogScreen.tsx`) and `/community`
+  (`src/community/CommunityScreen.tsx`) are screens of their own in `src/lib/routes.ts`, each with
+  its path constant (`CATALOG_PATH`, `COMMUNITY_PATH`) and each a top-bar destination. Both go back
+  to the home, as Discover does. Nothing redirects to or away from either. Both are deliberately
+  placeholders — the shared bar, a heading and one sentence saying the page is being built — and
+  both read no data, so the slices that take those files over start from a blank body.
+- **The bar's destinations** are now Home (`/home`), Discover (`/discover`), Catalog (`/catalog`),
+  Movie Jam (`/jams`) and Community (`/community`), in that order, on every screen, declared once
+  as `BAR_DESTINATIONS`.
+- **An account menu at the trailing edge** (`src/shell/AccountMenu.tsx`). The avatar is a circle
+  carrying the initials of the display name the viewer gave a room (`jam_members.display_name`),
+  over a colour *derived* from their Supabase user id (`src/shell/avatar.ts`), so it is the same on
+  every visit without anything being stored. With no name it shows a neutral mark and no initials;
+  no name, email or photo is invented. The menu shows the name (or "Signed in"), Account — present,
+  focusable and deliberately doing nothing yet — and Log out. See `docs/DECISIONS.md` for why this
+  surfaces the real anonymous session rather than a fabricated identity.
+- **Log out is a real sign-out.** `signOutViewer` (`src/lib/session.ts`) ends the Supabase session
+  and forgets the identity confirmed during this page load, so the next `ensureUserId` mints a new
+  anonymous user; the app then leaves for `/`.
+- **Remote traversal.** The avatar is the last stop on the bar's Left/Right axis, OK opens the
+  menu and focus moves into it, Up and Down walk its items and stop at its ends, Back (`Escape`,
+  `GoBack`, `BrowserBack`, `XF86Back`, Backspace, the TV key codes) closes it and returns focus to
+  the avatar without leaving the screen. Focus is trapped while it is open: Tab cycles inside it
+  and the bar's own Left/Right does not run underneath.
+- **The bar on a phone.** The brand and the account are pinned and the destinations strip shrinks
+  and scrolls inside the bar, so five destinations plus the avatar fit 360px with no horizontal
+  page scroll.
+- **Verified.** `npx tsc --noEmit` clean; `pnpm test` 766/766 (was 728), including routes and Back
+  parents for both new screens, the five destinations in order on every screen, the avatar colour
+  being stable for a given user id, the menu's traversal and focus return, Account doing nothing,
+  Log out signing out and landing on `/`, and the CSS contract behind the 360px fit.
+- **Measured in a browser** against the hosted Supabase project, at 360×780 and 1920×1080:
+  `document.documentElement.scrollWidth - window.innerWidth` is `0` at both widths on `/catalog`,
+  `/community` and `/home`; at 360px the destinations strip is 265px holding 424px of content and
+  scrolls inside the bar, and at 1920px it does not scroll at all. Log out was run for real: the
+  stored session was removed, the app landed on `/`, and the next visit signed in as a different
+  anonymous user (`c2f120dd…` → `3965a8c4…`) whose avatar drew a different derived colour.
+
 ## 2026-09-20 — Director archive review hardening (RV-18)
 
 - The live writer and archive reader now share one resolved index and recording store. In
@@ -1322,8 +1362,11 @@ open a PR, merge the PR. The previous split between a "primary agent" pushing di
 - Archive writes truncate at the last durable prefix after an init or piece failure, Storage's
   wrapped 404 is distinguished from unrelated HTTP 400 failures, empty archives do not render a
   broken player, and the audit identity sequence is explicitly granted to `service_role`.
+- After integrating the latest shell work, logging out now leaves the authenticated shell through
+  an injectable navigation boundary. Production replaces the document with the static `/` landing;
+  raw component tests can verify the route without asking Node to resolve Vite-only landing assets.
 - Verified locally: `pnpm typecheck`; 87/87 affected tests covering the app wiring, archive,
-  worker boundary, routes, lifecycle, and DOM surface.
+  worker boundary, routes, lifecycle, and DOM surface; full `pnpm test` 814/814; `pnpm build`.
 
 ## Next milestones
 

@@ -1,5 +1,7 @@
 import { FormEvent, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { CatalogScreen } from "./catalog/CatalogScreen";
 import { providerIdOf, type CatalogueTitle } from "./catalogue/contract";
+import { CommunityScreen } from "./community/CommunityScreen";
 import type { Jam as GeneratedJam, JamSource } from "./core/jam";
 import { FilmPage } from "./discover/FilmPage";
 import { TMDB_ATTRIBUTION_FALLBACK } from "./discover/TmdbAttribution";
@@ -14,6 +16,7 @@ import { createJam as createJamRoom, type JamPersistence, type JamRoom, type Jam
 import {
   DESTINATION_PATH,
   JAMS_PATH,
+  LANDING_PATH,
   DISCOVER_PATH,
   JOIN_PATH,
   NEW_JAM_PATH,
@@ -25,6 +28,7 @@ import {
   type Screen,
 } from "./lib/routes";
 import { hasSupabaseConfiguration } from "./lib/supabase";
+import { useViewerSource } from "./shell/ViewerContext";
 import { ScriptScreen } from "./ScriptScreen";
 import { CreateRoom, type SourceKind } from "./screens/CreateRoom";
 import { JamRegistry } from "./screens/JamRegistry";
@@ -43,7 +47,7 @@ import { useRemoteConventions } from "./shell/useRemoteConventions";
 const LandingRoute = lazy(() => import("./landing/LandingRoute"));
 
 /** Screens with no rows of their own to land in: a remote arrives on their top bar. */
-const LANDS_ON_TOP_BAR: ReadonlySet<Screen> = new Set(["jams", "create", "join", "script", "studio"]);
+const LANDS_ON_TOP_BAR: ReadonlySet<Screen> = new Set(["catalog", "community", "jams", "create", "join", "script", "studio"]);
 
 function inviteCodeFromLocation() {
   return new URLSearchParams(window.location.search).get("code") ?? "";
@@ -62,7 +66,16 @@ function readLocation(): Location {
   return { screen: screenFromPath(pathname), slug: jamSlugFromPath(pathname), film: filmFromPath(pathname), from: entryFrom(), inviteCode: inviteCodeFromLocation() };
 }
 
-export function App() {
+export type AppProps = {
+  /** Leaves the authenticated shell for the public document. Injectable for component tests. */
+  leaveForLanding?: () => void;
+};
+
+function replaceWithLanding() {
+  window.location.replace(LANDING_PATH);
+}
+
+export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
   const [location, setLocation] = useState<Location>(readLocation);
   const { screen, slug, film, from, inviteCode } = location;
   const [searchRequest, setSearchRequest] = useState<SearchRequest | null>(null);
@@ -159,6 +172,8 @@ export function App() {
     window.scrollTo({ top: 0 });
   }
 
+  const viewerSource = useViewerSource();
+
   const shell = useMemo<Shell>(() => {
     function search() {
       searchRequests += 1;
@@ -185,8 +200,16 @@ export function App() {
         navigate(destination === "jam" ? "jams" : destination, DESTINATION_PATH[destination]);
       },
       search,
+      /**
+       * A real sign-out, then the public landing. `/` is deliberately outside the app's own
+       * screens: nothing the signed-out viewer was looking at is carried into it.
+       */
+      async logOut() {
+        await viewerSource.signOut();
+        leaveForLanding();
+      },
     };
-  }, [screen, filmOpen, filmOrigin, from]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [screen, filmOpen, filmOrigin, from, viewerSource, leaveForLanding]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function applyJam(jam: JamRoom, mode: JamPersistence) {
     setRoomTitle(jam.title);
@@ -270,6 +293,8 @@ export function App() {
         onStartJam={startJamFrom}
       />;
     }
+    if (screen === "catalog") return <CatalogScreen />;
+    if (screen === "community") return <CommunityScreen />;
     if (screen === "jams") return <JamRegistry onNew={startJam} onOpen={(jam, mode) => { applyJam(jam, mode); navigate("studio", `/jams/${jam.slug}`); }} />;
     if (screen === "create") {
       return <CreateRoom title={roomTitle} premise={premise} visibility={visibility} sourceKind={sourceKind} importedScript={importedScript} totalSeconds={totalSeconds} portionMinSeconds={portionMinSeconds} portionMaxSeconds={portionMaxSeconds} onTitle={setRoomTitle} onPremise={setPremise} onVisibility={setVisibility} onSourceKind={setSourceKind} onImportedScript={setImportedScript} onTotalSeconds={setTotalSeconds} onPortionMinSeconds={setPortionMinSeconds} onPortionMaxSeconds={setPortionMaxSeconds} onSubmit={createRoom} isCreating={isCreating} notice={notice} />;
@@ -294,5 +319,7 @@ export function App() {
 function isAt(destination: Destination, screen: Screen) {
   if (destination === "home") return screen === "home";
   if (destination === "discover") return screen === "discover";
+  if (destination === "catalog") return screen === "catalog";
+  if (destination === "community") return screen === "community";
   return screen === "jams";
 }

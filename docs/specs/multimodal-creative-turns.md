@@ -175,15 +175,24 @@ room. The exclusions in `docs/specs/jam-live-media-vonage.md` (recording, archiv
 RTMP, export, fal.ai transformation of a participant's feed) are about that inbound direction,
 they remain correct, and this document does not bring any of them into scope.
 
-*Generated output travelling outward* — the director stream going to many viewers — is a
+*Generated output travelling outward* — the director stream reaching many viewers — is a
 different feature with a different transport, and work is in flight on branches that have not
-merged: live HLS delivery of the generated stream, and durable per-segment archiving of it. Read
-nothing here as a claim that Reverie cannot broadcast a generated stream to multiple viewers.
+merged. Read nothing here as a claim that Reverie cannot deliver a generated stream to multiple
+viewers. As those branches stand:
 
-Both are designed and partly built on top of a capture path that is **switched off**: muxing the
-media track on the server thread pinned the event loop and stopped the server answering — the
-route that ends the paid provider session included — so recording is opt-in behind an environment
-flag and off by default until it runs off-thread. Nothing in that direction has been probed
-either. So it is "designed, partly built, disabled" — not working. The sessions building it own
-its documentation, including refreshing the implementation status of
-`docs/specs/configuration-keyed-streams.md`, which their work makes stale.
+- **Live viewing is implemented and has been exercised against the provider**, by relaying the
+  stream's packets to viewers. Forwarding to viewers and capturing for storage are separate
+  decisions with different costs, so live viewing does not depend on capture being on.
+- **Durable per-segment archiving and HLS delivery are implemented, off by default behind their
+  own flags, and have never been run against the provider.**
+
+**Disabled and unprobed are two different facts and both belong in any summary of this.** They are
+not degrees of the same thing: a reader told only that something is disabled concludes that
+flipping the flag makes it work, and nobody has yet seen a frame come out of these paths. Per
+`AGENTS.md`, a provider path is not claimed to work without a dated receipt, so "off by default
+and never run against the provider" is the honest short form — not "disabled", and not "unprobed".
+
+Precise status is the owning sessions' to publish, including refreshing the implementation status
+of `docs/specs/configuration-keyed-streams.md`, which their work makes stale. This document states
+only the direction and the boundary, because anything finer grained would be describing branches
+it does not own and would go stale as they move.

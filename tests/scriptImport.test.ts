@@ -3,9 +3,17 @@ import { test } from "node:test";
 import { projectImportedScript, ScriptImportError } from "../src/core/scriptImport";
 import { DEFAULT_SCRIPT_FORMAT, totalDurationSeconds } from "../src/core/script";
 
+// These fixtures are sized for a 4-minute import, which is no longer the
+// default. The projection logic is what is under test, not the default format.
+const FOUR_MINUTES = {
+  totalSeconds: 240,
+  portionMinSeconds: 12,
+  portionMaxSeconds: 15,
+};
+
 test("projects imported text into bounded timed portions", () => {
   const markdown = Array.from({ length: 80 }, (_, index) => `Beat ${index + 1} moves the story forward.`).join(" ");
-  const script = projectImportedScript("Imported story", markdown, DEFAULT_SCRIPT_FORMAT);
+  const script = projectImportedScript("Imported story", markdown, FOUR_MINUTES);
   assert.equal(totalDurationSeconds(script), 240);
   assert.equal(script.scenes.length, 1);
   assert.ok(script.scenes[0].portions.length > 1);
@@ -32,7 +40,7 @@ test("splits imported text on word boundaries", () => {
     { length: 60 },
     (_, index) => `Sentence number ${index + 1} carries the story forward.`,
   ).join(" ");
-  const script = projectImportedScript("Imported story", markdown, DEFAULT_SCRIPT_FORMAT);
+  const script = projectImportedScript("Imported story", markdown, FOUR_MINUTES);
   const portions = script.scenes[0].portions;
   assert.ok(portions.length > 1);
   assert.deepEqual(

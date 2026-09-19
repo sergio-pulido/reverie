@@ -1,12 +1,17 @@
 import { z } from "zod";
+import {
+  clampDuration,
+  findFalModelSpec,
+  FAL_MODEL_ALLOWLIST,
+  type FalModelSpec,
+} from "./falModels";
 
-// Server-owned allowlist. FAL_MODEL may pick one of these; nothing else.
+// The allowlist itself lives in ./falModels, because a model is more than a
+// slug here: it carries its own duration band and request body. FAL_MODEL may
+// select one of those entries; nothing else.
 // NOT yet probed: no entry may be claimed working until a dated probe
 // receipt is recorded in docs/DECISIONS.md (AGENTS.md provider rule).
-export const FAL_MODEL_ALLOWLIST = [
-  "fal-ai/ltx-video",
-  "fal-ai/wan/v2.2-5b/text-to-video",
-] as const;
+export { FAL_MODEL_ALLOWLIST } from "./falModels";
 
 const FAL_QUEUE_BASE_URL = "https://queue.fal.run";
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -26,18 +31,29 @@ export class FalError extends Error {
 
 export interface FalConfig {
   apiKey: string;
-  model: string;
+  spec: FalModelSpec;
 }
 
+/**
+ * Reads the configured model, or falls back to the allowlist default. An
+ * unrecognised FAL_MODEL is refused rather than ignored: silently serving a
+ * different model than the operator asked for is the kind of provider claim
+ * AGENTS.md forbids.
+ */
 export function resolveFalConfig(env: NodeJS.ProcessEnv): FalConfig | null {
   if (env.REVERIE_LIVE_ENABLED !== "true") return null;
   const apiKey = env.FAL_KEY?.trim();
   if (!apiKey) return null;
   const requested = env.FAL_MODEL?.trim();
-  if (requested && !FAL_MODEL_ALLOWLIST.includes(requested as never)) {
-    throw new FalError("FAL_MODEL is not on the server allowlist.", false);
+  if (!requested) return { apiKey, spec: findFalModelSpec(FAL_MODEL_ALLOWLIST[0])! };
+  const spec = findFalModelSpec(requested);
+  if (!spec) {
+    throw new FalError(
+      `FAL_MODEL is not on the server allowlist (${FAL_MODEL_ALLOWLIST.join(", ")}).`,
+      false,
+    );
   }
-  return { apiKey, model: requested || FAL_MODEL_ALLOWLIST[0] };
+  return { apiKey, spec };
 }
 
 const submitResponseSchema = z.object({ request_id: z.string().min(1) });
@@ -97,15 +113,16 @@ export async function submitVideoJob(
   config: FalConfig,
   job: VideoJobRequest,
 ): Promise<string> {
+  // The portion band and the model band are kept aligned in src/core/script.ts,
+  // so this clamp should be a no-op. It stays because an imported script or a
+  // future model can drift, and fal rejects an out-of-band duration outright.
+  const durationSeconds = clampDuration(config.spec, job.durationSeconds);
   const response = await falFetch(
     config,
-    `/${config.model}`,
+    `/${config.spec.slug}`,
     {
       method: "POST",
-      body: JSON.stringify({
-        prompt: job.prompt,
-        duration: job.durationSeconds,
-      }),
+      body: JSON.stringify(config.spec.buildInput(job, durationSeconds)),
     },
     REQUEST_TIMEOUT_MS,
   );
@@ -126,7 +143,7 @@ export async function getJobStatus(
 ): Promise<FalJobStatus> {
   const response = await falFetch(
     config,
-    `/${config.model}/requests/${requestId}/status`,
+    `/${config.spec.queueAppId}/requests/${requestId}/status`,
     { method: "GET" },
     REQUEST_TIMEOUT_MS,
   );
@@ -148,7 +165,7 @@ export async function getResultVideoUrl(
 ): Promise<string> {
   const response = await falFetch(
     config,
-    `/${config.model}/requests/${requestId}`,
+    `/${config.spec.queueAppId}/requests/${requestId}`,
     { method: "GET" },
     REQUEST_TIMEOUT_MS,
   );

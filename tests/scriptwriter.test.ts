@@ -51,8 +51,16 @@ function fittedDraft(): JamScriptDraft {
 
 const TEST_CONFIG = { apiKey: "test-key", model: "test-model" };
 
+/** The 4-minute format the fitted fixtures target; no longer the default. */
+const FOUR_MINUTES = scriptFormatSchema.parse({
+  totalSeconds: 240,
+  portionMinSeconds: 12,
+  portionMaxSeconds: 15,
+});
+
 test("expected portions follow the format's timing", () => {
-  assert.equal(expectedPortions(DEFAULT_SCRIPT_FORMAT), 16); // 240s / 15s avg
+  assert.equal(expectedPortions(DEFAULT_SCRIPT_FORMAT), 4); // 20s / 5s avg
+  assert.equal(expectedPortions(FOUR_MINUTES), 18); // 240s / 13.5s avg
   assert.equal(
     expectedPortions({ totalSeconds: 20, portionMinSeconds: 5, portionMaxSeconds: 5 }),
     4,
@@ -62,12 +70,12 @@ test("expected portions follow the format's timing", () => {
 test("completion token budget scales with the script size and stays capped", () => {
   const tiny = { totalSeconds: 20, portionMinSeconds: 5, portionMaxSeconds: 5 };
   const huge = scriptFormatSchema.parse({
-    totalSeconds: 900,
-    portionMinSeconds: 19,
-    portionMaxSeconds: 30,
+    totalSeconds: 720,
+    portionMinSeconds: 15,
+    portionMaxSeconds: 15,
   });
   assert.equal(completionTokenBudget(tiny), 800 + 4 * 260);
-  assert.equal(completionTokenBudget(DEFAULT_SCRIPT_FORMAT), 800 + 16 * 260);
+  assert.equal(completionTokenBudget(FOUR_MINUTES), 800 + 18 * 260);
   assert.equal(completionTokenBudget(huge), 8000);
 });
 
@@ -84,15 +92,15 @@ test("system prompt speaks the format's numbers", () => {
 });
 
 test("correction prompt names a shortfall and the portion plan", () => {
-  const prompt = buildCorrectionPrompt(draftOf(15, 8)); // 120s, far under 240s
+  const prompt = buildCorrectionPrompt(draftOf(15, 8), FOUR_MINUTES); // 120s under 240s
   assert.match(prompt, /120 seconds across 8 portions/);
   assert.match(prompt, /120 seconds too short/);
-  assert.match(prompt, /11 to 30 portions/);
+  assert.match(prompt, /16 to 24 portions/);
   assert.match(prompt, /exactly 240/);
 });
 
 test("correction prompt names an overshoot", () => {
-  const prompt = buildCorrectionPrompt(draftOf(40, 8)); // 320s, far over 240s
+  const prompt = buildCorrectionPrompt(draftOf(40, 8), FOUR_MINUTES); // 320s over 240s
   assert.match(prompt, /80 seconds too long/);
 });
 
@@ -106,7 +114,7 @@ test("retries a too-short draft with a correction and returns the fitted script"
   const script = await writeJamScript(
     TEST_CONFIG,
     { kind: "from-scratch", prompt: "A test idea." },
-    DEFAULT_SCRIPT_FORMAT,
+    FOUR_MINUTES,
     complete,
   );
 
@@ -126,7 +134,7 @@ test("asks for the right shape when the provider returns unusable JSON", async (
   const script = await writeJamScript(
     TEST_CONFIG,
     { kind: "from-scratch", prompt: "A test idea." },
-    DEFAULT_SCRIPT_FORMAT,
+    FOUR_MINUTES,
     complete,
   );
 

@@ -1,18 +1,20 @@
 import type { KeyboardEvent, MouseEvent } from "react";
-import { DESTINATION_PATH, HOME_PATH, type Destination } from "../lib/routes";
+import { BAR_DESTINATIONS, DESTINATION_PATH, HOME_PATH, type Destination } from "../lib/routes";
 import { useShell } from "./ShellContext";
 import { focusFirstContent, scrollPageBelow, topBarItems } from "./topBarFocus";
 
-const DESTINATIONS: readonly { id: Destination; label: string }[] = [
-  { id: "home", label: "Home" },
-  { id: "discover", label: "Discover" },
-  { id: "jam", label: "Movie Jam" },
-];
+const LABELS: Readonly<Record<Destination, string>> = {
+  home: "Home",
+  discover: "Discover",
+  catalog: "Catalog",
+  jam: "Movie Jam",
+  community: "Community",
+};
 
 /**
- * The one top bar, rendered at the top of every screen: the brand and the three destinations,
- * Search marked by its lens as well as its name. It holds no text field: choosing Search opens
- * the search screen with its own field focused.
+ * The one top bar, rendered at the top of every screen: the brand, the five destinations (Search
+ * marked by its lens as well as its name) and, at the trailing edge, the viewer's account. It
+ * holds no text field: choosing Search opens the search screen with its own field focused.
  *
  * It scrolls away with the page. A remote reaches it again with Up from the first row, or with
  * Back from anywhere on the page. Left and Right move along it, Down returns to the page: to
@@ -36,7 +38,7 @@ export function TopBar({ current, onEnterPage }: { current: Destination; onEnter
         <span className="top-bar-brand-name" aria-hidden="true">REVERIE</span>
       </a>
       <ul className="top-bar-destinations">
-        {DESTINATIONS.map(({ id, label }) => (
+        {BAR_DESTINATIONS.map((id) => (
           <li key={id}>
             <a
               className="top-bar-item"
@@ -46,7 +48,7 @@ export function TopBar({ current, onEnterPage }: { current: Destination; onEnter
               onClick={(event) => follow(event, () => shell.go(id))}
             >
               {id === "discover" && <SearchIcon />}
-              {label}
+              {LABELS[id]}
             </a>
           </li>
         ))}

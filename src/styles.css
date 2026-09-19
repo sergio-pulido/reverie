@@ -82,6 +82,12 @@ footer { width: 100%; max-width: 1410px; margin: 0 auto; padding: 24px 48px; bor
 /* These shells are flex columns, and `margin: 0 auto` on a flex item opts it out of cross-axis
    stretching, so the bar and the footer shrank to fit-content and sat centred. */
 .topbar, .site-shell > footer { width: 100%; }
+/* A screen this slice opened and a later one fills: the shared bar, a heading, one sentence. */
+.placeholder-shell { display: flex; min-height: 100vh; flex-direction: column; }
+.placeholder-layout { width: min(1180px, 100%); margin: auto; padding: 70px 48px 88px; }
+.placeholder-layout h1 { font-size: clamp(46px, 5.5vw, 78px); margin: 0 0 18px; }
+@media (max-width: 950px) { .placeholder-layout { padding: 48px 24px 66px; } }
+
 .registry-shell { display: flex; min-height: 100vh; flex-direction: column; }
 .registry-layout { width: min(1180px, 100%); margin: auto; padding: 70px 48px 88px; display: grid; grid-template-columns: .8fr 1.2fr; gap: 72px; align-items: start; }
 .registry-head { position: sticky; top: 36px; }

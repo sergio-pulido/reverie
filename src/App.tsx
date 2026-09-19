@@ -1,5 +1,7 @@
 import { FormEvent, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { CatalogScreen } from "./catalog/CatalogScreen";
 import { providerIdOf, type CatalogueTitle } from "./catalogue/contract";
+import { CommunityScreen } from "./community/CommunityScreen";
 import type { Jam as GeneratedJam, JamSource } from "./core/jam";
 import { FilmPage } from "./discover/FilmPage";
 import { TMDB_ATTRIBUTION_FALLBACK } from "./discover/TmdbAttribution";
@@ -43,7 +45,7 @@ import { useRemoteConventions } from "./shell/useRemoteConventions";
 const LandingRoute = lazy(() => import("./landing/LandingRoute"));
 
 /** Screens with no rows of their own to land in: a remote arrives on their top bar. */
-const LANDS_ON_TOP_BAR: ReadonlySet<Screen> = new Set(["jams", "create", "join", "script", "studio"]);
+const LANDS_ON_TOP_BAR: ReadonlySet<Screen> = new Set(["catalog", "community", "jams", "create", "join", "script", "studio"]);
 
 function inviteCodeFromLocation() {
   return new URLSearchParams(window.location.search).get("code") ?? "";
@@ -270,6 +272,8 @@ export function App() {
         onStartJam={startJamFrom}
       />;
     }
+    if (screen === "catalog") return <CatalogScreen />;
+    if (screen === "community") return <CommunityScreen />;
     if (screen === "jams") return <JamRegistry onNew={startJam} onOpen={(jam, mode) => { applyJam(jam, mode); navigate("studio", `/jams/${jam.slug}`); }} />;
     if (screen === "create") {
       return <CreateRoom title={roomTitle} premise={premise} visibility={visibility} sourceKind={sourceKind} importedScript={importedScript} totalSeconds={totalSeconds} portionMinSeconds={portionMinSeconds} portionMaxSeconds={portionMaxSeconds} onTitle={setRoomTitle} onPremise={setPremise} onVisibility={setVisibility} onSourceKind={setSourceKind} onImportedScript={setImportedScript} onTotalSeconds={setTotalSeconds} onPortionMinSeconds={setPortionMinSeconds} onPortionMaxSeconds={setPortionMaxSeconds} onSubmit={createRoom} isCreating={isCreating} notice={notice} />;
@@ -294,5 +298,7 @@ export function App() {
 function isAt(destination: Destination, screen: Screen) {
   if (destination === "home") return screen === "home";
   if (destination === "discover") return screen === "discover";
+  if (destination === "catalog") return screen === "catalog";
+  if (destination === "community") return screen === "community";
   return screen === "jams";
 }

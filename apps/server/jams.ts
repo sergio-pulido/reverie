@@ -7,6 +7,7 @@ import {
   type Jam,
 } from "../../src/core/jam";
 import { renderScriptMarkdown } from "../../src/core/scriptMarkdown";
+import { projectImportedScript, ScriptImportError } from "../../src/core/scriptImport";
 import {
   appendRevision,
   createInitialHistory,
@@ -30,7 +31,7 @@ const CREATIONS_PER_MINUTE_PER_IP = 5;
 // deterministically from the structured script); live edits and undos append
 // to that history, never rewrite it.
 export interface JamStore {
-  createJam(jam: Jam): Promise<void>;
+  createJam(jam: Jam, options?: { initialMarkdown?: string }): Promise<void>;
   getJam(id: string): Promise<Jam | null>;
   appendScriptRevision(
     jamId: string,
@@ -70,7 +71,7 @@ export class InMemoryJamStore implements JamStore {
 
   constructor(private readonly clock: () => Date = () => new Date()) {}
 
-  async createJam(jam: Jam): Promise<void> {
+  async createJam(jam: Jam, options?: { initialMarkdown?: string }): Promise<void> {
     if (this.jams.has(jam.id)) {
       throw new JamStoreError("This jam already exists.", "jam_exists");
     }
@@ -79,7 +80,7 @@ export class InMemoryJamStore implements JamStore {
       if (oldest) this.jams.delete(oldest);
     }
     const history = createInitialHistory(jam.id, {
-      markdown: renderScriptMarkdown(jam.script, jam.source),
+      markdown: options?.initialMarkdown ?? renderScriptMarkdown(jam.script, jam.source),
       createdAt: this.clock().toISOString(),
     });
     this.jams.set(jam.id, { jam, history });
@@ -164,7 +165,32 @@ export function createJamsRouter(store: JamStore = new InMemoryJamStore()): Rout
       return;
     }
 
-    let config;
+    // Importing an existing script is a pure projection: it never calls a live
+    // provider and never counts against the generation concurrency gate.
+    if (command.data.mode === "import") {
+      const data = command.data;
+      try {
+        const script = projectImportedScript(
+          data.source.scriptTitle,
+          data.scriptMarkdown,
+          data.format,
+        );
+        const jam: Jam = {
+          id: data.jamId ?? randomUUID(),
+          createdAt: new Date().toISOString(),
+          source: data.source,
+          format: data.format,
+          script,
+        };
+        await store.createJam(jam, { initialMarkdown: data.scriptMarkdown });
+        response.status(201).json({ jam, scriptMarkdown: data.scriptMarkdown });
+      } catch (error) {
+        handleCreateError(response, error);
+      }
+      return;
+    }
+
+    let config: ReturnType<typeof resolveNebiusConfig> = null;
     try {
       config = resolveNebiusConfig(process.env);
     } catch (error) {
@@ -184,12 +210,10 @@ export function createJamsRouter(store: JamStore = new InMemoryJamStore()): Rout
       );
       return;
     }
-
     if (activeGenerations >= MAX_CONCURRENT_GENERATIONS) {
       sendError(response, 503, "busy", "The studio is busy; try again shortly.", true);
       return;
     }
-
     activeGenerations += 1;
     try {
       const script = await writeJamScript(config, command.data.source, command.data.format);
@@ -200,18 +224,11 @@ export function createJamsRouter(store: JamStore = new InMemoryJamStore()): Rout
         format: command.data.format,
         script,
       };
-      await store.createJam(jam);
-      response.status(201).json({ jam, scriptMarkdown: renderScriptMarkdown(script, jam.source) });
+      const scriptMarkdown = renderScriptMarkdown(script, jam.source);
+      await store.createJam(jam, { initialMarkdown: scriptMarkdown });
+      response.status(201).json({ jam, scriptMarkdown });
     } catch (error) {
-      if (error instanceof ScriptwriterError) {
-        sendError(response, 502, "generation_failed", error.message, error.retryable);
-        return;
-      }
-      if (error instanceof JamStoreError && error.code === "jam_exists") {
-        sendError(response, 409, "jam_exists", "A jam with this id already exists.", false);
-        return;
-      }
-      throw error;
+      handleCreateError(response, error);
     } finally {
       activeGenerations -= 1;
     }
@@ -305,6 +322,23 @@ export function createJamsRouter(store: JamStore = new InMemoryJamStore()): Rout
   );
 
   return router;
+}
+
+/** Maps creation errors to safe responses; rethrows anything unrecognized. */
+function handleCreateError(response: Response, error: unknown): void {
+  if (error instanceof ScriptImportError) {
+    sendError(response, 400, "invalid_script_import", error.message, false);
+    return;
+  }
+  if (error instanceof ScriptwriterError) {
+    sendError(response, 502, "generation_failed", error.message, error.retryable);
+    return;
+  }
+  if (error instanceof JamStoreError && error.code === "jam_exists") {
+    sendError(response, 409, "jam_exists", "A jam with this id already exists.", false);
+    return;
+  }
+  throw error;
 }
 
 /** Maps store/history errors to safe responses; returns false if unhandled. */

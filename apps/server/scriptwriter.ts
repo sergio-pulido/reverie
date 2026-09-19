@@ -1,4 +1,4 @@
-import type { JamSource } from "../../src/core/jam";
+import type { GeneratedJamSource } from "../../src/core/jam";
 import type { JamScript, ScriptFormat } from "../../src/core/script";
 import { DEFAULT_SCRIPT_FORMAT } from "../../src/core/script";
 import {
@@ -53,7 +53,7 @@ export class ScriptwriterError extends Error {
 
 export async function writeJamScript(
   config: NebiusConfig,
-  source: JamSource,
+  source: GeneratedJamSource,
   format: ScriptFormat = DEFAULT_SCRIPT_FORMAT,
 ): Promise<JamScript> {
   const user =

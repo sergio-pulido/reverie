@@ -66,6 +66,9 @@ function describeSource(source: JamSource): string {
   if (source.kind === "from-scratch") {
     return `from scratch, prompted by “${source.prompt}”`;
   }
+  if (source.kind === "imported-script") {
+    return `imported script “${source.scriptTitle}”`;
+  }
   return `an original story inspired by “${source.movieTitle}”`;
 }
 

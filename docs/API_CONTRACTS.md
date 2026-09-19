@@ -92,7 +92,7 @@ code — both go through the host-only functions above, which run as owner.
 | --- | --- |
 
 | `POST /api/discover/turns` | Apply a natural-language discovery refinement to real catalogue results |
-| `POST /api/jams` | Create a jam and generate its script from scratch or from an existing movie |
+| `POST /api/jams` | Register a jam and either generate its script from scratch/from a movie or import an existing script |
 | `GET /api/jams/:id` | Read a generated jam snapshot |
 | `GET /api/jams/:id/script.md` | Read the current script markdown (the latest revision, including live edits) |
 | `PUT /api/jams/:id/script` | Append a live markdown edit as a new script revision |
@@ -116,6 +116,13 @@ code — both go through the host-only functions above, which run as owner.
 | `GET /api/jams/:id/portions/:index/video` | Stream a generated portion clip (HTTP Range, `video/mp4`); server-hosted, never a provider URL |
 
 `POST /api/jams` accepts an optional `format` object (`totalSeconds`, `portionMinSeconds`, `portionMaxSeconds`); omitted fields default to a 4-minute script of 10–20 second portions. The jam stores its format and all generation and validation follow it.
+
+The command is a discriminated union on `mode`:
+
+- `mode: "generate"` (the default when `mode` is omitted) takes `source` as `from-scratch` or `from-movie`, calls the server-configured Nebius allowlist behind the generation concurrency gate, and stores revision 1 as the rendered markdown.
+- `mode: "import"` takes `source: { kind: "imported-script", scriptTitle }` and `scriptMarkdown` (40–9000 characters). It makes **no** provider call and takes no concurrency slot; the pasted markdown is stored verbatim as revision 1, while a derived timed projection (`src/core/scriptImport.ts`) provides the portions playback needs. Text too short or too long for the selected format returns `invalid_script_import` (`400`, `retryable: false`).
+
+Both modes accept an optional `jamId` — the room id created before the script — so the script and its revisions attach to the registered jam rather than a second server-minted id. Reusing an id that already has a script returns `jam_exists` (`409`). Success is `201 { jam, scriptMarkdown }`. The browser registry (`GET`-free: `src/lib/jams.ts#listJams`) reads `jams` under the existing RLS select policy, so `/jams` shows the rooms an identity hosts or has joined, newest first, hiding `completed`/`closed`.
 
 ## Portion playback, locking, and video generation
 

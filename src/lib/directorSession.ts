@@ -129,8 +129,8 @@ export function directorRecordingSrc(jamId: string, sessionId: string): string {
 /**
  * The archived session as one playable file.
  *
- * fMP4 concatenates to a valid MP4, so this plays in a plain `<video>` with no
- * playlist and no player library.
+ * WebM and fMP4 both concatenate their initial header with ordered media
+ * pieces, so this plays in a plain `<video>` with no player library.
  */
 export function directorArchiveVideoSrc(jamId: string, sessionId: string): string {
   return `/api/jams/${jamId}/director/archive/${sessionId}/video`;

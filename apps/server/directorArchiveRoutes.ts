@@ -142,9 +142,10 @@ export function createDirectorArchiveRouter(
   /**
    * The whole archived session as one playable file.
    *
-   * fMP4 is the init segment followed by its media segments, so concatenating
-   * them in order IS a valid MP4 — which means a finished session plays in a
-   * plain `<video>` element with no playlist, no MSE and no player library.
+   * Both supported layouts concatenate: WebM is its initial header followed by
+   * clusters, and fMP4 is its init segment followed by media segments. A
+   * finished session therefore plays in a plain `<video>` element with no
+   * playlist, no MSE and no player library.
    * Segments stay individually addressable for anything that wants to seek.
    *
    * Streamed as it is assembled rather than buffered: a session archive can be

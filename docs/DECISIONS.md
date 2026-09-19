@@ -24,14 +24,15 @@ and a `postMessage` (`directorPieces.ts`). A dead worker is reported as
 Stopping is bounded at two seconds: the tail of the film is worth a moment, the
 route that settles the spend is worth more.
 
-**Why WebM, and why it also does fMP4.** werift's offer is VP8-only today, so VP8 is
+**Why WebM, and where fMP4 belongs.** werift's offer is VP8-only today, so VP8 is
 what fal answers — an answer to a VP8-only offer, which is not fal's preference and
 says nothing about what it would answer to an offer preferring H.264. That offer is
 RV-19's change, and the reply is unprobed. WebM is the container that holds VP8, so
-it stores what comes back today; the fallback it covers stays real either way. The archive sink follows the codec the muxer
-reports — VP8 into WebM, H.264 into fMP4 — and stores the container alongside the
-session, so nothing downstream guesses. The same `DirectorSegmentSink` interface as
-RV-19's fMP4 segmenter, by agreement: one muxer per stream, many sinks, one timeline.
+it stores what comes back today. This WebM muxer explicitly refuses H.264: accepting
+H.264 here would emit WebM/Matroska bytes and risk labelling them as MP4. RV-19's
+fMP4 muxer is the H.264 path, selected before muxing. Both implement the same
+`DirectorSegmentSink` shape by agreement: one selected muxer per stream, many sinks,
+one timeline. The archive layer accepts either declared container but never guesses.
 
 **Verified with real bytes, not a description.** Fabricated VP8 RTP — the payload
 format is simple enough to build honestly — pushed through the real werift pipeline
@@ -64,14 +65,16 @@ resulting lifecycle, so a client does not have to re-read the jam to find out wh
 just did, and a client that missed a stop reads `ended` on its next look.
 
 **`ended` is terminal, and the director refuses to open a session on an ended room.**
-A finished room's recording is its artifact; a second session would leave two
-different films behind one room URL. The refusal is checked before the spend ledger
-is touched, so it costs nothing. This is a real behaviour change: a room could
-previously open a fresh stream after stopping, and that is now a new jam instead.
-Starting is also hidden in the UI for an ended room rather than offered and refused.
+While a room is playing it may still hold the established one-stream-per-configuration
+set; stopping one does not strand another paid stream behind an ended lifecycle. The
+room becomes ended only after its last configuration stream stops, and its archive
+collection is the artifact. Once ended, opening another stream is a new jam instead.
+The refusal is checked before the spend ledger is touched, so it costs nothing, and
+starting is hidden in the UI rather than offered and refused.
 
-**The recording plays without a player library.** fMP4 is an init segment followed by
-its media segments, so concatenating them in order IS a valid MP4 file:
+**The recording plays without a player library.** WebM is its initial header followed
+by clusters, and fMP4 is an init segment followed by media segments, so concatenating
+the matching layout in order is a valid file:
 `GET /api/jams/:id/director/archive/:sessionId/video` streams them and a finished
 session plays in a plain `<video>` element. Streamed as assembled rather than
 buffered, because a session archive can be hundreds of megabytes. An archive missing
@@ -91,12 +94,10 @@ Verified by tests, including the reopened-tab case, and end to end against the l
 stack's real Postgres: a session opened, a direction reached `jam_director_audit` as
 it was sent, and the room read `live` then `playing` then `ended`. **Not** verified
 with real director media: the archive has only been exercised with synthetic
-segments, because the segmenter that feeds it is off by default
-(`REVERIE_DIRECTOR_HLS`) pending one real session confirming `/end` answers while the
-muxer worker is mid-segment. The off-thread work itself is done, not pending —
-`SegmentMuxer` runs in a worker thread. Note this is a DIFFERENT flag from
-`REVERIE_DIRECTOR_RECORD`, which gates the in-thread WebM recorder and is off because
-that one pins the event loop.
+segments. `REVERIE_DIRECTOR_RECORD` gates the piece recorder and remains off by
+default pending one real session confirming `/end` answers while the worker is
+mid-piece. The former in-thread recorder was removed; `PieceMuxer` is the off-thread
+implementation this flag now enables.
 
 **A live route answers an ended room with `409 jam_ended` and a pointer, not `404`.**
 The room exists and so does its recording; only the live stream is gone, and a
@@ -118,9 +119,10 @@ managed to record.
 The archive is written as the session runs and read back by reconstruction, not
 written once at the end.
 
-**One segmenter, two sinks** (agreed with RV-19). `DirectorStream` owns the track and
-feeds a single muxer; the live HLS sink and this archive sink consume the same
-numbered segments. Two independent muxers were rejected because they produce two
+**One selected muxer, many sinks** (agreed with RV-19). `DirectorStream` owns the
+track and feeds a single muxer; the archive sink consumes its numbered pieces now,
+and live delivery can consume the same timeline when it lands. Two independent muxers
+were rejected because they produce two
 timelines for one session, and the audit trail records which beat and script offset
 each direction landed on — if the audit describes one timeline and the archive is
 another, the join drifts silently and a reproduction can no longer be explained.
@@ -137,7 +139,8 @@ failure that has actually been observed.
 process exit, before any closing write completes. The playlist is therefore BUILT
 FROM `jam_director_segments` when requested rather than uploaded at close, and
 `complete` stays false for a session that died. A partial archive is reported as
-partial.
+partial. A failed init or piece upload truncates at the last durable prefix instead
+of indexing later pieces across a gap.
 
 **The record lives in Postgres, the bytes in Storage.** `jam_director_sessions`
 carries the configuration key and script revision — a `<jamId>/<sessionId>` pair
@@ -154,9 +157,9 @@ could run as a serverless function even though the live director cannot.
 Verified 2026-09-19 against the local stack's real Postgres and real Storage: session,
 segments and audit round-tripped, the API reported `durable: true`, and archived bytes
 were served by our own route. **Not** verified against hosted Supabase, and no real
-director media has been through this path. The segmenter that feeds the archive is
-off by default (`REVERIE_DIRECTOR_HLS`) pending one real session's measurement; the
-off-thread muxing it depends on is built, not pending.
+director media has been through this path. The piece recorder that feeds the archive
+is off by default (`REVERIE_DIRECTOR_RECORD`) pending one real session's measurement;
+the off-thread muxing it depends on is built, not pending.
 
 
 ## 2026-09-19 — The local stack runs Storage, and it found two broken paths (RV-18)
@@ -189,11 +192,12 @@ Three things had to be true that were not obvious:
    refused, `video/mp4` accepted. `persistRecording()` swallows storage errors so the
    session can still close, so this would have lost every archive in silence. The
    archive now has its own bucket (`jam-director`, WebM + fMP4 + HLS playlist, 512MB)
-   created by `20260919234000_jam_director_archive.sql`.
+   created by `20260919236000_jam_director_archive.sql`.
 2. **A missing recording was reported as a store outage.** Storage answers a missing
    object with **HTTP 400** and a body whose `statusCode` is `"404"`, so the
    `status === 404` check never matched and the route returned 503 instead of 404.
-   `SupabasePortionMediaStore` already handled 400; the director store did not.
+   The director store now checks the body for that wrapped 404; unrelated HTTP 400
+   responses remain real storage errors rather than being hidden as missing objects.
 
 Observed on the local stack on 2026-09-19 against `storage-api` v1.19.3, not against
 hosted Supabase. The object key now follows the negotiated container (`.webm` or

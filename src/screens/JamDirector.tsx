@@ -90,11 +90,16 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
         // Newest first, so the room's last session is the one to play.
         const latest = archive.sessions[0];
         if (cancelled || !latest) return;
-        setRecording(directorArchiveVideoSrc(jamId, latest.id));
-        setArchivedSession(latest.id);
         const detail = await readDirectorArchive(jamId, latest.id);
-        // A record with no piece list is a record with no pieces, not a crash.
-        if (!cancelled) setPieces(detail.segments ?? []);
+        if (cancelled) return;
+        const storedPieces = detail.segments ?? [];
+        setPieces(storedPieces);
+        // A session record can exist even when recording was disabled or no
+        // media track arrived. Do not render a video whose URL can only 404.
+        if (storedPieces.length > 0) {
+          setRecording(directorArchiveVideoSrc(jamId, latest.id));
+          setArchivedSession(latest.id);
+        }
       } catch {
         // The room still works without this; it just starts from `live`.
       }
@@ -192,11 +197,16 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
     try {
       const stopped = await endDirectorSession(jamId, sessionId);
       setLifecycle(stopped.lifecycle);
-      setRecording(directorArchiveVideoSrc(jamId, sessionId));
-      setArchivedSession(sessionId);
       // The pieces land as the muxer finishes them; read what is there now.
       void readDirectorArchive(jamId, sessionId)
-        .then((detail) => setPieces(detail.segments ?? []))
+        .then((detail) => {
+          const storedPieces = detail.segments ?? [];
+          setPieces(storedPieces);
+          if (storedPieces.length > 0) {
+            setRecording(directorArchiveVideoSrc(jamId, sessionId));
+            setArchivedSession(sessionId);
+          }
+        })
         .catch(() => undefined);
     } catch {
       // Ending is idempotent server-side; nothing useful to say here.

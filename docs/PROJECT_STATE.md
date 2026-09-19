@@ -1308,6 +1308,23 @@ open a PR, merge the PR. The previous split between a "primary agent" pushing di
 "collaborating developer" going through PRs is retired — see `docs/DECISIONS.md` for why. `AGENTS.md`,
 `docs/CONTRIBUTING.md` and `README.md` are updated; no code changed.
 
+## 2026-09-20 — Director archive review hardening (RV-18)
+
+- The live writer and archive reader now share one resolved index and recording store. In
+  fallback mode this matters: two separate in-memory instances made a successfully written
+  archive invisible to the read routes in the same process.
+- Every live-session route scopes a session id to the jam id in its URL. A session id from one
+  room can no longer direct, watch, renew, read, or end another room's stream or completion row.
+- A playing room may keep its existing configuration-keyed streams; it becomes `ended` only
+  when the last one stops, so ending one language cannot strand another paid stream.
+- The WebM muxer refuses H.264 until the fMP4 muxer is selected upstream. It no longer accepts
+  H.264 WebM output that the archive could mislabel as `video/mp4`.
+- Archive writes truncate at the last durable prefix after an init or piece failure, Storage's
+  wrapped 404 is distinguished from unrelated HTTP 400 failures, empty archives do not render a
+  broken player, and the audit identity sequence is explicitly granted to `service_role`.
+- Verified locally: `pnpm typecheck`; 87/87 affected tests covering the app wiring, archive,
+  worker boundary, routes, lifecycle, and DOM surface.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

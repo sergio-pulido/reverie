@@ -101,3 +101,7 @@ grant select, insert, update, delete
      public.jam_director_segments,
      public.jam_director_audit
   to service_role;
+
+-- INSERT on an identity-backed table also advances its sequence. Table grants
+-- alone leave local PostgREST unable to write the audit rows.
+grant usage, select on sequence public.jam_director_audit_id_seq to service_role;

@@ -7,15 +7,38 @@ import discoverTurn from "../../api/discover/turn";
 import discoverRank from "../../api/discover/rank";
 import voiceTranscribe from "../../api/voice/transcribe";
 import { createJamsRouter, InMemoryJamStore, type JamStore } from "./jams";
-import { createDirectorRouter, DirectorStreamRegistry } from "./director";
+import {
+  createDirectorRouter,
+  DirectorStreamRegistry,
+  type DirectorRouterOptions,
+} from "./director";
 import { createDirectorArchiveRouter } from "./directorArchiveRoutes";
+import {
+  resolveDirectorRecordingStore,
+  type DirectorRecordingStore,
+} from "./directorRecordings";
+import {
+  resolveDirectorIndexStore,
+  type DirectorIndexStore,
+} from "./directorIndex";
 import { createSessionsRouter } from "./sessions";
 
 /**
  * API wiring shared by the real server and tests. Order matters: the JSON
  * 404 catch-all must come AFTER the routers, or it shadows every API route.
  */
-export function createApiApp(store: JamStore = new InMemoryJamStore()): Express {
+export interface ApiAppOptions {
+  /** Shared by the live writer and archive reader, including in-memory mode. */
+  directorIndex?: DirectorIndexStore;
+  directorRecordings?: DirectorRecordingStore;
+  /** Test/provider seams; shared stores and the registry are owned by this app. */
+  director?: Omit<DirectorRouterOptions, "index" | "recordings" | "registry">;
+}
+
+export function createApiApp(
+  store: JamStore = new InMemoryJamStore(),
+  options: ApiAppOptions = {},
+): Express {
   const app = express();
 
   app.get("/api/health", health);
@@ -43,6 +66,12 @@ export function createApiApp(store: JamStore = new InMemoryJamStore()): Express 
   // beat, and the script routes refuse an edit to the same portion. Two
   // answers to one question would be worse than either alone.
   const streams = new DirectorStreamRegistry();
+  // Resolve each fallback once. When Supabase is absent these are in-memory
+  // stores, so separate instances would let the live router write an archive
+  // that the read router could never see.
+  const directorIndex = options.directorIndex ?? resolveDirectorIndexStore();
+  const directorRecordings =
+    options.directorRecordings ?? resolveDirectorRecordingStore();
   app.use(
     createJamsRouter(store, (jamId) => ({
       minEditablePortionIndex: streams.minEditablePortionIndex(jamId),
@@ -50,8 +79,16 @@ export function createApiApp(store: JamStore = new InMemoryJamStore()): Express 
     })),
   );
   app.use(createSessionsRouter(store));
-  app.use(createDirectorRouter(store, { registry: streams }));
-  app.use(createDirectorArchiveRouter(store));
+  app.use(createDirectorRouter(store, {
+    ...options.director,
+    registry: streams,
+    index: directorIndex,
+    recordings: directorRecordings,
+  }));
+  app.use(createDirectorArchiveRouter(store, {
+    index: directorIndex,
+    recordings: directorRecordings,
+  }));
   app.use("/api", (_request, response) => {
     response.status(404).json({ code: "NOT_FOUND", safeMessage: "API route not found." });
   });

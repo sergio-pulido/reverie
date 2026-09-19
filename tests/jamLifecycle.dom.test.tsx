@@ -111,4 +111,19 @@ describe("the room shows where it is in its life", () => {
       restore();
     }
   });
+
+  it("an ended session with no stored pieces does not render a broken player", async () => {
+    const restore = serve("ended", [{ id: "sess-empty" }], []);
+    try {
+      await render(<JamDirector jamId={JAM} canDrive configuration={DEFAULT_CONFIGURATION} />);
+      await settle();
+      assert.equal(badge(), "ENDED");
+      assert.equal(
+        document.querySelector('[data-testid="jam-director-recording"]'),
+        null,
+      );
+    } finally {
+      restore();
+    }
+  });
 });

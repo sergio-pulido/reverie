@@ -166,7 +166,7 @@ export class SupabaseDirectorRecordingStore implements DirectorRecordingStore {
       // statusCode is "404", so status alone never matches. Treated as a miss
       // exactly as SupabasePortionMediaStore does; without this a recording
       // that simply is not there is reported as a store outage.
-      if (response.status === 404 || response.status === 400) continue;
+      if (await isMissingObject(response)) continue;
       if (!response.ok) {
         throw new MediaStorageError(
           "The director recording could not be read.",
@@ -207,7 +207,7 @@ export class SupabaseDirectorRecordingStore implements DirectorRecordingStore {
     );
     // 400 as well as 404: Storage answers a missing object with a 400 whose
     // body carries statusCode "404".
-    if (response.status === 404 || response.status === 400) return null;
+    if (await isMissingObject(response)) return null;
     if (!response.ok) {
       throw new MediaStorageError(
         "The director segment could not be read.",
@@ -253,6 +253,16 @@ export class SupabaseDirectorRecordingStore implements DirectorRecordingStore {
       throw new MediaStorageError("Recording storage could not be reached.", true);
     }
   }
+}
+
+/** Storage sometimes wraps a missing object in HTTP 400; other 400s are errors. */
+async function isMissingObject(response: Response): Promise<boolean> {
+  if (response.status === 404) return true;
+  if (response.status !== 400) return false;
+  const body = await response.clone().json().catch(() => null) as
+    | { statusCode?: unknown }
+    | null;
+  return String(body?.statusCode ?? "") === "404";
 }
 
 const SAFE_BUCKET = /^[a-z0-9][a-z0-9-]{1,62}$/;

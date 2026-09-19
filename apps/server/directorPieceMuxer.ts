@@ -32,7 +32,7 @@ import {
 
 export interface PieceTrack {
   kind: "audio" | "video";
-  /** The negotiated codec name, lowercased: `vp8`, `h264`, `opus`. */
+  /** The negotiated codec name, lowercased: `vp8`, `vp9`, `opus`. */
   codec: string;
 }
 
@@ -58,13 +58,11 @@ export interface PieceMuxerOptions {
 const WEBM_CODEC: Record<string, WebmTrack["codec"]> = {
   vp8: "VP8",
   vp9: "VP9",
-  h264: "MPEG4/ISO/AVC",
   opus: "OPUS",
 };
 const DEPACKETIZER_CODEC: Record<string, DepacketizerCodec> = {
   vp8: "VP8",
   vp9: "VP9",
-  h264: "MPEG4/ISO/AVC",
   opus: "OPUS",
 };
 
@@ -118,8 +116,10 @@ export class PieceMuxer {
       const webmCodec = WEBM_CODEC[name];
       const depacketizer = DEPACKETIZER_CODEC[name];
       // Refused in the open rather than muxed into a container that cannot
-      // hold it. WebM takes VP8, VP9, H.264 and Opus — the negotiated codec
-      // is reported either way, and the archive is never silently empty.
+      // hold it. This muxer emits WebM, whose interoperable video codecs here
+      // are VP8 and VP9. H.264 must go through the separate fMP4 muxer; accepting
+      // it here would produce WebM bytes and then tempt a caller to label them
+      // `video/mp4`.
       if (!webmCodec || !depacketizer || (!video && name !== "opus")) {
         this.refusal = "unsupported_codec";
         this.handlers.onRefused("unsupported_codec");

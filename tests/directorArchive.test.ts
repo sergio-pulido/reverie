@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { after, before, test } from "node:test";
 import type { Server } from "node:http";
 import express from "express";
@@ -98,7 +99,7 @@ test("a segment whose upload fails leaves no row behind", async () => {
   assert.deepEqual(await index.listSegments(sessionId), []);
 });
 
-test("one failed segment does not stop the ones after it", async () => {
+test("a failed segment truncates the archive at its last durable prefix", async () => {
   const jam = buildJam();
   await store.createJam(jam);
   const sessionId = "sess-partial";
@@ -121,9 +122,41 @@ test("one failed segment does not stop the ones after it", async () => {
   });
   sink.segment(0, Buffer.from("aaaa"), 0, 2);
   sink.segment(1, Buffer.from("bbbb"), 2, 2);
+  sink.finish();
   await sink.drained();
 
-  assert.deepEqual((await index.listSegments(sessionId)).map((s) => s.segmentIndex), [1]);
+  // Continuing after a gap would make the whole-film route advertise a
+  // discontinuous archive as complete. Later pieces are therefore skipped.
+  assert.deepEqual(await index.listSegments(sessionId), []);
+  assert.equal(sink.lostSegments, 1);
+  assert.equal((await index.getSession(sessionId))?.truncatedReason, "segment_storage_failure");
+});
+
+test("an init upload failure stores no unusable pieces and is reported", async () => {
+  const jam = buildJam();
+  await store.createJam(jam);
+  const sessionId = "sess-init-failing";
+  await index.openSession({ id: sessionId, jamId: jam.id, configurationKey: "480p" });
+
+  const failing = new InMemoryDirectorRecordingStore();
+  failing.putObject = async () => {
+    throw new Error("storage refused");
+  };
+  const sink = new DirectorArchiveSink({
+    jamId: jam.id,
+    sessionId,
+    recordings: failing,
+    index,
+    container: "webm",
+  });
+  sink.init(Buffer.from("EBML"), "vp8");
+  sink.segment(0, Buffer.from("cluster"), 0, 2);
+  sink.finish();
+  await sink.drained();
+
+  assert.deepEqual(await index.listSegments(sessionId), []);
+  assert.equal(sink.lostSegments, 0);
+  assert.equal((await index.getSession(sessionId))?.truncatedReason, "init_storage_failure");
 });
 
 test("a session that never finishes is reported as incomplete, with what survived", async () => {
@@ -365,4 +398,18 @@ test("one piece is served playable on its own, header prepended, for seeking", a
     `${baseUrl}/api/jams/${jam.id}/director/archive/${sessionId}/pieces/nope`,
   );
   assert.equal(invalid.status, 400);
+});
+
+test("the durable audit table grants its identity sequence to service_role", () => {
+  const migration = readFileSync(
+    new URL(
+      "../supabase/migrations/20260919237000_jam_director_index.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(
+    migration,
+    /grant\s+usage,\s*select\s+on\s+sequence\s+public\.jam_director_audit_id_seq\s+to\s+service_role/is,
+  );
 });

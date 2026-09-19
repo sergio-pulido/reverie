@@ -144,6 +144,19 @@ test("a missing archive reads as absent, not as a store outage", async () => {
   assert.equal(await store.get("jam", "session"), null);
 });
 
+test("a real Storage 400 is not mistaken for a missing object", async () => {
+  const store = new SupabaseDirectorRecordingStore(
+    { url: "http://storage.test", serviceRoleKey: "key", bucket: "jam-director" },
+    {
+      fetchImpl: async () => new Response(
+        JSON.stringify({ statusCode: "400", error: "invalid_request" }),
+        { status: 400 },
+      ),
+    },
+  );
+  await assert.rejects(() => store.getObject("jam/session/0.webm"));
+});
+
 test("the stored key follows the container, and is found again without being told it", async () => {
   const objects = new Map<string, string>();
   const store = new SupabaseDirectorRecordingStore(

@@ -347,8 +347,17 @@ test("a different configuration gets its own stream", async () => {
   assert.equal(sameAgain.status, 200);
   assert.equal((await sameAgain.json()).sessionId, second.sessionId);
 
-  await endSession(jam.id, first.sessionId);
-  await endSession(jam.id, second.sessionId);
+  const firstEnded = await endSession(jam.id, first.sessionId);
+  assert.equal((await firstEnded.json()).lifecycle, "playing");
+  assert.equal((await store.getJam(jam.id))?.lifecycle, "playing");
+  // The other configuration is still live, so stopping one must not finish
+  // the room and strand a paid stream behind an ended lifecycle.
+  assert.equal(
+    (await fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${second.sessionId}`)).status,
+    200,
+  );
+  const secondEnded = await endSession(jam.id, second.sessionId);
+  assert.equal((await secondEnded.json()).lifecycle, "ended");
 });
 
 test("a third configuration is refused once the streams are full", async () => {
@@ -616,6 +625,40 @@ test("watching a session that is not open is refused", async () => {
     },
   );
   assert.equal(response.status, 404);
+});
+
+test("a session id cannot be used through another jam's routes", async () => {
+  const { jam, sessionId } = await openJamSession();
+  const other = buildJam();
+  await store.createJam(other);
+  const prefix = `${baseUrl}/api/jams/${other.id}/director/session/${sessionId}`;
+
+  const attempts = [
+    fetch(prefix),
+    fetch(`${prefix}/direct`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ body: "Cross the rooms." }),
+    }),
+    fetch(`${prefix}/watch`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sdp: "v=0\r\nviewer-offer\r\n" }),
+    }),
+    fetch(`${prefix}/renew`, { method: "POST" }),
+    fetch(`${prefix}/end`, { method: "POST" }),
+  ];
+  for (const response of await Promise.all(attempts)) assert.equal(response.status, 404);
+
+  // The mismatched end did not tear down the real room.
+  assert.equal(
+    (await fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}`)).status,
+    200,
+  );
+  assert.equal((await store.getJam(jam.id))?.lifecycle, "playing");
+  await endSession(jam.id, sessionId);
+  // The ownership check also survives teardown by consulting the archive row.
+  assert.equal((await endSession(other.id, sessionId)).status, 404);
 });
 
 test("a malformed viewer offer never reaches the forwarder", async () => {

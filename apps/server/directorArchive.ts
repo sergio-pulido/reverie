@@ -7,8 +7,9 @@ import type { DirectorIndexStore } from "./directorIndex";
 /**
  * The durable half of a director stream.
  *
- * One of the segmenter's two sinks: the other delivers the same segments live.
- * Each segment is uploaded as it is produced and its row written only after
+ * A sink for the selected segmenter; live delivery can consume the same
+ * timeline through another sink when that path lands. Each segment is
+ * uploaded as it is produced and its row written only after
  * that upload succeeds, so what survives a crash is a shorter archive rather
  * than a corrupt one — and a playlist built from those rows can never point at
  * an object that is not there.
@@ -20,9 +21,9 @@ import type { DirectorIndexStore } from "./directorIndex";
  */
 
 /**
- * The container the pieces are in. It follows the codec fal negotiated: VP8
- * goes into WebM, H.264 into fMP4, and the stored keys and content types say
- * which so a reader never has to guess.
+ * The container the selected muxer produced. Codec selection happens before
+ * this sink: WebM and fMP4 bytes arrive with an explicit container, so storage
+ * keys and content types never have to guess from the payload.
  */
 export type ArchiveContainer = "webm" | "mp4";
 
@@ -71,7 +72,7 @@ export class DirectorArchiveSink {
         segment,
         containerContentType(container),
       );
-    });
+    }, { truncatedReason: "init_storage_failure" });
   }
 
   segment(
@@ -100,7 +101,7 @@ export class DirectorArchiveSink {
         objectPath: path,
       });
       this.storedBytes += bytes.byteLength;
-    });
+    }, { countLostSegment: true, truncatedReason: "segment_storage_failure" });
   }
 
   finish(): void {
@@ -134,12 +135,18 @@ export class DirectorArchiveSink {
    *
    * The segmenter calls the sink fire-and-forget, so without this a slow
    * upload would overlap the next segment and the uploads would race. Each
-   * task absorbs its own failure: one segment lost must not break the chain
-   * and take the rest of the archive with it.
+   * task absorbs its own failure so the stream stays up. A failed init or
+   * segment truncates the archive at its last durable prefix; continuing after
+   * a gap would make the whole-film route present a discontinuous file as
+   * complete.
    */
-  private enqueue(task: () => Promise<void>): void {
+  private enqueue(
+    task: () => Promise<void>,
+    failure: { countLostSegment?: boolean; truncatedReason?: string } = {},
+  ): void {
     this.queue = this.queue.then(task).catch(() => {
-      this.failedSegments += 1;
+      if (failure.countLostSegment) this.failedSegments += 1;
+      this.truncated ??= failure.truncatedReason ?? null;
     });
   }
 }

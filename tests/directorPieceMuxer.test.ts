@@ -117,6 +117,16 @@ test("a codec WebM cannot carry is refused in the open, and stores nothing", asy
   assert.equal(got.pieces.length, 0);
 });
 
+test("H.264 is refused instead of being emitted as WebM and labelled MP4", async () => {
+  const { handlers, got } = capture();
+  const muxer = new PieceMuxer([{ kind: "video", codec: "h264" }], handlers);
+  assert.equal(muxer.refusedBecause, "unsupported_codec");
+  assert.deepEqual(got.refused, ["unsupported_codec"]);
+  await muxer.stop();
+  assert.equal(got.inits.length, 0);
+  assert.equal(got.pieces.length, 0);
+});
+
 test("stopping a muxer that never saw a frame is bounded and quiet", async () => {
   const { handlers, got } = capture();
   const muxer = new PieceMuxer([{ kind: "video", codec: "vp8" }], handlers);

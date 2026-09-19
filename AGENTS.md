@@ -42,6 +42,7 @@ Reverie is the public HackBarna 2026 Movie Jam project. Read `README.md`, `docs/
 
 - Make focused changes with tests that exercise the affected behavior.
 - Update `docs/PROJECT_STATE.md` and `docs/DECISIONS.md` when architecture or product behavior changes materially.
+- Those two files grow at opposite ends, which is the trap: `docs/DECISIONS.md` grows at the **head** (newest entry first), while `docs/PROJECT_STATE.md` dated entries are inserted **before the standing `## Next milestones` section** at the end. Do not infer one from the other. Every entry carries the same date, so position in history is the only reliable ordering — `git log -1 -S"<entry title>" origin/main -- docs/DECISIONS.md` tells you which commit introduced an entry, and `git merge-base --is-ancestor <older> <newer>` orders any two.
 - Report commands actually run, results, known gaps, and any provider probe receipts.
 - The primary agent commits small, verified changes directly to `main` and pushes each completed slice, including documentation. Disable signing with `git -c commit.gpgsign=false commit`.
 - The collaborating developer uses separate worktrees/branches, opens PRs and enables auto-merge after checks. Use `codex/rv-NN-description` for those branches and `[RV-NN]` commit references where applicable.

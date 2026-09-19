@@ -990,6 +990,60 @@ editor); (3) create an OpenSubtitles API consumer, set `OPENSUBTITLES_API_KEY`, 
 3 h at 2.5 req/s) and re-emit and apply the SQL; (4) open a sample of film pages to see the
 facts. The ADP directory is newest-first, so re-crawl it by deleting `adp-pages.jsonl`. Pages
 shift while it grows.
+## 2026-09-19 — Next-increment target functionality specified
+
+- Four capabilities that the product intends and the code does not have are now specified as
+  target documents under `docs/specs/`, each opening with an explicit
+  "Status: intended, not implemented" line: the versioned transactional scene contract
+  (`transactional-scene-contract.md`), script version lines and chat-driven editing
+  (`script-forking-and-chat-editing.md`), the session-as-room-seat unification
+  (`session-as-room-seat.md`), and multimodal contributions as creative turns
+  (`multimodal-creative-turns.md`).
+- The through-line is that nothing gains a second authority path. A reference becomes a story
+  input only by being attached to a proposal; a fork changes the shared script only by being
+  adopted; both land through the same command envelope as scene acceptance
+  (`expectedStateVersion`, idempotent `requestId`, serialized commit), and all of them are
+  refused with `portion_locked` where they would touch a played or locked portion.
+- The beat lock window is the constraint these specs are written around rather than against: a
+  fork may edit any beat, and may not always be adopted; an accepted turn is an edit like any
+  other; structural edits stay forbidden because `portionIndex` is the single address shared by
+  script edits and the director's beats, so renumbering would re-aim every open stream's
+  boundary. After RV-16 the window comes from the live director's position on the script clock
+  (`src/core/directorBeats.ts`) rather than a portion cursor — the rule is unchanged, its source
+  is not, and it is enforced for the first time: the predecessor guard defaulted to "everything
+  editable" and was never wired, so `portion_locked` could not previously fire.
+- `docs/specs/intended-vs-implemented.md` gains seven rows and cross-links, `docs/API_CONTRACTS.md`
+  gains the planned fork, chat and reference routes plus the vote/accept RPC shape, and
+  `docs/STATE_MACHINE.md` now marks the scene lifecycle as wholly unimplemented and the
+  media-reference lifecycle as live-only.
+- Reconciled against every active workstream before landing, which corrected three claims. The
+  scene contract now opens with a **prerequisite**: its atomic commit crosses two systems, because
+  `jam_proposals` is in Postgres while the script (`InMemoryJamStore` is the only `JamStore`;
+  nothing reads `jam_scripts`), the playback cursor and `withJamLock` are all in the Node process
+  — so the acceptance path must not be built, or called atomic, until one of three named exits is
+  chosen. Voice is no longer described as missing: the SLNG speech-to-text adapter exists and is
+  Discover-scoped, so the jam room needs room-scoped commands and an attachment path, not a
+  provider. And the live-media exclusions are now explicitly about participant media travelling
+  inward, distinct from a generated stream travelling outward to viewers.
+- The scene contract's scope is now drawn where the product draws it: **any modification to the
+  history triggers a refactor downstream, and modifications are made from one centralized place**,
+  which the product's other elements interact with. There are several ways to edit it — up and
+  down votes on parts of the future, chat, polls, direct rewrites — and defining those ways is
+  other efforts' work. So the contract owns the envelope (`expectedStateVersion`, idempotent
+  `requestId`, serialization, the atomic commit) and the gate (authorization, and refusal at the
+  lock boundary); `docs/specs/story-outline.md` owns what a modification is and how it cascades;
+  and voting appears only as one mechanism among several, shown for what the envelope must carry
+  rather than as the way the product decides. Centralization is what lets the envelope, the
+  version counter and the lock boundary be written once instead of per mechanism.
+- Also recorded there, and now a register row of its own: `withJamLock` is an in-process mutex, so
+  the serialization protecting portion edits and reverts is correct in the local Express host and
+  silently insufficient the moment those routers deploy as Vercel functions, where each instance
+  holds its own map. Deleting the portion pipeline narrowed this gap without closing it — the
+  playback compare-and-swap it guarded is gone, but the mutex still wraps the two mutations the
+  lock boundary protects. Relatedly, `JamStore` no longer holds a compare-and-swap of any kind,
+  so `expectedStateVersion` has to be built rather than adopted.
+- **Documentation only.** No application code, test, migration or provider call was added or
+  changed in this slice, and nothing here is a claim that any of it works.
 
 ## 2026-09-19 — A public landing page at `/`
 
@@ -1211,6 +1265,41 @@ shift while it grows.
   sections B and C; it is marked as such until it is rewritten for `/search`. Removing a filter while
   a turn's films load was tried live but the assistant was timing out at the time, so the removal
   landed while the reply itself was in flight; that case is covered by the DOM test only.
+
+## 2026-09-19 — The story outline: a centralized artifact the room steers (RV-17)
+
+- An **outline** sits between the script and the reader: one brief phrase (a **beat**) per
+  portion, ordered and coherent, so a participant sees what is coming without reading four
+  minutes of screenplay. It is called the outline, not "history", because `scriptHistory.ts`
+  already owns that word for the revision log.
+- It is centralized because the product goal is **several ways to modify the story** — up/down
+  votes on future beats, chat, polls, direct rewrites, and more later. Each is an **input
+  adapter** producing one typed intent (`set` or `reroll`) against one beat; validation, locking,
+  serialization, the script rewrite and the cost all happen once behind a single boundary instead
+  of once per mechanism. Rationale and the full decision set are in
+  `docs/specs/story-outline.md` and `docs/DECISIONS.md`.
+- A beat is the portion's own `summary` field, not a parallel store, so it cannot drift from the
+  portion it describes and versions with the existing append-only revisions for free. The flat
+  portion index stays the single address shared with edits, playback, the lock window and
+  generation job keys. `summary` is optional: revisions written before the outline can never gain
+  one and must be rendered honestly as missing.
+- Editing a beat re-derives every later beat in **one** completion (not one per portion), rewrites
+  text only — never `durationSeconds`, so the runtime cannot drift — and never changes scene or
+  portion structure. The lock window applies unchanged; because it is a prefix and a cascade runs
+  forward, only the edited beat needs checking. A cascade is computed outside the per-jam critical
+  section and committed atomically inside it, refused with `portion_locked` if playback advanced
+  into its range meanwhile.
+- The same beat is the live director's direction text (RV-16's `DirectionRequest`), so one edited
+  phrase drives both the rewritten script and the stream. Only the current or imminent beat is
+  sent; the queue never opens or holds a billed director session.
+- Implemented and verified locally on `codex/rv-17-story-outline`: the `summary` field, the
+  outline projection with cumulative offsets, stream-offset lookup, and the cascade prompt, schema
+  and application — all provider-free and tested offline. `pnpm typecheck` clean, `pnpm test`
+  426/426 including 9 new tests.
+- **Not implemented:** the edit queue, the edit intent type, provider wiring, every input
+  mechanism (direct, vote, poll, chat), the outline routes, the client surface, and delivery into
+  the director seam. No provider call has been made for a cascade, so cascade quality is specified
+  and unit-tested at its pure boundaries, not demonstrated.
 
 ## Next milestones
 

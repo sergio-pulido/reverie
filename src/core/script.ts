@@ -26,6 +26,13 @@ export const MAX_PORTIONS = 48;
 // derived value stops the ceiling from drifting away from what is reachable.
 export const TOTAL_MAX_SECONDS = MAX_PORTIONS * PORTION_ABSOLUTE_MAX_SECONDS;
 
+// A beat is the one-phrase summary of a portion. The outline is the ordered list
+// of beats and is the surface participants read and edit instead of the
+// screenplay, so a beat must stay glanceable: one phrase, not a paragraph.
+// Optional on the schema because revisions written before the outline existed
+// carry no beats, and history is append-only — they can never gain one.
+export const BEAT_MAX_CHARS = 120;
+
 export const scriptFormatSchema = z
   .object({
     totalSeconds: z
@@ -103,6 +110,7 @@ export function totalToleranceSeconds(format: ScriptFormat): number {
 function buildPortionSchema(minSeconds: number, maxSeconds: number) {
   return z.object({
     durationSeconds: z.number().int().min(minSeconds).max(maxSeconds),
+    summary: z.string().trim().min(1).max(BEAT_MAX_CHARS).optional(),
     action: z.string().trim().min(1).max(600),
     dialogue: z.string().trim().max(600).optional(),
     visualDirection: z.string().trim().max(400).optional(),

@@ -116,8 +116,15 @@ code — both go through the host-only functions above, which run as owner.
 | `GET /api/sessions/:id/script.md` | Read the shared script annotated with the session's playback settings |
 | ~~`POST /api/jams/:id/join`~~ | Superseded: implemented as the `request_jam_admission` RPC above |
 | ~~`POST /api/jams/:id/members/:memberId/admit`~~ | Superseded: implemented as the `set_jam_member_status` RPC above |
-| `POST /api/jams/:id/scene/accept` | Host or configured vote rule accepts the next turn |
-| `POST /api/jams/:id/forks` | Fork from a declared past scene version |
+| `POST /api/jams/:id/scene/accept` | Host or configured vote rule accepts the next turn, as one serialized commit; refused with `portion_locked` if it would change a played or locked portion (`docs/specs/transactional-scene-contract.md`) |
+| `POST /api/jams/:id/forks` | Create a version line rooted at a declared revision of a declared line (`docs/specs/script-forking-and-chat-editing.md`) |
+| `GET /api/jams/:id/forks` | List a jam's version lines with their roots and revision counts |
+| `GET /api/jams/:id/forks/:forkId/script.md` | Read a fork's latest revision as markdown |
+| `PATCH /api/jams/:id/forks/:forkId/portions/:portionIndex` | Edit one portion of a fork; the playback lock boundary does not apply inside a fork |
+| `POST /api/jams/:id/forks/:forkId/adopt` | Adopt a fork into the shared line; `expectedStateVersion`-guarded, all-or-nothing, refused with `portion_locked` |
+| `POST /api/jams/:id/script/chat` | Turn a described change into a validated structured portion patch on a named line; the model emits a patch object, never text appended verbatim |
+| `POST /api/jams/:id/references` | Request a short-lived, server-authorized upload destination for an image or clip; returns a server-issued `assetRef` (`docs/specs/multimodal-creative-turns.md`) |
+| `GET /api/jams/:id/references/:assetRef` | Stream a stored reference from our own storage; never a storage or provider URL |
 | `POST /api/jams/:id/close` | Close a room and release active resources |
 
 
@@ -174,6 +181,10 @@ The same boundary answers both routes. `POST /api/jams/:id/director/session/:ses
 Supabase Realtime carries authenticated room notifications over its managed WebSocket transport. Durable chat/proposals/votes use RLS-protected database writes; multi-row admission and scene transitions use constrained transactional RPCs. Broadcast cannot grant membership or accept a scene. The HTTP routes above remain design candidates, not available endpoints; admission may be implemented as an authenticated RPC instead. Each command has `schemaVersion`, `requestId`, `expectedStateVersion`, `type`, and typed payload. Events have `eventId`, `roomId`, `stateVersion`, `occurredAt`, `type`, and payload. Vercel functions handle privileged operations such as issuing Vonage session tokens and calling providers.
 
 Commands: `chat.send`, `proposal.create`, `vote.cast`, `room.open`, `room.start`, `scene.accept`, `member.leave`, `audio.start`, and `audio.stop`.
+
+`vote.cast` and `scene.accept` are the two commands that move the story, and they are specified in `docs/specs/transactional-scene-contract.md`: one effective vote per active member per proposal with `voter_id` pinned to `auth.uid()`; acceptance as a single atomic commit that marks the proposal `accepted`, supersedes the rest of the queue, increments a per-jam **story version** and the room's `stateVersion`, and enters `generating`. Story version and `stateVersion` are distinct — a vote moves the latter only. Both are `security definer` RPCs rather than browser table writes, because `jam_proposals` has no update policy and must not gain one. Generation runs after the commit, never inside it.
+
+Attaching a reference to a proposal needs a carrier that does not exist: `jam_proposals.body` is text only. An attachment must be scoped by policy to a reference the author owns and whose consent is effective (`docs/specs/multimodal-creative-turns.md`).
 
 Multimodal commands: `reference.upload.request`, `reference.upload.complete`, `reference.intent.set`, `liveMedia.join`, `liveMedia.leave`, `liveMedia.consent.set`, `broadcast.start`, `broadcast.stop`, and `archive.request`. A reference descriptor includes its owner, source type, declared purpose, lifetime, consent state, and a server-issued asset reference; it never accepts a browser-supplied provider URL.
 

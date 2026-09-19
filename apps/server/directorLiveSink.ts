@@ -1,5 +1,5 @@
 import { buildMediaPlaylist, HlsSegmentWindow } from "../../src/core/hlsPlaylist";
-import type { DirectorSegmentSink } from "./directorSegmenter";
+import type { DirectorSegmentSink } from "./directorSegmentSink";
 
 /**
  * The live end of the segmenter: a bounded window of recent segments, and the

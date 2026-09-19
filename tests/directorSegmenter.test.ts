@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { MediaStreamTrack } from "werift";
-import { DirectorSegmenter, type DirectorSegmentSink } from "../apps/server/directorSegmenter";
+import { DirectorSegmenter } from "../apps/server/directorSegmenter";
+import type { DirectorSegmentSink } from "../apps/server/directorSegmentSink";
 
 /**
  * The worker boundary, exercised for real.

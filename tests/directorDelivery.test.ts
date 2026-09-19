@@ -81,6 +81,7 @@ async function openSession(baseUrl: string): Promise<{
     source: { kind: "from-scratch", prompt: "A lighthouse keeper finds a door." },
     format: { totalSeconds: 20, portionMinSeconds: 5, portionMaxSeconds: 5 },
     script: buildScript(5, 2, 2),
+    lifecycle: "live",
   };
   await store.createJam(jam);
   const response = await fetch(`${baseUrl}/api/jams/${jam.id}/director/session`, {
@@ -225,6 +226,7 @@ test("attaching never starts a stream, so arriving in a room cannot bill", async
     source: { kind: "from-scratch", prompt: "A lighthouse keeper finds a door." },
     format: { totalSeconds: 20, portionMinSeconds: 5, portionMaxSeconds: 5 },
     script: buildScript(5, 2, 2),
+    lifecycle: "live",
   };
   await store.createJam(jam);
 
@@ -292,8 +294,6 @@ test("the host's stop ends the stream even while others are watching", async () 
  */
 let fedSink: DirectorLiveSink | null = null;
 let fed: { server: Server; baseUrl: string };
-let archiveCalls: { jamId: string; sessionId: string }[] = [];
-let archived: { server: Server; baseUrl: string };
 
 before(async () => {
   fed = await listenWith({
@@ -303,18 +303,10 @@ before(async () => {
       return fedSink;
     },
   });
-  archived = await listenWith({
-    liveDelivery: false,
-    createSegmentSinks: (session) => {
-      archiveCalls.push(session);
-      return [{ init() {}, segment() {}, finish() {} }];
-    },
-  });
 });
 
 after(async () => {
   await new Promise<void>((resolve) => fed.server.close(() => resolve()));
-  await new Promise<void>((resolve) => archived.server.close(() => resolve()));
 });
 
 test("segments pushed into the live window are served back byte for byte", async () => {
@@ -364,20 +356,6 @@ test("a segment that left the window is gone, not replaced by another", async ()
   assert.match(playlist, /#EXT-X-MEDIA-SEQUENCE:2\n/);
 });
 
-test("the archive gets a segmenter even with live delivery switched off", async () => {
-  // The muxer exists because a sink wants segments, not because HLS is on.
-  // An archive configured on a server that does not deliver live must still
-  // receive them, or durability would silently depend on a viewing flag.
-  archiveCalls = [];
-  const { jam, sessionId } = await openSession(archived.baseUrl);
-  assert.deepEqual(archiveCalls, [{ jamId: jam.id, sessionId }]);
-  // And the live routes still refuse honestly, rather than serving an empty film.
-  const playlist = await fetch(
-    `${archived.baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/playlist.m3u8`,
-  );
-  assert.equal(playlist.status, 503);
-  assert.equal((await playlist.json()).error.code, "live_delivery_disabled");
-});
 
 /**
  * Races around the handshake window and the two ways to be a viewer.
@@ -419,6 +397,7 @@ test("a poll during the handshake cannot release the stream being opened", async
     source: { kind: "from-scratch", prompt: "A lighthouse keeper finds a door." },
     format: { totalSeconds: 20, portionMinSeconds: 5, portionMaxSeconds: 5 },
     script: buildScript(5, 2, 2),
+    lifecycle: "live",
   };
   await store.createJam(jam);
   const url = `${raced.baseUrl}/api/jams/${jam.id}/director/session`;
@@ -470,6 +449,7 @@ test("a relay peer dropping does not end a stream counted viewers are on", async
     source: { kind: "from-scratch", prompt: "A lighthouse keeper finds a door." },
     format: { totalSeconds: 20, portionMinSeconds: 5, portionMaxSeconds: 5 },
     script: buildScript(5, 2, 2),
+    lifecycle: "live",
   };
   await store.createJam(jam);
   const url = `${raced.baseUrl}/api/jams/${jam.id}/director/session`;

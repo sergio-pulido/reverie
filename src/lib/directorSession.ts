@@ -2,6 +2,7 @@ import type { DirectorState } from "../core/directorProtocol";
 import type { DirectorAuditEntry } from "../core/directorAudit";
 import type { DirectorBeatWindow } from "../core/directorBeats";
 import type { SessionSettings } from "../core/session";
+import type { JamLifecycle } from "../core/jamLifecycle";
 
 /**
  * Client for the server-proxied live director.
@@ -39,6 +40,8 @@ export interface OpenedDirectorSession {
   maxSessionSeconds: number;
   /** False when the server has no object storage: the recording is lost on restart. */
   recordingDurable: boolean;
+  /** Where the room is now. Opening moves it to playing; attaching reports it. */
+  lifecycle: JamLifecycle;
   state: DirectorState;
   beats: DirectorBeatWindow;
 }
@@ -127,19 +130,23 @@ export function sendDirection(
 }
 
 /**
- * Stops watching.
+ * Stops watching, and reports where the room ended up.
  *
  * With a viewer id this leaves the shared stream, which ends it only if nobody
  * else is watching — one person closing a tab must not stop the film for the
  * room. Without one it ends the session outright, which is what a host's own
  * stop means.
+ *
+ * The lifecycle comes back in the response rather than being inferred: the
+ * stop is the moment the room ends, and a caller that had to re-fetch the jam
+ * to discover that would show a stale state in between.
  */
 export function endDirectorSession(
   jamId: string,
   sessionId: string,
   viewerId?: string,
-): Promise<void> {
-  return call<void>(`/api/jams/${jamId}/director/session/${sessionId}/end`, {
+): Promise<{ lifecycle: JamLifecycle }> {
+  return call(`/api/jams/${jamId}/director/session/${sessionId}/end`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(viewerId ? { viewerId } : {}),
@@ -169,6 +176,53 @@ export function renewDirectorSession(
 
 export function directorRecordingSrc(jamId: string, sessionId: string): string {
   return `/api/jams/${jamId}/director/recordings/${sessionId}`;
+}
+
+/**
+ * The archived session as one playable file.
+ *
+ * WebM and fMP4 both concatenate their initial header with ordered media
+ * pieces, so this plays in a plain `<video>` with no player library.
+ */
+export function directorArchiveVideoSrc(jamId: string, sessionId: string): string {
+  return `/api/jams/${jamId}/director/archive/${sessionId}/video`;
+}
+
+/** One piece of the film, playable on its own; the seek primitive. */
+export function directorArchivePieceSrc(jamId: string, sessionId: string, index: number): string {
+  return `/api/jams/${jamId}/director/archive/${sessionId}/pieces/${index}`;
+}
+
+export interface ArchivedPiece {
+  segmentIndex: number;
+  startSeconds: number;
+  durationSeconds: number;
+}
+
+/** A finished session's record: whether it completed, and its pieces. */
+export async function readDirectorArchive(
+  jamId: string,
+  sessionId: string,
+): Promise<{
+  durable: boolean;
+  session: { complete: boolean; container: string | null };
+  segments: ArchivedPiece[];
+  durationSeconds: number;
+}> {
+  return call(`/api/jams/${jamId}/director/archive/${sessionId}`);
+}
+
+/** The sessions a finished room archived, newest first. */
+export async function listDirectorArchive(
+  jamId: string,
+): Promise<{ durable: boolean; sessions: { id: string }[] }> {
+  return call(`/api/jams/${jamId}/director/archive`);
+}
+
+/** The room's life, as the server holds it. */
+export async function readJamLifecycle(jamId: string): Promise<JamLifecycle> {
+  const body = await call<{ jam: { lifecycle?: JamLifecycle } }>(`/api/jams/${jamId}`);
+  return body.jam.lifecycle ?? "live";
 }
 
 /**

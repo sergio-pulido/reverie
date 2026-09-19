@@ -23,6 +23,7 @@ function buildJam(): Jam {
     },
     format: DEFAULT_SCRIPT_FORMAT,
     script: buildScript(15),
+    lifecycle: "live" as const,
   };
 }
 

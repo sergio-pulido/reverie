@@ -7,6 +7,8 @@ import {
 import {
   InMemoryDirectorRecordingStore,
   MAX_RECORDING_BYTES,
+  resolveDirectorStorageConfig,
+  SupabaseDirectorRecordingStore,
 } from "../apps/server/directorRecordings";
 
 function logAt(now: { value: number }) {
@@ -104,4 +106,81 @@ test("the in-memory store is bounded", async () => {
   // The oldest were evicted; the newest survive.
   assert.equal(await store.get("jam", "session-0"), null);
   assert.equal((await store.get("jam", "session-11"))?.bytes.toString(), "11");
+});
+
+/**
+ * The cases below are written against what a real Supabase Storage answered
+ * (local stack, 2026-09-19), not against what its API reference implies. Each
+ * one failed before the fix.
+ */
+
+function fakeStorage(objects: Map<string, string>) {
+  return async (url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const key = new URL(String(url)).pathname;
+    if ((init?.method ?? "GET") === "POST") {
+      // The body is a Uint8Array; stringifying it would store the comma-joined
+      // byte values rather than the bytes.
+      objects.set(key, Buffer.from(init?.body as Uint8Array).toString());
+      return new Response("{}", { status: 200 });
+    }
+    const found = objects.get(key);
+    if (found === undefined) {
+      // Storage answers a missing object with HTTP 400 carrying a 404 body.
+      return new Response(JSON.stringify({ statusCode: "404", error: "not_found" }), {
+        status: 400,
+      });
+    }
+    return new Response(found, { status: 200, headers: { "content-type": "video/mp4" } });
+  };
+}
+
+test("a missing archive reads as absent, not as a store outage", async () => {
+  const store = new SupabaseDirectorRecordingStore(
+    { url: "http://storage.test", serviceRoleKey: "key", bucket: "jam-director" },
+    { fetchImpl: fakeStorage(new Map()) },
+  );
+  // Storage replies 400, not 404. Reporting that as an outage would tell a room
+  // its archive service is down when the session simply has no recording.
+  assert.equal(await store.get("jam", "session"), null);
+});
+
+test("a real Storage 400 is not mistaken for a missing object", async () => {
+  const store = new SupabaseDirectorRecordingStore(
+    { url: "http://storage.test", serviceRoleKey: "key", bucket: "jam-director" },
+    {
+      fetchImpl: async () => new Response(
+        JSON.stringify({ statusCode: "400", error: "invalid_request" }),
+        { status: 400 },
+      ),
+    },
+  );
+  await assert.rejects(() => store.getObject("jam/session/0.webm"));
+});
+
+test("the stored key follows the container, and is found again without being told it", async () => {
+  const objects = new Map<string, string>();
+  const store = new SupabaseDirectorRecordingStore(
+    { url: "http://storage.test", serviceRoleKey: "key", bucket: "jam-director" },
+    { fetchImpl: fakeStorage(objects) },
+  );
+  await store.save("jam", "session", Buffer.from("fmp4"), "video/mp4");
+  assert.ok(
+    [...objects.keys()].some((key) => key.endsWith("/jam/session.mp4")),
+    "an fMP4 archive must not be stored under a .webm key",
+  );
+  assert.equal((await store.get("jam", "session"))?.bytes.toString(), "fmp4");
+});
+
+test("the director archive gets its own bucket, not the portion bucket", () => {
+  const env = {
+    SUPABASE_URL: "http://storage.test",
+    SUPABASE_SERVICE_ROLE_KEY: "key",
+  } as NodeJS.ProcessEnv;
+  // jam-portions allows video/mp4 only and caps objects at 64MB, so it rejected
+  // every director upload it was given.
+  assert.equal(resolveDirectorStorageConfig(env)?.bucket, "jam-director");
+  assert.equal(
+    resolveDirectorStorageConfig({ ...env, REVERIE_DIRECTOR_BUCKET: "other-bucket" })?.bucket,
+    "other-bucket",
+  );
 });

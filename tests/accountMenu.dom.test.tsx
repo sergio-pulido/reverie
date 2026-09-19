@@ -33,7 +33,9 @@ async function open(viewer: Viewer, at = "/jams") {
   const catalogue = fakeCatalogue();
   await render(
     <CatalogueReadProvider read={catalogue.read}>
-      <ViewerProvider source={seen.source}><App /></ViewerProvider>
+      <ViewerProvider source={seen.source}>
+        <App leaveForLanding={() => window.history.replaceState(null, "", "/")} />
+      </ViewerProvider>
     </CatalogueReadProvider>,
     at,
   );

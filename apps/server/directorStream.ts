@@ -10,7 +10,11 @@ import {
   reduceDirectorState,
   type DirectorState,
 } from "../../src/core/directorProtocol";
-import { DirectorAuditLog, type DirectorAuditEntry } from "../../src/core/directorAudit";
+import {
+  DirectorAuditLog,
+  type DirectorAuditEntry,
+  type DirectorAuditListener,
+} from "../../src/core/directorAudit";
 import type { JamScript } from "../../src/core/script";
 import {
   beatOffsets,
@@ -18,11 +22,6 @@ import {
   isBeatLocked,
   type DirectorBeatWindow,
 } from "../../src/core/directorBeats";
-import {
-  DirectorFileRecorder,
-  type DirectorRecordingSink,
-} from "./directorFileRecorder";
-import type { DirectorTrackConsumer } from "./directorSegmenter";
 import {
   buildConfigureMessage,
   DirectorError,
@@ -47,32 +46,21 @@ import {
 const CONTROL_CHANNEL = "fal";
 const ICE_GATHERING_TIMEOUT_MS = 5_000;
 
-/**
- * Re-exported so the recording store keeps one import site while the recorder
- * itself lives behind the track-consumer seam.
- */
-export type { DirectorRecordingSink } from "./directorFileRecorder";
-
 export interface DirectorStreamOptions {
   jamId: string;
   sessionId: string;
   config: DirectorConfig;
   script: JamScript;
-  sink?: DirectorRecordingSink;
-  /**
-   * Everything that wants the inbound media track.
-   *
-   * The track arrives once and several things want it — durable recording and
-   * live delivery — so they attach here instead of subscribing to `onTrack`,
-   * where the first subscriber would take it from the rest. Defaults to the
-   * WebM recorder alone, which is what the director shipped with.
-   */
-  consumers?: DirectorTrackConsumer[];
   /** Injected in tests; defaults to the real fal handshake. */
   startSession?: typeof startDirectorSession;
   /** Injected in tests; defaults to a real werift peer. */
   createPeer?: () => DirectorPeer;
   now?: () => Date;
+  /**
+   * Notified as each audit entry is recorded, so the trail can be written
+   * somewhere that outlives this process. The in-memory trail is unaffected.
+   */
+  onAudit?: DirectorAuditListener;
 }
 
 export interface DirectionRequest {
@@ -175,23 +163,13 @@ export class DirectorStream {
   private state: DirectorState = initialDirectorState();
   private connection: DirectorPeer | null = null;
   private control: DirectorControlChannel | null = null;
-  private readonly consumers: DirectorTrackConsumer[];
   private stopped = false;
   /** Inbound tracks, kept so viewers can be forwarded a copy. */
   private readonly inbound: MediaStreamTrack[] = [];
   private readonly trackListeners: ((track: MediaStreamTrack) => void)[] = [];
 
   constructor(private readonly options: DirectorStreamOptions) {
-    this.audit = new DirectorAuditLog(options.now);
-    // Capture stays opt-in and off by default, as `DirectorConfig.record`
-    // established: muxing WebM on this thread is what pinned the event loop.
-    // The flag now decides whether the recorder exists at all rather than
-    // being re-checked per track.
-    this.consumers =
-      options.consumers ??
-      (options.config.record
-        ? [new DirectorFileRecorder(options.jamId, options.sessionId, options.sink)]
-        : []);
+    this.audit = new DirectorAuditLog(options.now, options.onAudit);
   }
 
   /** The tracks fal is sending, for forwarding to viewers. */
@@ -382,53 +360,21 @@ export class DirectorStream {
   }
 
   /**
-   * Hands the incoming track to every consumer.
+   * Keeps and announces an incoming track. Nothing here touches its media.
    *
-   * The stream owns `onTrack` and nothing else subscribes to it, so recording
-   * and live delivery both receive the same track instead of racing for it.
-   * werift's event is genuinely multi-subscriber, so each consumer builds its
-   * own pipeline from the same RTP without taking packets from the others.
-   *
-   * A consumer that fails takes only itself down: a recorder that cannot open a
-   * temp file must not stop the room watching, and vice versa.
+   * Forwarding a track to a viewer is packet relay and costs almost nothing;
+   * MUXING it is what blocked the event loop when it ran on this thread. So
+   * this stream never muxes: whoever wants the media — the relay, the piece
+   * recorder — subscribes through `onTrackAvailable` and does its work off
+   * this thread. The in-process recorder that used to live here is gone for
+   * that reason (docs/DECISIONS.md).
    */
-  private async onTrack(track: MediaStreamTrack): Promise<void> {
-    // Kept and announced regardless of capture: forwarding a track to a viewer
-    // is packet relay and costs almost nothing, while MUXING it is what blocks
-    // the event loop. The two are separate decisions.
+  private onTrack(track: MediaStreamTrack): void {
     this.inbound.push(track);
     for (const listener of this.trackListeners) listener(track);
-
-    // Consumers are the muxing side of that split. Each runs its own pipeline
-    // and each is responsible for keeping it off this thread; capture being
-    // opt-in is expressed by which consumers exist, not by a check here.
-    await Promise.all(
-      this.consumers.map(async (consumer) => {
-        try {
-          await consumer.addTrack(track);
-        } catch {
-          // Recorded rather than thrown: the session is live and the other
-          // consumers are still working.
-          this.audit.record({
-            kind: "provider_error",
-            detail: "track_consumer_failed",
-          });
-        }
-      }),
-    );
   }
 
   private async teardown(): Promise<void> {
-    await Promise.all(
-      this.consumers.map(async (consumer) => {
-        try {
-          await consumer.stop();
-        } catch {
-          // One consumer failing to finalize must not strand the others or
-          // hold the session's budget reservation open.
-        }
-      }),
-    );
     this.connection?.close();
     this.state = { ...this.state, status: this.state.status === "failed" ? "failed" : "ended" };
   }

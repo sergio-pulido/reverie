@@ -3,7 +3,11 @@ set -euo pipefail
 
 export PGPASSWORD="$POSTGRES_PASSWORD"
 
-until psql -Atqc "select to_regclass('auth.users') is not null and to_regclass('realtime.messages') is not null" | grep -qx t; do
+# `storage.buckets` is waited on alongside the others because the bucket
+# migrations guard on it and skip when it is missing. Storage is healthy before
+# this container starts (docker/compose.yaml), so this only guards the gap
+# between the service reporting healthy and its own migrations landing.
+until psql -Atqc "select to_regclass('auth.users') is not null and to_regclass('realtime.messages') is not null and to_regclass('storage.buckets') is not null" | grep -qx t; do
   sleep 1
 done
 
@@ -38,6 +42,27 @@ grant select, insert on public.jam_scripts, public.jam_script_revisions to authe
 grant select, insert on public.jam_messages, public.jam_proposals to authenticated;
 grant select on public.jam_live_sessions to authenticated;
 grant select, insert on public.jam_live_consents to authenticated;
+SQL
+
+# Storage creates its own schema on boot but grants nothing to the API roles, so
+# `service_role` cannot even see storage.buckets -- an unqualified lookup reports
+# "relation does not exist" rather than a permission error, which is a confusing
+# way to find out. Only service_role is granted: the buckets are private, the
+# server holds the only key, and no browser identity ever reads them directly.
+psql -v ON_ERROR_STOP=1 <<'SQL'
+do $$
+begin
+  if to_regclass('storage.buckets') is null then
+    raise notice 'storage schema absent; skipping storage grants.';
+    return;
+  end if;
+  grant usage on schema storage to service_role;
+  grant all on all tables in schema storage to service_role;
+  grant all on all sequences in schema storage to service_role;
+  alter default privileges in schema storage grant all on tables to service_role;
+  alter default privileges in schema storage grant all on sequences to service_role;
+end
+$$;
 SQL
 
 # PostgREST starts before application migrations so Auth and Realtime can become healthy.

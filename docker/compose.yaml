@@ -106,12 +106,68 @@ services:
       retries: 20
       start_period: 10s
 
+  # Supabase Storage, so the local stack can exercise the same durable path the
+  # deployed one uses. Without it `resolvePortionStorageConfig` finds no bucket,
+  # every media store silently falls back to memory, and the guarded bucket
+  # migrations skip -- which is how a storage path can pass every local check
+  # while never having touched a bucket.
+  #
+  # It connects as `supabase_admin` rather than the usual `supabase_storage_admin`
+  # so it can create the `storage` schema itself on first boot. That role already
+  # exists (docker/postgres/00-local-roles.sql), so an existing `reverie-db`
+  # volume does not have to be recreated to pick this up.
+  storage:
+    image: supabase/storage-api:v1.19.3
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      rest:
+        condition: service_healthy
+    environment:
+      ANON_KEY: ${LOCAL_ANON_KEY}
+      SERVICE_KEY: ${LOCAL_SERVICE_ROLE_KEY}
+      AUTH_JWT_SECRET: reverie-local-jwt-secret-change-before-sharing
+      PGRST_JWT_SECRET: reverie-local-jwt-secret-change-before-sharing
+      DATABASE_URL: postgres://supabase_admin:reverie-local-postgres@db:5432/postgres
+      # The service queries its tables unqualified, so it needs the schema on the
+      # search path. A `?search_path=` on the URL above is NOT honoured by its
+      # driver; this variable is the one the image reads.
+      DATABASE_SEARCH_PATH: storage
+      POSTGREST_URL: http://rest:3000
+      SERVER_PORT: 5000
+      TENANT_ID: reverie-local
+      REGION: local
+      GLOBAL_S3_BUCKET: reverie-local
+      STORAGE_BACKEND: file
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      # 512MiB: a director session archive is far larger than a portion clip.
+      FILE_SIZE_LIMIT: 536870912
+      # Image transforms need a separate imgproxy service and this project
+      # stores video only, so they stay off.
+      ENABLE_IMAGE_TRANSFORMATION: "false"
+    volumes:
+      - reverie-storage:/var/lib/storage
+    healthcheck:
+      # 127.0.0.1, not localhost: the server binds IPv4 only, and wget in this
+      # image resolves localhost to ::1 and is refused.
+      test: ["CMD", "wget", "--quiet", "--tries=1", "-O", "/dev/null", "http://127.0.0.1:5000/status"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
   migrate:
     image: supabase/postgres:17.6.1.136
     depends_on:
       auth:
         condition: service_healthy
       realtime:
+        condition: service_healthy
+      # The bucket migrations guard on `to_regclass('storage.buckets')` and skip
+      # when Storage is absent. Storage creates that schema on boot, so it has to
+      # be healthy BEFORE this runs or the buckets are silently never created.
+      storage:
         condition: service_healthy
     environment:
       <<: *database-environment
@@ -132,6 +188,8 @@ services:
       rest:
         condition: service_healthy
       realtime:
+        condition: service_healthy
+      storage:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -161,6 +219,12 @@ services:
     environment:
       PORT: 4317
       HOST: 0.0.0.0
+      # Points the server at the LOCAL stack's Storage. These are set here rather
+      # than left to `.env.local` on purpose: `environment` wins over `env_file`,
+      # so a local run can never authenticate against the hosted project and
+      # write real objects into its buckets.
+      SUPABASE_URL: http://supabase:8000
+      SUPABASE_SERVICE_ROLE_KEY: ${LOCAL_SERVICE_ROLE_KEY}
     ports:
       - "127.0.0.1:4317:4317"
     healthcheck:
@@ -171,3 +235,4 @@ services:
 
 volumes:
   reverie-db:
+  reverie-storage:

@@ -1,6 +1,7 @@
 import { Worker } from "node:worker_threads";
 import type { MediaStreamTrack } from "werift";
 import type { MuxTrack } from "./directorMuxer";
+import type { DirectorSegmentSink } from "./directorSegmentSink";
 import { SegmentMuxer } from "./directorMuxer";
 import type {
   SegmentWorkerCommand,
@@ -35,21 +36,6 @@ export interface DirectorTrackConsumer {
   stop(): Promise<void>;
 }
 
-/** Where finished segments go: the live window, the durable archive, or both. */
-export interface DirectorSegmentSink {
-  /**
-   * The fMP4 initialization segment, with the codec actually negotiated — not
-   * the one we asked for. Everything downstream branches on the real answer.
-   */
-  init(segment: Buffer, codec: string): Promise<void> | void;
-  segment(
-    index: number,
-    bytes: Buffer,
-    startSeconds: number,
-    durationSeconds: number,
-  ): Promise<void> | void;
-  finish(): Promise<void> | void;
-}
 
 /**
  * Why a stream has no segments, when it has none.

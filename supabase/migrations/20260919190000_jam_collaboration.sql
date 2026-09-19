@@ -119,7 +119,9 @@ $$;
 revoke all on function public.jam_id_from_topic(text) from public;
 grant execute on function public.jam_id_from_topic(text) to authenticated;
 
-alter table realtime.messages enable row level security;
+-- Supabase owns `realtime.messages` and keeps RLS enabled already. Hosted projects reject
+-- ALTER TABLE here because the SQL-editor role does not own that internal table; policies
+-- below are the supported authorization surface.
 
 drop policy if exists "active members read their jam channel" on realtime.messages;
 create policy "active members read their jam channel"

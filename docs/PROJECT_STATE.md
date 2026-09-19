@@ -251,6 +251,9 @@ remain unproven until `scripts/verify-realtime.mjs` completes against the migrat
   a `public`-only search path. `20260919212000_fix_invite_code_randomness.sql` now qualifies
   `extensions.gen_random_bytes(8)`. Apply it, then rerun `pnpm verify:realtime`; no
   collaboration, RLS or Realtime assertion has been claimed as passed before that rerun.
+- Supabase Cloud rejected the original collaboration migration's attempt to alter its
+  service-owned `realtime.messages` table. The updated migration leaves that already-RLS
+  protected table alone and creates only the supported authorization policies.
 
 ## Next milestones
 

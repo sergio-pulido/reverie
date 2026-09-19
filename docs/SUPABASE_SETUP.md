@@ -17,6 +17,9 @@ Reverie uses Supabase as the authoritative store for Jam rooms, membership, chat
    `realtime.messages` policies that authorize the private `jam:<id>` channel, so no manual
    publication step is needed.
 4. Keep later migrations ordered and versioned in `supabase/migrations`. Apply the initial migration once; it is not an idempotent reset script.
+   If `20260919190000_jam_collaboration.sql` was previously rejected with "must be owner of
+   table messages", pull the current `main` and rerun its complete updated contents. The
+   hosted Realtime table already has RLS; the migration now only adds its policies.
 5. In Database → Publications, add any further realtime table to `supabase_realtime` only once its subscription and its RLS policies exist.
 
 ## 2. Configure local development

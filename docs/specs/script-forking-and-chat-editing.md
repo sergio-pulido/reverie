@@ -46,15 +46,16 @@ change `action`, `dialogue`, `visualDirection` and `durationSeconds`, within the
 hard portion bounds. It may not insert, delete or reorder portions.
 
 This is not a limitation copied over by habit. Portion indices are the address used by
-generation job keys `(jamId, portionIndex, pinnedRevision)` and by the video routes. A fork that
-renumbered portions would silently re-key every pinned generation the room has already bought.
+the single address shared by script edits and by the live director's beats. A fork that
+renumbered portions would silently re-aim the lock boundary of every open stream.
 Insertion becomes expressible only once portions carry stable ids, which
 `docs/API_CONTRACTS.md` already names as the later extension that forks would require.
 
 ## The lock window applies at adoption, not at editing
 
-Portions at or below `currentPortionIndex + 1` are immutable in the shared line, because they are
-played or are the generation buffer.
+Beats at or below `currentBeatIndex + 1` are immutable in the shared line, because they are played
+or already with the provider — the window comes from the live director's position on the script
+clock (`src/core/directorBeats.ts`), and with no stream open nothing is locked.
 
 - **Inside a fork, every portion is editable.** A fork is not being played and nothing is being
   bought from it, so the lock boundary does not constrain it. A participant may rework portion 0

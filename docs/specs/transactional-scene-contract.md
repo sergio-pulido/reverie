@@ -111,13 +111,17 @@ is part of the spec rather than a caveat on it. Verified in the code:
 | --- | --- |
 | `jam_proposals` status | Supabase Postgres, under RLS |
 | The script and its revisions | The Node process — `InMemoryJamStore` is the only implementation of `JamStore` (`apps/server/jams.ts:138`), and **no server code references `jam_scripts` or `jam_script_revisions` at all**; that migration exists and nothing reads it |
-| The playback cursor | The Node process — `PlaybackCoordinator` keeps its own `Map` (`apps/server/playback.ts:76`) |
-| The per-jam critical section | `withJamLock` (`apps/server/jams.ts:115`), a Node mutex |
+| The lock boundary | The Node process — derived from the live director's position on the script clock (`src/core/directorBeats.ts`), across a jam's open streams (`DirectorStreamRegistry`) |
+| The per-jam critical section | `withJamLock` (`apps/server/jams.ts:104`), a Node mutex |
 
-A Postgres `security definer` function cannot read a Node mutex, a `Map` in another process, or
-an in-memory script. So "the proposal becomes accepted **and** the story version increments, or
-neither does" has no mechanism today, and neither does reading the playback guard inside the
-same critical section as the commit.
+A Postgres `security definer` function cannot read a Node mutex, an in-memory script, or a
+stream position held in another process. So "the proposal becomes accepted **and** the story
+version increments, or neither does" has no mechanism today, and neither does reading the lock
+boundary inside the same critical section as the commit.
+
+The portion-playback pipeline that used to hold a cursor was deleted when the live director
+became the only video path, and that **did not** dissolve this problem — it moved where the
+boundary comes from without moving which process owns it.
 
 Three honest exits, none of which this document picks:
 
@@ -139,9 +143,11 @@ the code; the anchors above were re-verified here.)
 unread migrations — `jam_scripts`, `jam_script_revisions` (with `script jsonb`) and `jam_playback`
 — and the mechanism is prescribed in **two independent places** in the repository:
 
-- the comment on the `JamStore` interface (`apps/server/jams.ts:44-47`) requires that a Supabase
-  implementation serialize per-jam mutations — `updatePortion`, `revertScriptToRevision`,
-  `updatePlayback` — with, for example, a transaction holding a row lock on the jam's script row;
+- the comment on the `JamStore` interface (`apps/server/jams.ts:39-42`) requires that a Supabase
+  implementation serialize per-jam mutations with, for example, a transaction holding a row lock
+  on the jam's script row. Read its example list with care: it names `updatePlayback`, which no
+  longer exists — the comment outlived the method when the portion pipeline was deleted. The
+  prescription holds for the mutations that remain, `updatePortion` and `revertScriptToRevision`;
 - the trailing note in the structured-revisions migration
   (`supabase/migrations/20260919190000_structured_script_revisions.sql:40-41`, after the
   `jam_playback` policies) instructs to take a transaction-level lock on the jam's `jam_scripts`
@@ -159,12 +165,19 @@ to be `security definer` functions — the pattern `request_jam_admission` and
 `set_jam_member_status` already use. If exit 1 is taken, claims 1 and 7 hold simultaneously and
 this contract is implementable as written.
 
-**A defect the current arrangement hides, and exit 1 also fixes.** `withJamLock` is an in-process
-mutex. The routers it protects are mounted only in the local Express host today, so it works; the
-moment they are deployed as Vercel functions, many instances run at once and a per-process mutex
-serializes nothing. The existing portion-edit and revert protection is therefore correct locally
-and silently insufficient once deployed. Any exit that keeps serialization in Node must replace
-that mutex with something cross-instance; exit 1 gets it from the database transaction.
+**A defect the current arrangement hides, and exit 1 also fixes.** `withJamLock`
+(`apps/server/jams.ts:104`) is an in-process mutex. The routers it protects are mounted only in
+the local Express host today, so it works; the moment they are deployed as Vercel functions, many
+instances run at once and a per-process mutex serializes nothing — each invocation gets its own
+empty map, and concurrent edits race with no error and no warning. Any exit that keeps
+serialization in Node must replace that mutex with something cross-instance; exit 1 gets it from
+the database transaction.
+
+Deleting the portion pipeline narrowed this without closing it. The playback compare-and-swap it
+used to guard is gone, but the mutex still wraps the two mutations that remain — the portion-edit
+and revert routes — and those are precisely the ones the lock boundary protects. The exposure is
+one subsystem's worth rather than three, and it matters more than before, because the boundary
+being enforced is now real.
 
 ## Voting — one mechanism, shown for its requirements
 
@@ -203,21 +216,41 @@ rule is already satisfied. It commits **atomically**:
 Either all of that lands or none of it does. A partially accepted turn — a proposal marked
 accepted while the story version stands still — is the failure this contract exists to prevent.
 
-## Interaction with the portion lock window
+## Interaction with the beat lock window
 
-Portion playback is already implemented and already owns a lock boundary
-(`docs/API_CONTRACTS.md`, "Portion playback, locking, and video generation"): portions at or
-below `currentPortionIndex + 1` are immutable, and any edit touching them is refused with
-`portion_locked`.
+The script's tail is already protected, and the protection is real rather than nominal. Per
+`docs/API_CONTRACTS.md`, "Beat locking and the live director": **the lock window comes from the
+stream.** A live director generates ahead of playback, so by the time a viewer sees beat N the
+provider is already committed to N+1. `src/core/directorBeats.ts` derives the window from where
+the stream has reached on the script clock:
+
+- `beatIndex <= currentBeatIndex`: immutable (played or playing).
+- `beatIndex == currentBeatIndex + 1`: **locked** — already with the provider.
+- `beatIndex >= currentBeatIndex + 2`: freely editable.
+
+Two properties of that source matter to this contract and did not hold under the old
+portion-cursor model. **With no stream open, nothing is locked** — so an acceptance that would be
+refused mid-session succeeds before one starts, and the same command is not idempotent across
+that transition. And beat `0` is locked before the first chunk arrives, because `configure`
+carried the whole script to the provider when the session opened. A jam may hold one stream per
+configuration, and an edit is safe only if it is ahead of all of them, so the **strictest** open
+stream sets the boundary (`DirectorStreamRegistry`).
+
+This boundary is newly load-bearing. The predecessor `PlaybackGuard` defaulted to "everything
+editable" and was never wired, so `portion_locked` could not fire at all; every statement below
+was theoretical when first written and is now enforced.
 
 An accepted scene turn is an edit like any other, and **the lock boundary wins**:
 
-- An acceptance whose committed change would touch a played or locked portion is refused with
-  `portion_locked`, carrying the locked index and the playback `stateVersion`. It is not
-  silently dropped and not partially applied.
-- The playback guard must be read **inside the same per-jam critical section** as the acceptance
-  commit, exactly as the portion-edit router already does, so the boundary cannot move between
-  check and write.
+- An acceptance whose committed change would touch a played or locked beat is refused with
+  `portion_locked`, carrying the boundary it violated. It is not silently dropped and not
+  partially applied. `portion_locked` answers a script `PATCH` or revert; a direction naming a
+  closed beat is refused with `beat_locked`. Same boundary, two doors, and an acceptance that
+  produces both a script edit and a direction must not be able to pass one and fail the other.
+- The guard must be read **inside the same per-jam critical section** as the acceptance commit,
+  exactly as the portion-edit router already does, so the boundary cannot move between check and
+  write. Note what the boundary now depends on: a stream advancing in real time. It can move
+  between two reads for reasons that have nothing to do with the commit.
 - **The critical section must not contain a provider call.** If accepting a turn triggers work
   that calls a model — the outline cascade in `docs/specs/story-outline.md` is one completion —
   holding `withJamLock` across it freezes the room for the length of a generation. Compute
@@ -225,11 +258,14 @@ An accepted scene turn is an edit like any other, and **the lock boundary wins**
   if the boundary moved meanwhile. The check is also smaller than it looks: the lock window is a
   **prefix**, and a forward-only cascade need only test the earliest portion it touches.
 - Structural edits remain forbidden in v1. An accepted turn rewrites the content fields of
-  freely-editable portions; it does not insert, delete or reorder them, because flat portion
-  indices are the address used by generation job keys.
+  freely-editable portions; it does not insert, delete or reorder them. The justification has
+  changed with the pipeline — flat indices are no longer a generation job key, because there are
+  no per-portion generation jobs — but it has not weakened: `portionIndex` is the single address
+  shared by script edits and by the director's beats, so renumbering would silently re-aim every
+  open stream's boundary.
 
-This is the constraint most likely to be missed: the scene contract is a *story* contract, but
-it commits into a script whose tail is already being bought as video.
+This is the constraint most likely to be missed: the scene contract is a *story* contract, but it
+commits into a script whose tail a provider is already generating from.
 
 ## Generation, and what a failure means
 
@@ -299,8 +335,9 @@ deciding whether it is accepted — are different objects. Both are wanted. Both
 - How a story version relates to a fork point — see
   `docs/specs/script-forking-and-chat-editing.md`, which needs a declared past version to fork
   from and would be the first consumer of story versioning.
-- Whether the durable playback cursor (currently in-memory only) must land first, since a
-  restart today returns a jam to `idle` while its clips remain.
+- What supplies serialization, now that nothing in `JamStore` does. The compare-and-swap that
+  used to live on the playback record went with it, so whichever exit is taken has to build
+  serialization rather than inherit it.
 - Which of the three exits in "Prerequisite" is taken. Nothing below it can be built until then.
 
 ## Implementation status
@@ -311,7 +348,12 @@ around a scene commit. What exists is the refusal: `jam_proposals.status` has th
 vocabulary and **no update policy**, so the illegal path is closed even though the legal one is
 not open. See the register in `docs/specs/intended-vs-implemented.md`.
 
-The compare-and-swap *mechanism* does exist elsewhere and should be reused rather than
-reinvented: `JamStore.updatePlayback` guards on `stateVersion` and fails with
-`stale_state_version` (`apps/server/jams.ts`), and the per-jam critical section that serializes
-portion mutations is in the same module.
+**There is no longer a compare-and-swap anywhere in `JamStore` to reuse.** An earlier draft of
+this spec pointed at `updatePlayback`, which guarded on `stateVersion` and failed with
+`stale_state_version`; it was deleted with the portion pipeline, along with `getPlayback`. The
+interface is now `createJam`, `getJam`, `updatePortion`, `revertScriptToRevision`,
+`getScriptRevision`, `getScriptAtRevision`, `getCurrentScriptRevision` and `listScriptRevisions`
+— append-only history with no version guard. So `expectedStateVersion` has to be built, not
+adopted. What does survive and should be built on: `withJamLock`, `PlaybackGuard`,
+`minEditablePortionIndex` and `PortionLockedError` (`apps/server/jams.ts`), and the beat window
+in `src/core/directorBeats.ts` that now drives them.

@@ -1004,10 +1004,14 @@ shift while it grows.
   adopted; both land through the same command envelope as scene acceptance
   (`expectedStateVersion`, idempotent `requestId`, serialized commit), and all of them are
   refused with `portion_locked` where they would touch a played or locked portion.
-- The already-implemented portion lock window is the constraint these specs are written around
-  rather than against: a fork may edit any portion, and may not always be adopted; an accepted
-  scene turn is an edit like any other; structural edits stay forbidden because flat portion
-  indices are the generation job key.
+- The beat lock window is the constraint these specs are written around rather than against: a
+  fork may edit any beat, and may not always be adopted; an accepted turn is an edit like any
+  other; structural edits stay forbidden because `portionIndex` is the single address shared by
+  script edits and the director's beats, so renumbering would re-aim every open stream's
+  boundary. After RV-16 the window comes from the live director's position on the script clock
+  (`src/core/directorBeats.ts`) rather than a portion cursor — the rule is unchanged, its source
+  is not, and it is enforced for the first time: the predecessor guard defaulted to "everything
+  editable" and was never wired, so `portion_locked` could not previously fire.
 - `docs/specs/intended-vs-implemented.md` gains seven rows and cross-links, `docs/API_CONTRACTS.md`
   gains the planned fork, chat and reference routes plus the vote/accept RPC shape, and
   `docs/STATE_MACHINE.md` now marks the scene lifecycle as wholly unimplemented and the
@@ -1031,9 +1035,13 @@ shift while it grows.
   and voting appears only as one mechanism among several, shown for what the envelope must carry
   rather than as the way the product decides. Centralization is what lets the envelope, the
   version counter and the lock boundary be written once instead of per mechanism.
-- Also recorded there: `withJamLock` is an in-process mutex, so the serialization protecting
-  portion edits and reverts today is correct in the local Express host and silently insufficient
-  the moment those routers deploy as Vercel functions, where many instances run at once.
+- Also recorded there, and now a register row of its own: `withJamLock` is an in-process mutex, so
+  the serialization protecting portion edits and reverts is correct in the local Express host and
+  silently insufficient the moment those routers deploy as Vercel functions, where each instance
+  holds its own map. Deleting the portion pipeline narrowed this gap without closing it — the
+  playback compare-and-swap it guarded is gone, but the mutex still wraps the two mutations the
+  lock boundary protects. Relatedly, `JamStore` no longer holds a compare-and-swap of any kind,
+  so `expectedStateVersion` has to be built rather than adopted.
 - **Documentation only.** No application code, test, migration or provider call was added or
   changed in this slice, and nothing here is a claim that any of it works.
 

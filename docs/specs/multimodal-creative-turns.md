@@ -64,7 +64,9 @@ The rules that make it safe are the ones live media already proved, applied to s
 **Image and video clip (upload).** The missing pipeline. `reference.upload.request` returns a
 short-lived, server-authorized destination; the bytes go to a **private bucket with no
 `storage.objects` policies**, reachable only by the server — the arrangement already used for
-generated clips (`jam-portions`, `apps/server/supabaseMedia.ts`). `reference.upload.complete`
+director recordings, whose Supabase Storage configuration lives in
+`apps/server/objectStorage.ts` (the per-portion clip store it replaced, `supabaseMedia.ts`, was
+deleted with the portion pipeline). `reference.upload.complete`
 moves the descriptor to `normalized`, and participants receive our own bytes through our own
 route, never a storage or provider URL. Per-jam count and total-size caps are required, and they
 are storage caps, not spend caps.

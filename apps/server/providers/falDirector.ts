@@ -1,6 +1,5 @@
 import { z } from "zod";
 import type { JamScript } from "../../../src/core/script";
-import { flattenPortions } from "../../../src/core/playback";
 
 /**
  * MiniMax H3 Max Director: a realtime, directable video stream.
@@ -56,6 +55,17 @@ export interface DirectorConfig {
   apiKey: string;
   resolution: "480p" | "768p" | "1080p";
   aspectRatio: "16:9" | "9:16" | "1:1";
+  /**
+   * Whether to capture the incoming media track.
+   *
+   * Off by default, and that default is a measured one: capturing 480p at 24fps
+   * drove the Node process to 99% CPU and blocked the event loop outright, so
+   * the server stopped answering — including the route that stops the paid
+   * session. Depacketizing and muxing RTP on the same thread that serves HTTP
+   * does not work. Until that runs off-thread (RV-18), a session that only
+   * directs and audits is safe and one that records is not.
+   */
+  record: boolean;
 }
 
 const resolutionSchema = z.enum(["480p", "768p", "1080p"]).catch("768p");
@@ -77,6 +87,7 @@ export function resolveDirectorConfig(
     apiKey,
     resolution: resolutionSchema.parse(env.REVERIE_DIRECTOR_RESOLUTION?.trim()),
     aspectRatio: aspectRatioSchema.parse(env.REVERIE_DIRECTOR_ASPECT_RATIO?.trim()),
+    record: env.REVERIE_DIRECTOR_RECORD === "true",
   };
 }
 
@@ -101,10 +112,12 @@ export interface DirectorScriptBeat {
 export function buildDirectorScript(script: JamScript): DirectorScriptBeat[] {
   const beats: DirectorScriptBeat[] = [];
   let offset = 0;
-  for (const flat of flattenPortions(script)) {
-    if (beats.length >= DIRECTOR_MAX_SCRIPT_BEATS) break;
-    beats.push({ offset, prompt: describePortion(flat.portion) });
-    offset += flat.portion.durationSeconds;
+  for (const scene of script.scenes) {
+    for (const portion of scene.portions) {
+      if (beats.length >= DIRECTOR_MAX_SCRIPT_BEATS) return beats;
+      beats.push({ offset, prompt: describePortion(portion) });
+      offset += portion.durationSeconds;
+    }
   }
   return beats;
 }

@@ -1,17 +1,16 @@
 import type { DirectorRecordingSink } from "./directorStream";
 import {
   MediaStorageError,
-  resolvePortionStorageConfig,
-  type PortionStorageConfig,
-} from "./supabaseMedia";
+  resolveObjectStorageConfig,
+  type ObjectStorageConfig,
+} from "./objectStorage";
 
 /**
  * Where a finished director recording is kept.
  *
- * Separate from `PortionMediaStore` on purpose: that store is keyed by portion
- * index and capped per jam, and a director recording is neither a portion nor
- * bounded by the script's portion count. It shares the bucket, under its own
- * prefix, so one storage credential covers both.
+ * A recording is one session's whole stream, so it is stored under its session
+ * id rather than sliced. It keeps its own `director/` prefix in the bucket so a
+ * future consumer of the same bucket cannot collide with it.
  *
  * `durable` is reported honestly. Without a service-role key the recording
  * stays in memory and is lost on restart, and the API says so rather than
@@ -77,7 +76,7 @@ export class SupabaseDirectorRecordingStore implements DirectorRecordingStore {
   private readonly fetchImpl: typeof fetch;
 
   constructor(
-    private readonly config: PortionStorageConfig,
+    private readonly config: ObjectStorageConfig,
     options: SupabaseRecordingOptions = {},
   ) {
     this.fetchImpl = options.fetchImpl ?? fetch;
@@ -150,7 +149,7 @@ export class SupabaseDirectorRecordingStore implements DirectorRecordingStore {
 export function resolveDirectorRecordingStore(
   env: NodeJS.ProcessEnv = process.env,
 ): DirectorRecordingStore {
-  const config = resolvePortionStorageConfig(env);
+  const config = resolveObjectStorageConfig(env);
   return config
     ? new SupabaseDirectorRecordingStore(config)
     : new InMemoryDirectorRecordingStore();

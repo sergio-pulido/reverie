@@ -14,7 +14,7 @@ import { DirectorStream, type DirectorPeer } from "./directorStream";
 import {
   configurationKey,
   DEFAULT_CONFIGURATION,
-} from "../../src/core/portionPlayback";
+} from "../../src/core/configuration";
 import { sessionSettingsSchema } from "../../src/core/session";
 import {
   DirectorError,
@@ -58,10 +58,50 @@ const attachSchema = z
   })
   .optional();
 
+/**
+ * The live streams this process holds, so the script routes can read the same
+ * lock boundary the director enforces.
+ *
+ * A beat edit IS a script edit: refusing direction on a closed beat while
+ * letting a PATCH rewrite the same portion would leave two different answers
+ * to one question. Both read this.
+ */
+export class DirectorStreamRegistry {
+  private readonly bySession = new Map<string, DirectorStream>();
+
+  set(sessionId: string, stream: DirectorStream): void {
+    this.bySession.set(sessionId, stream);
+  }
+
+  get(sessionId: string): DirectorStream | undefined {
+    return this.bySession.get(sessionId);
+  }
+
+  delete(sessionId: string): void {
+    this.bySession.delete(sessionId);
+  }
+
+  /**
+   * First portion a script edit may still touch for this jam.
+   *
+   * The strictest open stream wins: a jam can carry one stream per
+   * configuration, and an edit is only safe if it is ahead of all of them.
+   */
+  minEditablePortionIndex(jamId: string): number {
+    let boundary = 0;
+    for (const stream of this.bySession.values()) {
+      if (stream.jamId !== jamId) continue;
+      boundary = Math.max(boundary, stream.beats.minEditableBeatIndex);
+    }
+    return boundary;
+  }
+}
+
 export interface DirectorRouterOptions {
   config?: DirectorConfig | null;
   limits?: DirectorSessionLimits;
   recordings?: DirectorRecordingStore;
+  registry?: DirectorStreamRegistry;
   startSession?: typeof startDirectorSession;
   /** Injected in tests so routes do not open real peer connections. */
   createPeer?: () => DirectorPeer;
@@ -76,8 +116,7 @@ export function createDirectorRouter(
   const limits = options.limits ?? resolveDirectorLimits(process.env);
   const ledger = new DirectorSessionLedger(limits, options.now);
   const recordings = options.recordings ?? resolveDirectorRecordingStore();
-  /** Live streams, keyed by session id. */
-  const streams = new Map<string, DirectorStream>();
+  const streams = options.registry ?? new DirectorStreamRegistry();
   let resolved = false;
   let config: DirectorConfig | null = options.config ?? null;
 

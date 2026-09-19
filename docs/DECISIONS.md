@@ -1,5 +1,66 @@
 # Decisions
 
+## 2026-09-19 — Capturing the director's media on the server thread blocks the server (RV-16)
+
+Measured, not predicted. With a real session running at 480p, the Node process sat at **99% CPU**
+and the event loop stopped: `/api/health` timed out, and so did
+`POST /api/jams/:id/director/session/:sessionId/end` — **the route that stops the paid session**.
+The server had to be killed, which drops the peer without telling fal to stop, and fal's
+`max_session_seconds` is 900.
+
+Depacketizing RTP and muxing WebM on the same thread that serves HTTP does not work. Recording is
+therefore **opt-in and off by default** (`REVERIE_DIRECTOR_RECORD`), and `DirectorStream` discards
+the track unless it is set. The control path — opening a session, sending direction, recording the
+audit trail, enforcing the beat lock — does not touch media and is unaffected.
+
+This makes the honest split visible: **direction and audit are proven; capture is not.** Moving
+capture off-thread (a worker, or a separate process) is RV-18's problem, and RV-19's delivery work
+inherits the same constraint. Neither should assume the main thread can carry media.
+
+The cost lesson is separate and worth stating on its own: a server that cannot answer is a server
+that cannot stop spending. Any future media work needs the stop path to survive the media path.
+
+## 2026-09-19 — The portion-by-portion pipeline is removed; the director is the only video path (RV-16)
+
+Reverie generated a film as a queue of per-portion clips: lock portion N, submit it to a
+text-to-video model, download the result, store it, play it, advance. That whole path is
+**deleted**. There is one way to make video now, and it is the live director.
+
+Removed: the portion player and its hook (`JamPlayer`, `usePortionPlayback`), the viewer rules
+(`src/core/portionPlayback.ts`), the typed client (`src/lib/portionPlayback.ts`), the shared
+playback clock (`PlaybackBar`, `usePlaybackClock`, `src/core/playbackClock.ts`, `src/lib/playback.ts`),
+the server coordinator and its routes (`apps/server/playback.ts`), per-portion clip storage
+(`apps/server/media.ts`, `apps/server/supabaseMedia.ts`), and the queue model adapter with its
+allowlist (`apps/server/providers/fal.ts`, `falModels.ts`) — whose only consumer was that
+pipeline. `FAL_MODEL` is gone with it: there is no queue model to select.
+
+`JamStore.getPlayback`/`updatePlayback` are removed too. They were the persistence seam for the
+portion cursor and, per the RV-14 handover, nothing ever wired them; with the pipeline gone they
+had no possible consumer.
+
+**What survived, and where it went.** `configurationKey` / `DEFAULT_CONFIGURATION` moved to
+`src/core/configuration.ts` — they key director streams, which is now their only job. The
+Supabase Storage config moved to `apps/server/objectStorage.ts`, since director recordings use
+the same bucket and credential. `flattenPortions` had one remaining caller and was inlined.
+
+**The script-edit lock now has a driver again.** `PlaybackGuard` existed but defaulted to
+"everything editable" and was never wired, so `portion_locked` could never fire. It is now driven
+by the director's beat window through `DirectorStreamRegistry`: a jam's strictest open stream
+sets `minEditablePortionIndex`. A beat edit *is* a script edit, so refusing direction on a closed
+beat while letting a `PATCH` rewrite the same portion would have left two different answers to
+one question.
+
+**Two things are deliberately left behind rather than deleted.** The `jam_playback` migrations
+(`20260919190000`, `20260919225000`, `20260919230000`) stay: applied migrations are history, and
+rewriting them would diverge every database that has run them. The table is now unused. And
+`docs/reviews/review-2026-09-19-fal-playback-pipeline.md` stays as the record of a review that
+happened, about code that no longer exists.
+
+**What this costs.** Nothing in this build stores a finished film any more. A director recording
+is one session's stream, kept under `director/<jamId>/<sessionId>.webm`, and the durable
+reproduction of a jam is RV-18's work. Until then, stopping a stream is the only way to keep it,
+and a server without a service-role key keeps it only in memory.
+
 ## 2026-09-19 — Probe receipt: the director handshake works, and it speaks SSE (RV-16)
 
 First live run of `minimax/h3-max/director` with a valid key, via

@@ -18,6 +18,7 @@ const CONFIG: DirectorConfig = {
   apiKey: "test-key",
   resolution: "768p",
   aspectRatio: "16:9",
+  record: false,
 };
 
 // Roomy on purpose: every closed session bills fal's 60-second minimum, so a
@@ -515,4 +516,33 @@ test("before the first chunk the opening beat is already closed", async () => {
   assert.equal((await response.json()).error.code, "beat_locked");
 
   await endSession(jam.id, sessionId);
+});
+
+test("the registry reports the strictest open stream for a jam", async () => {
+  const { DirectorStreamRegistry } = await import("../apps/server/director");
+  const registry = new DirectorStreamRegistry();
+  // No stream: nothing is locked, so every portion stays editable.
+  assert.equal(registry.minEditablePortionIndex("jam-a"), 0);
+
+  registry.set("s1", {
+    jamId: "jam-a",
+    beats: { currentBeatIndex: 1, lockedBeatIndex: 2, minEditableBeatIndex: 3 },
+  } as never);
+  registry.set("s2", {
+    jamId: "jam-a",
+    beats: { currentBeatIndex: 3, lockedBeatIndex: 4, minEditableBeatIndex: 5 },
+  } as never);
+  registry.set("s3", {
+    jamId: "other-jam",
+    beats: { currentBeatIndex: 9, lockedBeatIndex: 10, minEditableBeatIndex: 11 },
+  } as never);
+
+  // A jam can hold one stream per configuration, and an edit is only safe if
+  // it is ahead of all of them, so the strictest wins.
+  assert.equal(registry.minEditablePortionIndex("jam-a"), 5);
+  // Another jam's streams do not lock this one.
+  assert.equal(registry.minEditablePortionIndex("nobody"), 0);
+
+  registry.delete("s2");
+  assert.equal(registry.minEditablePortionIndex("jam-a"), 3);
 });

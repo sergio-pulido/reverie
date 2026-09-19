@@ -125,6 +125,11 @@ export class DirectorStream {
     this.audit = new DirectorAuditLog(options.now);
   }
 
+  /** The jam this stream belongs to, for callers holding many streams. */
+  get jamId(): string {
+    return this.options.jamId;
+  }
+
   get snapshot(): DirectorState {
     return this.state;
   }
@@ -295,6 +300,10 @@ export class DirectorStream {
    * WebM into the media store would leave an unplayable object behind.
    */
   private async onTrack(track: MediaStreamTrack): Promise<void> {
+    // Capturing media on this thread blocks the event loop hard enough to take
+    // the whole server with it; see DirectorConfig.record. The track is left
+    // to be discarded rather than muxed.
+    if (!this.options.config.record) return;
     if (this.recorder) {
       await this.recorder.addTrack(track);
       return;

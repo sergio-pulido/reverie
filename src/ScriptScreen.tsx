@@ -1,6 +1,6 @@
 import { FormEvent, useMemo, useState } from "react";
 import { Footer } from "./chrome";
-import { JamPlayer } from "./screens/JamPlayer";
+import { JamDirector } from "./screens/JamDirector";
 import { readJamConfiguration, rememberJamSession } from "./lib/jamConfiguration";
 import type { Jam } from "./core/jam";
 import type { JamSession } from "./core/session";
@@ -26,7 +26,7 @@ type ScriptScreenProps = {
 };
 
 export function ScriptScreen({ jam, roomTitle, onStudio }: ScriptScreenProps) {
-  // The creator's own session, so the player runs under the configuration this
+  // The creator's own session, so the stream runs under the configuration this
   // viewer chose rather than the room default.
   const [session, setSession] = useState<JamSession | null>(null);
   const configuration = useMemo(
@@ -50,7 +50,7 @@ export function ScriptScreen({ jam, roomTitle, onStudio }: ScriptScreenProps) {
         </div>
       </header>
       <SessionPanel jam={jam} session={session} onSession={setSession} />
-      <JamPlayer jamId={jam.id} canDrive configuration={configuration} />
+      <JamDirector jamId={jam.id} canDrive configuration={configuration} />
       {jam.script.scenes.map((scene, sceneIndex) => (
         <article key={sceneIndex} className="jam-scene">
           <h2>Scene {sceneIndex + 1} — {scene.heading}</h2>

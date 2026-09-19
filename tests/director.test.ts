@@ -126,7 +126,12 @@ function eventStream(frames: string[], contentType = "text/event-stream; charset
   return new Response(body, { status: 200, headers: { "content-type": contentType } });
 }
 
-const CONFIG = { apiKey: "k", resolution: "768p", aspectRatio: "16:9" } as const;
+const CONFIG = {
+  apiKey: "k",
+  resolution: "768p",
+  aspectRatio: "16:9",
+  record: false,
+} as const;
 
 test("the answer is read from the event stream fal actually returns", async () => {
   // This is the bug that made a real session fail: the endpoint answers
@@ -199,4 +204,19 @@ test("a stream that never carries an answer fails as retryable", async () => {
   } finally {
     globalThis.fetch = original;
   }
+});
+
+test("recording is off unless asked for, because it blocks the event loop", () => {
+  // Measured, not cautious: capturing 480p/24fps pinned the Node process at
+  // 99% CPU and stopped the server answering, including the route that ends
+  // the paid session. It stays opt-in until capture runs off-thread.
+  assert.equal(resolveDirectorConfig(LIVE)?.record, false);
+  assert.equal(
+    resolveDirectorConfig({ ...LIVE, REVERIE_DIRECTOR_RECORD: "true" })?.record,
+    true,
+  );
+  assert.equal(
+    resolveDirectorConfig({ ...LIVE, REVERIE_DIRECTOR_RECORD: "TRUE" })?.record,
+    false,
+  );
 });

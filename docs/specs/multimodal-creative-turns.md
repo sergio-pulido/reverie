@@ -69,13 +69,25 @@ moves the descriptor to `normalized`, and participants receive our own bytes thr
 route, never a storage or provider URL. Per-jam count and total-size caps are required, and they
 are storage caps, not spend caps.
 
-**Voice.** `audio.start` / `audio.stop` frame a capture; `transcript.partial` and
-`transcript.final` carry the result. **Raw audio is transient** — the standing rule in
-`AGENTS.md`. The durable artifact is the final transcript, treated as participant text: data,
-validated, never executable, never HTML. A transcript becomes a proposal only by the speaker
-attaching it; speech is not a command channel, and nothing in the room acts on words merely
-because they were said. No speech-to-text adapter exists; it would be a provider behind the same
-allowlist, concurrency gate and spend caps as every other paid call.
+**Voice.** The speech-to-text half of this **already exists and should be reused, not rebuilt.**
+`apps/server/providers/slng.ts` is a typed SLNG adapter with a server-owned model allowlist
+(`slng/deepgram/nova:3-en`), and it is reachable two ways: `POST /api/voice/transcribe` (one
+recording in, one final transcript out, 20/minute, 4 concurrent, 15 s timeout, 1,000,000-byte
+cap) and a WebSocket relay at `/api/voice/stream` for live partials on the long-lived Node
+server. Audio is held in memory for the call and never written or logged. It is probed and
+documented in `docs/API_CONTRACTS.md` and `docs/DECISIONS.md`.
+
+What does not exist is **voice in the jam room**. That adapter is scoped to Discover: it
+transcribes a viewer's search request, and the transcript lands in a conversation field. Making
+voice a creative turn needs the jam-scoped commands `audio.start` / `audio.stop`, the
+`transcript.partial` / `transcript.final` events, room-scoped authorization instead of
+Discover's, and the attachment path below — not a new provider.
+
+**Raw audio stays transient** — the standing rule in `AGENTS.md`, and what the adapter already
+does. The durable artifact is the final transcript, treated as participant text: data, validated,
+never executable, never HTML. A transcript becomes a proposal only by the speaker attaching it;
+speech is not a command channel, and nothing in the room acts on words merely because they were
+said.
 
 **Live camera as a reference.** A participant already on the stage may **capture a frame** as a
 stored reference. That capture is a distinct act with its own consent — being live is permission
@@ -145,6 +157,21 @@ proposal. `jam_proposals` accepts text only.
 **Implemented and not to be re-specified:** live camera, microphone and screen transport through
 Vonage; `POST /api/live/token` with membership-derived roles; the `jam_live_consents` register
 with server-stamped `asset_ref`, clamped expiry and `withdraw_live_consent`; Realtime delivery of
-consent changes. Recording, archiving, broadcast, RTMP and export are explicitly out of scope
-there and are not brought into scope here. See `docs/specs/jam-live-media-vonage.md` and the
-register in `docs/specs/intended-vs-implemented.md`.
+consent changes; and the SLNG speech-to-text adapter described above. See
+`docs/specs/jam-live-media-vonage.md` and the register in
+`docs/specs/intended-vs-implemented.md`.
+
+**Two directions share the word "broadcast" and must not be conflated.** Everything above is
+*participant media travelling inward* — a person's camera, microphone or screen reaching the
+room. The exclusions in `docs/specs/jam-live-media-vonage.md` (recording, archiving, broadcast,
+RTMP, export, fal.ai transformation of a participant's feed) are about that inbound direction,
+they remain correct, and this document does not bring any of them into scope.
+
+*Generated output travelling outward* — the director stream going to many viewers — is a
+different feature with a different transport, and work is in flight on branches that have not
+merged: live HLS delivery of the generated stream, and durable per-segment archiving of it. Read
+nothing here as a claim that Reverie cannot broadcast a generated stream to multiple viewers.
+None of that provider path has been probed, so it is "implemented, unprobed" at best until a
+dated receipt exists in `docs/DECISIONS.md`; the sessions building it own its documentation,
+including refreshing the implementation status of
+`docs/specs/configuration-keyed-streams.md`, which their work makes stale.

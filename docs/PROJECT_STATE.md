@@ -1012,6 +1012,18 @@ shift while it grows.
   gains the planned fork, chat and reference routes plus the vote/accept RPC shape, and
   `docs/STATE_MACHINE.md` now marks the scene lifecycle as wholly unimplemented and the
   media-reference lifecycle as live-only.
+- Reconciled against every active workstream before landing, which corrected three claims. The
+  scene contract now opens with a **prerequisite**: its atomic commit crosses two systems, because
+  `jam_proposals` is in Postgres while the script (`InMemoryJamStore` is the only `JamStore`;
+  nothing reads `jam_scripts`), the playback cursor and `withJamLock` are all in the Node process
+  — so the acceptance path must not be built, or called atomic, until one of three named exits is
+  chosen. Voice is no longer described as missing: the SLNG speech-to-text adapter exists and is
+  Discover-scoped, so the jam room needs room-scoped commands and an attachment path, not a
+  provider. And the live-media exclusions are now explicitly about participant media travelling
+  inward, distinct from a generated stream travelling outward to viewers.
+- The scene contract and `docs/specs/story-outline.md` are two halves of one path — this one is
+  the gate, the outline is what the change is — with one question left open for the user rather
+  than settled between agents: whether a beat edit is gated by a vote at all.
 - **Documentation only.** No application code, test, migration or provider call was added or
   changed in this slice, and nothing here is a claim that any of it works.
 

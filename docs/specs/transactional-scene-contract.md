@@ -33,6 +33,14 @@ step, and the Studio says so on screen (`src/screens/Studio.tsx`).
 Story version and `stateVersion` are distinct on purpose: two votes then an acceptance move
 `stateVersion` three times and story version once.
 
+A third counter already exists and must not be duplicated blindly:
+`scriptRevisionSchema.revision` (`src/core/scriptHistory.ts`) is a monotonic per-jam integer over
+an append-only log. It is not the same as a story version — a revert increments the revision and
+does not advance the story, and an accepted turn may produce one revision or none — but two
+monotonic per-jam counters over the same history is a smell. Either the story version is defined
+*in terms of* the revision log, or one of the two should go, and whichever is chosen needs a
+sentence of justification at the point of implementation.
+
 ## The command envelope
 
 Every state-changing command carries `schemaVersion`, `requestId`, `expectedStateVersion`,
@@ -60,6 +68,47 @@ delete policy on the rows that matter, and the constrained function is the only 
 Broadcast carries no authority. It cannot accept a scene, cast a vote or move a version — the
 same rule `docs/specs/jam-realtime-collaboration.md` already states for membership.
 
+**A warning from the nearest precedent.** `POST /api/jams/:id/playback/start` and `/advance` are
+host-only in `docs/API_CONTRACTS.md` and host-only in the UI, and the Express routes enforce
+nothing — any caller can drive playback and trigger paid generation. That gap is tracked as row
+12 of `docs/INCONSISTENCIES.md` (PR #8) and is unowned. "Host-only" written in a contract is not
+authorization; this spec's host and vote-rule checks must be enforced where the state changes,
+or acceptance will inherit exactly the same hole.
+
+## Prerequisite — the commit spans two systems today
+
+**This contract cannot be implemented as written until the proposal and the script live in one
+durable store.** The atomic commit below crosses a boundary that currently exists, and saying so
+is part of the spec rather than a caveat on it. Verified in the code:
+
+| What the commit touches | Where it lives today |
+| --- | --- |
+| `jam_proposals` status | Supabase Postgres, under RLS |
+| The script and its revisions | The Node process — `InMemoryJamStore` is the only implementation of `JamStore` (`apps/server/jams.ts:138`), and **no server code references `jam_scripts` or `jam_script_revisions` at all**; that migration exists and nothing reads it |
+| The playback cursor | The Node process — `PlaybackCoordinator` keeps its own `Map` (`apps/server/playback.ts:76`) |
+| The per-jam critical section | `withJamLock` (`apps/server/jams.ts:115`), a Node mutex |
+
+A Postgres `security definer` function cannot read a Node mutex, a `Map` in another process, or
+an in-memory script. So "the proposal becomes accepted **and** the story version increments, or
+neither does" has no mechanism today, and neither does reading the playback guard inside the
+same critical section as the commit.
+
+Three honest exits, none of which this document picks:
+
+1. **Move the script into Postgres first.** The migration is already written and unread, and the
+   durable-cursor gap is already on the register. Largest change, and the only one where the
+   whole contract holds as stated.
+2. **Let the Node server own acceptance,** reducing the RPC to the vote and authorization half.
+   Keeps atomicity, moves the authority boundary, and needs its own answer for how a Node process
+   authorizes against Supabase identity.
+3. **Bound the guarantee explicitly** — atomicity covers the Postgres half until the script is
+   durable — and say so wherever the contract is quoted.
+
+Until one is chosen, **do not implement the acceptance path and do not describe it as atomic.**
+Whichever is chosen, it is a decision to record in `docs/DECISIONS.md`, not an implementation
+detail. (This constraint was found by the RV-17 session while cross-checking this spec against
+the code; the anchors above were re-verified here.)
+
 ## Voting
 
 `vote.cast` records one active member's vote on one queued proposal.
@@ -81,7 +130,10 @@ rule is already satisfied. It commits **atomically**:
 
 - the named proposal becomes `accepted`;
 - every other proposal still `queued` in that turn becomes `superseded` — not `rejected`, which
-  is reserved for an explicit refusal;
+  is reserved for an explicit refusal. Under the outline model in
+  `docs/specs/story-outline.md` this is mechanical rather than conventional: an accepted edit
+  re-derives every beat after the edited one, so any other queued proposal aimed at a downstream
+  beat is stale **by construction**;
 - the story version increments by one;
 - `stateVersion` increments;
 - the scene enters `generating`.
@@ -104,6 +156,12 @@ An accepted scene turn is an edit like any other, and **the lock boundary wins**
 - The playback guard must be read **inside the same per-jam critical section** as the acceptance
   commit, exactly as the portion-edit router already does, so the boundary cannot move between
   check and write.
+- **The critical section must not contain a provider call.** If accepting a turn triggers work
+  that calls a model — the outline cascade in `docs/specs/story-outline.md` is one completion —
+  holding `withJamLock` across it freezes the room for the length of a generation. Compute
+  optimistically outside the lock, then take it once and commit, refusing with `portion_locked`
+  if the boundary moved meanwhile. The check is also smaller than it looks: the lock window is a
+  **prefix**, and a forward-only cascade need only test the earliest portion it touches.
 - Structural edits remain forbidden in v1. An accepted turn rewrites the content fields of
   freely-editable portions; it does not insert, delete or reorder them, because flat portion
   indices are the address used by generation job keys.
@@ -140,6 +198,28 @@ credential, a raw provider body or an internal prompt. This contract needs at le
 | `proposal_not_queued` | the named proposal is already accepted, rejected or superseded | no |
 | `not_active_member` | the caller is waiting, left or removed | no |
 
+## Relationship to the story outline
+
+`docs/specs/story-outline.md` (RV-17) specifies a layer between the script and the reader: one
+brief phrase — a **beat** — per portion, centralized so that many mechanisms (votes, chat, polls,
+direct rewrites) can change the story without each learning to edit a screenplay. An edit to a
+beat cascades forward and re-derives the script.
+
+The two documents meet at a clean seam and neither subsumes the other:
+
+- **This contract is the gate** — who may change the story, and the envelope the change travels
+  in.
+- **The outline is the change** — what a modification *is*, and what it does to the script.
+
+In the outline's terms a proposal is a proposed edit, and accepting one admits it to the outline
+queue. Read together they describe one path; read alone, each is missing the other half.
+
+**Unresolved between them:** whether a beat edit is gated by a vote at all. This spec assumes
+propose-and-accept; the outline's brief describes direct edits with a cascade and mentions no
+voting. Both can be true — edit rights without a formal vote is still a gate — but which one the
+product wants has not been decided, and it is the one question here that changes what gets built
+rather than how. It needs the user, not a reconciliation between two agents.
+
 ## Open questions (unspecified)
 
 - The vote rule itself — plurality, threshold, quorum, host veto — and whether it is per jam,
@@ -153,6 +233,9 @@ credential, a raw provider body or an internal prompt. This contract needs at le
   from and would be the first consumer of story versioning.
 - Whether the durable playback cursor (currently in-memory only) must land first, since a
   restart today returns a jam to `idle` while its clips remain.
+- Whether voting is the mechanism at all, or whether beat edit rights replace it — see
+  "Relationship to the story outline" above. This is a product decision, not a design gap.
+- Which of the three exits in "Prerequisite" is taken. Nothing below it can be built until then.
 
 ## Implementation status
 

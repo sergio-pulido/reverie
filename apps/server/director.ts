@@ -10,6 +10,10 @@ import {
   resolveDirectorRecordingStore,
   type DirectorRecordingStore,
 } from "./directorRecordings";
+import {
+  resolveDirectorIndexStore,
+  type DirectorIndexStore,
+} from "./directorIndex";
 import { DirectorStream, type DirectorPeer } from "./directorStream";
 import { attachViewer, type ViewerPeer } from "./directorViewers";
 import {
@@ -107,6 +111,7 @@ export interface DirectorRouterOptions {
   config?: DirectorConfig | null;
   limits?: DirectorSessionLimits;
   recordings?: DirectorRecordingStore;
+  index?: DirectorIndexStore;
   registry?: DirectorStreamRegistry;
   startSession?: typeof startDirectorSession;
   /** Injected in tests so routes do not open real peer connections. */
@@ -124,6 +129,7 @@ export function createDirectorRouter(
   const limits = options.limits ?? resolveDirectorLimits(process.env);
   const ledger = new DirectorSessionLedger(limits, options.now);
   const recordings = options.recordings ?? resolveDirectorRecordingStore();
+  const index = options.index ?? resolveDirectorIndexStore();
   const streams = options.registry ?? new DirectorStreamRegistry();
   /** Viewer peers, closed when the server tears down a session. */
   /**
@@ -231,6 +237,22 @@ export function createDirectorRouter(
       return;
     }
 
+    // The reproduction record opens with the session, not at the end of it:
+    // the audit rows reference it, and a session that dies mid-stream must
+    // still have somewhere for what it managed to record.
+    const revision = await store.getCurrentScriptRevision(jam.id).catch(() => null);
+    try {
+      await index.openSession({
+        id: session.sessionId,
+        jamId: jam.id,
+        configurationKey: configurationKey(configuration),
+        scriptRevision: revision?.revision ?? null,
+      });
+    } catch {
+      // A stream that cannot be indexed is still a stream the room asked for.
+      // It runs, and the API reports the archive as not durable.
+    }
+
     const stream = new DirectorStream({
       jamId: jam.id,
       sessionId: session.sessionId,
@@ -239,6 +261,12 @@ export function createDirectorRouter(
       sink: recordings,
       startSession: options.startSession,
       createPeer: options.createPeer,
+      // Fire-and-forget: a durable audit write that fails or hangs must not
+      // stall the stream it is describing, and the in-memory trail the live
+      // session reads is unaffected either way.
+      onAudit: (entry) => {
+        void index.recordAudit(session.sessionId, entry).catch(() => undefined);
+      },
     });
     try {
       await stream.open();
@@ -406,6 +434,9 @@ export function createDirectorRouter(
     // A room that has stopped is ended, and what remains of it is its
     // recording. Refused transitions are not an error here: ending twice is
     // the same idempotent teardown as the rest of this route.
+    // Closes the reproduction record too, so a session that ended cleanly is
+    // distinguishable from one whose process died.
+    await index.closeSession(request.params.sessionId).catch(() => undefined);
     const stopped = await store.advanceLifecycle(request.params.id, "stop");
     response.status(200).json({ lifecycle: stopped.lifecycle });
   });

@@ -1074,7 +1074,24 @@ truncates rather than corrupting the tail. Segments stay individually addressabl
 anything that wants to seek, and an HLS VOD playlist remains available later without
 changing what is stored.
 
-Verified by tests, including the reopened-tab case. **Not** verified with real
-director media: capture is still off by default (`REVERIE_DIRECTOR_RECORD`) until it
-runs off the main thread, so the archive has only been exercised with synthetic
-segments.
+**Known limit, unverified: seeking.** A concatenated fMP4 carries no `sidx` or
+fragment index, and players differ on whether they will scrub one — some play it
+start to finish happily and refuse to seek. The `<video controls>` element offers a
+scrub bar regardless, so if scrubbing matters it needs testing in Safari as well as
+Chrome, and the fix is the HLS VOD playlist over the same segment rows rather than a
+change to what is stored.
+
+Verified by tests, including the reopened-tab case, and end to end against the local
+stack's real Postgres: a session opened, a direction reached `jam_director_audit` as
+it was sent, and the room read `live` then `playing` then `ended`. **Not** verified
+with real director media: capture is still off by default
+(`REVERIE_DIRECTOR_RECORD`) until it runs off the main thread, so the archive has
+only been exercised with synthetic segments.
+
+**The audit trail is now durable.** `DirectorAuditLog` takes an optional listener and
+the director route writes each entry to `jam_director_audit` as it is recorded —
+fire-and-forget, so a durable write that fails or hangs cannot stall the stream it
+describes, and the bounded in-memory trail the live session reads is unaffected. The
+session row is opened WITH the session rather than at its end, because the audit rows
+reference it and a session that dies mid-stream must still have somewhere for what it
+managed to record.

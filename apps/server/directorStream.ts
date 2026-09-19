@@ -10,7 +10,11 @@ import {
   reduceDirectorState,
   type DirectorState,
 } from "../../src/core/directorProtocol";
-import { DirectorAuditLog, type DirectorAuditEntry } from "../../src/core/directorAudit";
+import {
+  DirectorAuditLog,
+  type DirectorAuditEntry,
+  type DirectorAuditListener,
+} from "../../src/core/directorAudit";
 import type { JamScript } from "../../src/core/script";
 import {
   beatOffsets,
@@ -59,6 +63,11 @@ export interface DirectorStreamOptions {
   /** Injected in tests; defaults to a real werift peer. */
   createPeer?: () => DirectorPeer;
   now?: () => Date;
+  /**
+   * Notified as each audit entry is recorded, so the trail can be written
+   * somewhere that outlives this process. The in-memory trail is unaffected.
+   */
+  onAudit?: DirectorAuditListener;
 }
 
 export interface DirectionRequest {
@@ -125,7 +134,7 @@ export class DirectorStream {
   private readonly trackListeners: ((track: MediaStreamTrack) => void)[] = [];
 
   constructor(private readonly options: DirectorStreamOptions) {
-    this.audit = new DirectorAuditLog(options.now);
+    this.audit = new DirectorAuditLog(options.now, options.onAudit);
   }
 
   /** The tracks fal is sending, for forwarding to viewers. */

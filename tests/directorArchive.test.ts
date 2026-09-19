@@ -8,6 +8,7 @@ import { InMemoryJamStore } from "../apps/server/jams";
 import { InMemoryDirectorIndexStore } from "../apps/server/directorIndex";
 import { InMemoryDirectorRecordingStore } from "../apps/server/directorRecordings";
 import { DirectorArchiveSink } from "../apps/server/directorArchive";
+import { DirectorAuditLog } from "../src/core/directorAudit";
 import { createDirectorArchiveRouter } from "../apps/server/directorArchiveRoutes";
 import { buildScript } from "./helpers";
 
@@ -246,4 +247,49 @@ test("a session that stored nothing has no video to play", async () => {
     `${baseUrl}/api/jams/${jam.id}/director/archive/sess-empty/video`,
   );
   assert.equal(response.status, 404);
+});
+
+test("a direction reaches the durable audit as it is sent, not at the end", async () => {
+  const log = new DirectorAuditLog(
+    () => new Date(0),
+    (entry) => {
+      void index.recordAudit("sess-live-audit", entry);
+    },
+  );
+  const jam = buildJam();
+  await store.createJam(jam);
+  await index.openSession({
+    id: "sess-live-audit",
+    jamId: jam.id,
+    configurationKey: "480p",
+  });
+
+  log.record({ kind: "session_opened" });
+  log.record({
+    kind: "direction_sent",
+    promptVersion: 1,
+    body: "Cut to the lighthouse.",
+    authorId: "author-1",
+    beatIndex: 2,
+    scriptOffsetSeconds: 4.5,
+  });
+
+  // Written as they happen: a process that dies here still has both, which is
+  // the whole reason the trail is not flushed at close.
+  const stored = await index.listAudit("sess-live-audit");
+  assert.deepEqual(stored.map((entry) => entry.kind), ["session_opened", "direction_sent"]);
+  assert.equal(stored[1].body, "Cut to the lighthouse.");
+  assert.equal(stored[1].beatIndex, 2);
+});
+
+test("a durable audit that fails does not disturb the live trail", async () => {
+  const log = new DirectorAuditLog(
+    () => new Date(0),
+    () => {
+      throw new Error("the index is unreachable");
+    },
+  );
+  log.record({ kind: "session_opened" });
+  // The stream keeps its own account of itself even when nothing can store it.
+  assert.deepEqual(log.all().map((entry) => entry.kind), ["session_opened"]);
 });

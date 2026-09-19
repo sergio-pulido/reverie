@@ -20,6 +20,7 @@ import { TurnFilms } from "./TurnFilms";
 import { useHoverPreview } from "./useHoverPreview";
 import { useRows, type Row } from "./useRows";
 import { useSearch } from "./useSearch";
+import { useViewport } from "./useViewport";
 import { useVoicePreview } from "./useVoicePreview";
 
 type SearchScreenProps = {
@@ -49,6 +50,7 @@ const NOT_A_REQUEST = "Say a little more: a film’s name, a genre, a mood.";
  */
 export function SearchScreen({ film, searchRequest, onOpenFilm, onCloseFilm, onStartJam }: SearchScreenProps) {
   const search = useSearch();
+  useViewport();
   const { refinement, conversation, pending, waiting } = search;
   const [draft, setDraft] = useState("");
   /** The draft came from speech and has not been sent: the pending line stays up, showing it. */

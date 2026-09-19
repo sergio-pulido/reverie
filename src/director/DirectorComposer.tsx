@@ -241,8 +241,9 @@ export function DirectorComposer({
           is short, and the reference you just picked cannot travel — and each
           one is its own line rather than the first hiding the rest. */}
       <div className="director-composer-notes" role="status">
-        {[...notes, note, voice.notice].filter(Boolean).map((line) => (
-          <p className="director-composer-note" key={line as string}>
+        {[...notes, note, voice.notice].filter(Boolean).map((line, index) => (
+          // eslint-disable-next-line react/no-array-index-key -- a fixed, ordered list of lines
+          <p className="director-composer-note" key={index}>
             {line}
           </p>
         ))}

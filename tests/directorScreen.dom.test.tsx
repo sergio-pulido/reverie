@@ -79,12 +79,19 @@ describe("where a Director session sits", () => {
     assert.equal(window.location.pathname, `/director/${SLUG}`);
   });
 
-  it("Back from the session leads to the Movie Jam list", async () => {
+  it("lands a remote on its bar, and Back from there leads to the Movie Jam list", async () => {
     server = await openDirector();
-    // From inside the page, Back first returns to the bar; from the bar it leaves.
-    await press("Escape", { allowLost: true });
-    await press("Escape");
+    assert.equal(focused().getAttribute("aria-current"), "page");
+    assert.equal(focused().textContent, "Movie Jam");
+    assert.equal(await press("Escape"), true);
     assert.equal(window.location.pathname, "/jams");
+  });
+
+  it("Down from the bar enters the page rather than leaving a remote nowhere", async () => {
+    server = await openDirector();
+    assert.equal(await press("ArrowDown"), true);
+    assert.notEqual(focused().closest("[data-top-bar]"), focused().ownerDocument.querySelector("[data-top-bar]"));
+    assert.equal(focused().tagName, "BUTTON");
   });
 });
 

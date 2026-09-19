@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { playheadSeconds, type PlaybackAnchor, type PlaybackReading } from "../core/playbackClock";
-import { safeMessageOf } from "../lib/errors";
+import { JamError, safeMessageOf } from "../lib/errors";
 import { pausePlayback, readPlayback, resetPlayback, startPlayback } from "../lib/playbackClock";
 
 /**
@@ -41,6 +41,10 @@ export function usePlaybackClock(jamId: string | null, runtimeSeconds: number): 
 
   const fail = useCallback((cause: unknown, fallback: string) => {
     if (mounted.current) setError(safeMessageOf(cause, fallback));
+    // A missing Supabase project or a missing function will not appear between
+    // one read and the next, so asking again twelve times a minute only spends
+    // renders saying the same thing.
+    return cause instanceof JamError && cause.code === "not_configured";
   }, []);
 
   useEffect(() => {
@@ -52,13 +56,21 @@ export function usePlaybackClock(jamId: string | null, runtimeSeconds: number): 
 
   useEffect(() => {
     if (!jamId) return;
+    let interval: ReturnType<typeof setInterval> | null = null;
     const read = () =>
       void readPlayback(jamId)
         .then(take)
-        .catch((cause: unknown) => fail(cause, "The playback clock could not be read."));
+        .catch((cause: unknown) => {
+          if (fail(cause, "The playback clock could not be read.") && interval !== null) {
+            clearInterval(interval);
+            interval = null;
+          }
+        });
     read();
-    const interval = setInterval(read, REREAD_MS);
-    return () => clearInterval(interval);
+    interval = setInterval(read, REREAD_MS);
+    return () => {
+      if (interval !== null) clearInterval(interval);
+    };
   }, [jamId, take, fail]);
 
   // Only a playing clock needs a tick; a paused one is already where it is.

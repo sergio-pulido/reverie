@@ -133,7 +133,7 @@ application, so a session has never been opened from here and the route reports
 scene acceptance and generation remain unimplemented; scene acceptance is deliberately blocked on a versioned transactional contract. No catalogue contract has been supplied, so Discover reports an unconfigured catalogue rather than showing titles. No hosted Supabase project has been migrated from this repository; the collaborative behaviour and RLS are verified against the local Docker stack (`pnpm verify:realtime`, 27/27) but not against a hosted database — run it against a configured project to produce that evidence. Hosted deployment also remains pending.
 ## Contributing
 
-The primary agent ships small verified commits to `main`. The collaborating developer works on branches, opens PRs and uses auto-merge after checks. Read [the collaboration workflow](docs/CONTRIBUTING.md) before editing shared files.
+Every contributor works on a branch, opens a PR and merges it after checks; nobody pushes directly to `main`. Read [the collaboration workflow](docs/CONTRIBUTING.md) before editing shared files.
 
 ## License
 

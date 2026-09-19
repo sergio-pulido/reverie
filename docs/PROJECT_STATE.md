@@ -1301,6 +1301,13 @@ shift while it grows.
   the director seam. No provider call has been made for a cascade, so cascade quality is specified
   and unit-tested at its pure boundaries, not demonstrated.
 
+## 2026-09-20 — One integration path for everyone (RV-20)
+
+Delivery now has a single rule instead of two: rebase onto the latest `main`, push the branch,
+open a PR, merge the PR. The previous split between a "primary agent" pushing directly and a
+"collaborating developer" going through PRs is retired — see `docs/DECISIONS.md` for why. `AGENTS.md`,
+`docs/CONTRIBUTING.md` and `README.md` are updated; no code changed.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

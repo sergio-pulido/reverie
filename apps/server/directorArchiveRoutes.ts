@@ -8,6 +8,11 @@ import {
   resolveDirectorRecordingStore,
   type DirectorRecordingStore,
 } from "./directorRecordings";
+import {
+  containerContentType,
+  initObjectName,
+  type ArchiveContainer,
+} from "./directorArchive";
 
 /**
  * Reading back a director session after it has finished.
@@ -149,9 +154,10 @@ export function createDirectorArchiveRouter(
   router.get("/api/jams/:id/director/archive/:sessionId/video", async (request, response) => {
     if (!(await requireJam(request.params.id, response))) return;
     const { id, sessionId } = request.params;
+    let session;
     let segments;
     try {
-      const session = await index.getSession(sessionId);
+      session = await index.getSession(sessionId);
       if (!session || session.jamId !== id) {
         sendError(response, 404, "not_found", "There is no archive for that session.", false);
         return;
@@ -166,15 +172,16 @@ export function createDirectorArchiveRouter(
       return;
     }
 
-    response.setHeader("content-type", "video/mp4");
+    const container = asContainer(session.container);
     try {
-      const init = await recordings.getObject(`${id}/${sessionId}/init.mp4`);
-      // Without the init segment the media segments cannot be decoded, so an
-      // archive missing it is refused rather than served as an unplayable file.
+      const init = await recordings.getObject(`${id}/${sessionId}/${initObjectName(container)}`);
+      // Without the initial header the pieces cannot be decoded, so an archive
+      // missing it is refused rather than served as an unplayable file.
       if (!init) {
         sendError(response, 404, "not_found", "That session stored no video.", false);
         return;
       }
+      response.setHeader("content-type", containerContentType(container));
       response.write(init.bytes);
       for (const segment of segments) {
         const bytes = await recordings.getObject(segment.objectPath);
@@ -193,5 +200,73 @@ export function createDirectorArchiveRouter(
     }
   });
 
+  /**
+   * One piece of the film, playable on its own — the seek primitive.
+   *
+   * Going to a given minute means fetching the piece that contains it, not
+   * downloading everything before it. Each piece begins on a keyframe, so
+   * `initial header + piece` decodes from its first frame in a plain <video>.
+   * The header is stored once and prepended here, so seeking costs one small
+   * object plus the piece.
+   */
+  router.get(
+    "/api/jams/:id/director/archive/:sessionId/pieces/:index",
+    async (request, response) => {
+      if (!(await requireJam(request.params.id, response))) return;
+      const { id, sessionId } = request.params;
+      const wanted = Number(request.params.index);
+      if (!Number.isInteger(wanted) || wanted < 0) {
+        sendError(response, 400, "invalid_command", "That piece index is not valid.", false);
+        return;
+      }
+      let session;
+      let piece;
+      try {
+        session = await index.getSession(sessionId);
+        if (!session || session.jamId !== id) {
+          sendError(response, 404, "not_found", "There is no archive for that session.", false);
+          return;
+        }
+        piece = (await index.listSegments(session.id)).find((s) => s.segmentIndex === wanted);
+      } catch {
+        sendError(response, 503, "media_unavailable", "The director archive could not be read.", true);
+        return;
+      }
+      if (!piece) {
+        sendError(response, 404, "not_found", "That piece is not in the archive.", false);
+        return;
+      }
+      const container = asContainer(session.container);
+      let init;
+      let bytes;
+      try {
+        init = await recordings.getObject(`${id}/${sessionId}/${initObjectName(container)}`);
+        bytes = await recordings.getObject(piece.objectPath);
+      } catch {
+        sendError(response, 503, "media_unavailable", "The archive store could not be reached.", true);
+        return;
+      }
+      if (!init || !bytes) {
+        sendError(response, 404, "not_found", "That piece is not in the archive.", false);
+        return;
+      }
+      response.setHeader("content-type", containerContentType(container));
+      response.setHeader("content-length", String(init.bytes.byteLength + bytes.bytes.byteLength));
+      // Where this piece sits on the film's clock, so a player can show it.
+      response.setHeader("x-piece-start-seconds", String(piece.startSeconds));
+      response.setHeader("x-piece-duration-seconds", String(piece.durationSeconds));
+      response.write(init.bytes);
+      response.end(bytes.bytes);
+    },
+  );
+
   return router;
+}
+
+/**
+ * A stored session says which container it used; an archive written before
+ * that was recorded is fMP4, the only container the archive produced then.
+ */
+function asContainer(value: string | null): ArchiveContainer {
+  return value === "webm" ? "webm" : "mp4";
 }

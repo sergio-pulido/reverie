@@ -19,14 +19,37 @@ import type { DirectorIndexStore } from "./directorIndex";
  * stays false and is reported that way.
  */
 
-/** fMP4 segments and the init segment share one container type. */
-const SEGMENT_CONTENT_TYPE = "video/mp4";
+/**
+ * The container the pieces are in. It follows the codec fal negotiated: VP8
+ * goes into WebM, H.264 into fMP4, and the stored keys and content types say
+ * which so a reader never has to guess.
+ */
+export type ArchiveContainer = "webm" | "mp4";
+
+const CONTAINERS: Record<ArchiveContainer, { init: string; piece: string; contentType: string }> = {
+  webm: { init: "init.webm", piece: "webm", contentType: "video/webm" },
+  mp4: { init: "init.mp4", piece: "m4s", contentType: "video/mp4" },
+};
+
+/** The key a piece is stored under, given its container. */
+export function pieceObjectName(container: ArchiveContainer, index: number): string {
+  return `${index}.${CONTAINERS[container].piece}`;
+}
+
+export function initObjectName(container: ArchiveContainer): string {
+  return CONTAINERS[container].init;
+}
+
+export function containerContentType(container: ArchiveContainer): string {
+  return CONTAINERS[container].contentType;
+}
 
 export interface DirectorArchiveOptions {
   jamId: string;
   sessionId: string;
   recordings: DirectorRecordingStore;
   index: DirectorIndexStore;
+  container: ArchiveContainer;
 }
 
 export class DirectorArchiveSink {
@@ -41,11 +64,12 @@ export class DirectorArchiveSink {
   /** The codec fal actually negotiated, recorded before any segment lands. */
   init(segment: Buffer, codec: string): void {
     this.enqueue(async () => {
-      await this.options.index.describeStream(this.options.sessionId, codec, "mp4");
+      const { container } = this.options;
+      await this.options.index.describeStream(this.options.sessionId, codec, container);
       await this.options.recordings.putObject(
-        this.objectPath("init.mp4"),
+        this.objectPath(initObjectName(container)),
         segment,
-        SEGMENT_CONTENT_TYPE,
+        containerContentType(container),
       );
     });
   }
@@ -64,8 +88,9 @@ export class DirectorArchiveSink {
         this.truncated = "size_cap";
         return;
       }
-      const path = this.objectPath(`${index}.m4s`);
-      await this.options.recordings.putObject(path, bytes, SEGMENT_CONTENT_TYPE);
+      const { container } = this.options;
+      const path = this.objectPath(pieceObjectName(container, index));
+      await this.options.recordings.putObject(path, bytes, containerContentType(container));
       // Only after the bytes are durable. The row is what a reader trusts.
       await this.options.index.recordSegment(this.options.sessionId, {
         segmentIndex: index,

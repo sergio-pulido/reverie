@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { hasRecording, lifecycleLabel, type JamLifecycle } from "../core/jamLifecycle";
 import {
+  directorArchivePieceSrc,
   directorArchiveVideoSrc,
   listDirectorArchive,
+  readDirectorArchive,
   readJamLifecycle,
+  type ArchivedPiece,
 } from "../lib/directorSession";
 import { Notice } from "../chrome";
 import {
@@ -52,6 +55,9 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
   const [failure, setFailure] = useState<string | null>(null);
   const [direction, setDirection] = useState("");
   const [recording, setRecording] = useState<string | null>(null);
+  /** The finished film's pieces, so a viewer can go straight to a minute. */
+  const [pieces, setPieces] = useState<ArchivedPiece[]>([]);
+  const [archivedSession, setArchivedSession] = useState<string | null>(null);
   const video = useRef<HTMLVideoElement | null>(null);
   const detach = useRef<(() => void) | null>(null);
   const [beats, setBeats] = useState<DirectorBeatWindow | null>(null);
@@ -83,7 +89,12 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
         const archive = await listDirectorArchive(jamId);
         // Newest first, so the room's last session is the one to play.
         const latest = archive.sessions[0];
-        if (!cancelled && latest) setRecording(directorArchiveVideoSrc(jamId, latest.id));
+        if (cancelled || !latest) return;
+        setRecording(directorArchiveVideoSrc(jamId, latest.id));
+        setArchivedSession(latest.id);
+        const detail = await readDirectorArchive(jamId, latest.id);
+        // A record with no piece list is a record with no pieces, not a crash.
+        if (!cancelled) setPieces(detail.segments ?? []);
       } catch {
         // The room still works without this; it just starts from `live`.
       }
@@ -181,9 +192,12 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
     try {
       const stopped = await endDirectorSession(jamId, sessionId);
       setLifecycle(stopped.lifecycle);
-      // The archive is the segmented one; the whole-session recording route
-      // stays the fallback for sessions stored before segments existed.
       setRecording(directorArchiveVideoSrc(jamId, sessionId));
+      setArchivedSession(sessionId);
+      // The pieces land as the muxer finishes them; read what is there now.
+      void readDirectorArchive(jamId, sessionId)
+        .then((detail) => setPieces(detail.segments ?? []))
+        .catch(() => undefined);
     } catch {
       // Ending is idempotent server-side; nothing useful to say here.
     } finally {
@@ -232,6 +246,15 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
       />
       {!live && recording && (
         <video src={recording} controls playsInline data-testid="jam-director-recording" />
+      )}
+      {!live && recording && archivedSession && pieces.length > 1 && (
+        <PieceJump
+          pieces={pieces}
+          onJump={(index) =>
+            setRecording(directorArchivePieceSrc(jamId, archivedSession, index))
+          }
+          onWhole={() => setRecording(directorArchiveVideoSrc(jamId, archivedSession))}
+        />
       )}
       {!live && !recording && (
         <p className="player-placeholder">{placeholder(state, live, canDrive)}</p>
@@ -378,4 +401,45 @@ function statusLine(state: DirectorState, live: boolean, canDrive: boolean): str
   return canDrive
     ? "Starting a stream opens a paid session that bills for at least a minute."
     : "Only the host can open the live stream.";
+}
+
+/**
+ * Go to a minute of the film by picking the piece that contains it.
+ *
+ * A piece is playable on its own and begins on a keyframe, so jumping costs
+ * one small request rather than downloading everything before the target.
+ */
+function PieceJump({
+  pieces,
+  onJump,
+  onWhole,
+}: {
+  pieces: ArchivedPiece[];
+  onJump: (index: number) => void;
+  onWhole: () => void;
+}) {
+  return (
+    <nav className="hero-actions" aria-label="Go to a moment in the film">
+      <button className="button button-quiet" onClick={onWhole}>
+        Whole film
+      </button>
+      {pieces.map((piece) => (
+        <button
+          key={piece.segmentIndex}
+          className="button button-quiet"
+          onClick={() => onJump(piece.segmentIndex)}
+          data-testid={`jam-piece-${piece.segmentIndex}`}
+        >
+          {clock(piece.startSeconds)}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+function clock(seconds: number): string {
+  const whole = Math.floor(seconds);
+  const minutes = Math.floor(whole / 60);
+  const rest = whole % 60;
+  return `${minutes}:${rest.toString().padStart(2, "0")}`;
 }

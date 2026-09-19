@@ -14,6 +14,9 @@ import {
   resolveDirectorIndexStore,
   type DirectorIndexStore,
 } from "./directorIndex";
+import { DirectorArchiveSink, type ArchiveContainer } from "./directorArchive";
+import { DirectorPieceRecorder } from "./directorPieces";
+import type { DirectorSegmentSink } from "./directorSegmentSink";
 import { DirectorStream, type DirectorPeer } from "./directorStream";
 import { attachViewer, type ViewerPeer } from "./directorViewers";
 import {
@@ -113,6 +116,15 @@ export interface DirectorRouterOptions {
   recordings?: DirectorRecordingStore;
   index?: DirectorIndexStore;
   registry?: DirectorStreamRegistry;
+  /**
+   * Sinks that receive a session's pieces as they are muxed. Per session,
+   * because a sink needs to know which jam and session it is storing. When
+   * omitted, a recording server archives every session; a server not
+   * configured to record stores nothing and says so.
+   */
+  createSegmentSinks?: (session: { jamId: string; sessionId: string }) => DirectorSegmentSink[];
+  /** Seconds of film per stored piece; the muxer rounds up to a keyframe. */
+  targetPieceSeconds?: number;
   startSession?: typeof startDirectorSession;
   /** Injected in tests so routes do not open real peer connections. */
   createPeer?: () => DirectorPeer;
@@ -137,6 +149,30 @@ export function createDirectorRouter(
    * down another session's audience.
    */
   const viewers = new Map<string, Set<ViewerPeer>>();
+  /** The piece recorder per session, stopped with the session. */
+  const recorders = new Map<string, DirectorPieceRecorder>();
+
+  /**
+   * The archive is the default sink. The container follows the codec fal
+   * negotiates: VP8 goes into WebM, H.264 into fMP4 — the recorder reports
+   * which, and the sink is built for it when the initial header arrives.
+   */
+  function defaultSinks(session: { jamId: string; sessionId: string }): DirectorSegmentSink[] {
+    let sink: DirectorArchiveSink | null = null;
+    const forContainer = (codec: string): DirectorArchiveSink => {
+      const container: ArchiveContainer = codec === "h264" ? "mp4" : "webm";
+      sink ??= new DirectorArchiveSink({ ...session, recordings, index, container });
+      return sink;
+    };
+    return [
+      {
+        init: (bytes, codec) => forContainer(codec).init(bytes, codec),
+        segment: (i, bytes, start, duration) =>
+          sink?.segment(i, bytes, start, duration),
+        finish: () => sink?.finish(),
+      },
+    ];
+  }
 
   /**
    * Ends a session and everything hanging off it.
@@ -171,6 +207,11 @@ export function createDirectorRouter(
     for (const viewer of viewers.get(sessionId) ?? []) viewer.close();
     viewers.delete(sessionId);
     await stream?.stop();
+    const recorder = recorders.get(sessionId);
+    recorders.delete(sessionId);
+    // Bounded inside: the tail of the film is worth a moment, the route that
+    // settles the paid session is worth more.
+    await recorder?.stop().catch(() => undefined);
     if (!stream) return;
     await store.advanceLifecycle(stream.jamId, "stop").catch(() => undefined);
   }
@@ -240,7 +281,7 @@ export function createDirectorRouter(
           sessionId: existing.sessionId,
           attached: true,
           maxSessionSeconds: limits.maxSessionSeconds,
-          recordingDurable: recordings.durable,
+          recordingDurable: recordings.durable && index.durable,
           // Attaching does not move the room; it reports where it already is.
           lifecycle: jam.lifecycle,
           state: open.snapshot,
@@ -280,7 +321,6 @@ export function createDirectorRouter(
       sessionId: session.sessionId,
       config: active,
       script: jam.script,
-      sink: recordings,
       startSession: options.startSession,
       createPeer: options.createPeer,
       // Fire-and-forget: a durable audit write that fails or hangs must not
@@ -303,6 +343,21 @@ export function createDirectorRouter(
       throw error;
     }
     streams.set(session.sessionId, stream);
+    // Storage is opt-in (REVERIE_DIRECTOR_RECORD) and runs off this thread: the
+    // recorder's only work here is to hand packets to its worker. A server
+    // that does not record still directs, audits and relays.
+    if (active.record) {
+      const sinks = (options.createSegmentSinks ?? defaultSinks)({
+        jamId: jam.id,
+        sessionId: session.sessionId,
+      });
+      const recorder = new DirectorPieceRecorder({
+        sinks,
+        targetPieceSeconds: options.targetPieceSeconds,
+      });
+      recorders.set(session.sessionId, recorder);
+      stream.onTrackAvailable((track) => recorder.addTrack(track));
+    }
     // The room is now playing. Recorded after the handshake succeeded, so a
     // stream fal refused leaves the room live rather than stuck in a state it
     // never reached.
@@ -311,7 +366,7 @@ export function createDirectorRouter(
       sessionId: session.sessionId,
       attached: false,
       maxSessionSeconds: limits.maxSessionSeconds,
-      recordingDurable: recordings.durable,
+      recordingDurable: recordings.durable && index.durable,
       lifecycle: started.lifecycle,
       state: stream.snapshot,
       beats: stream.beats,

@@ -31,7 +31,7 @@ function buildJam(): Jam {
 
 /** A sink wired to the in-memory stores, as the segmenter would drive it. */
 function buildSink(jamId: string, sessionId: string) {
-  return new DirectorArchiveSink({ jamId, sessionId, recordings, index });
+  return new DirectorArchiveSink({ jamId, sessionId, recordings, index, container: "mp4" });
 }
 
 before(async () => {
@@ -87,6 +87,7 @@ test("a segment whose upload fails leaves no row behind", async () => {
     sessionId,
     recordings: failing,
     index,
+    container: "mp4",
   });
   sink.segment(0, Buffer.from("aaaa"), 0, 2);
   await sink.drained();
@@ -111,7 +112,13 @@ test("one failed segment does not stop the ones after it", async () => {
     if (calls === 1) throw new Error("storage refused");
     return put(path, bytes, contentType);
   };
-  const sink = new DirectorArchiveSink({ jamId: jam.id, sessionId, recordings: flaky, index });
+  const sink = new DirectorArchiveSink({
+    jamId: jam.id,
+    sessionId,
+    recordings: flaky,
+    index,
+    container: "mp4",
+  });
   sink.segment(0, Buffer.from("aaaa"), 0, 2);
   sink.segment(1, Buffer.from("bbbb"), 2, 2);
   await sink.drained();
@@ -292,4 +299,70 @@ test("a durable audit that fails does not disturb the live trail", async () => {
   log.record({ kind: "session_opened" });
   // The stream keeps its own account of itself even when nothing can store it.
   assert.deepEqual(log.all().map((entry) => entry.kind), ["session_opened"]);
+});
+
+test("a WebM archive stores its pieces under WebM keys and types", async () => {
+  const jam = buildJam();
+  await store.createJam(jam);
+  const sessionId = "sess-webm";
+  await index.openSession({ id: sessionId, jamId: jam.id, configurationKey: "480p" });
+  const sink = new DirectorArchiveSink({
+    jamId: jam.id,
+    sessionId,
+    recordings,
+    index,
+    container: "webm",
+  });
+  sink.init(Buffer.from("EBML"), "vp8");
+  sink.segment(0, Buffer.from("CLUSTER0"), 0, 10);
+  await sink.drained();
+
+  const session = await index.getSession(sessionId);
+  assert.equal(session?.container, "webm");
+  assert.equal(session?.codec, "vp8");
+  const [piece] = await index.listSegments(sessionId);
+  assert.ok(piece.objectPath.endsWith("/0.webm"), piece.objectPath);
+  assert.equal((await recordings.getObject(`${jam.id}/${sessionId}/init.webm`))?.contentType, "video/webm");
+});
+
+test("one piece is served playable on its own, header prepended, for seeking", async () => {
+  const jam = buildJam();
+  await store.createJam(jam);
+  const sessionId = "sess-seek";
+  await index.openSession({ id: sessionId, jamId: jam.id, configurationKey: "480p" });
+  const sink = new DirectorArchiveSink({
+    jamId: jam.id,
+    sessionId,
+    recordings,
+    index,
+    container: "webm",
+  });
+  sink.init(Buffer.from("EBML"), "vp8");
+  sink.segment(0, Buffer.from("AAAA"), 0, 10);
+  sink.segment(1, Buffer.from("BBBB"), 10, 10);
+  await sink.drained();
+
+  // Going to 0:10 means fetching piece 1 — not everything before it.
+  const response = await fetch(
+    `${baseUrl}/api/jams/${jam.id}/director/archive/${sessionId}/pieces/1`,
+  );
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "video/webm");
+  assert.equal(response.headers.get("x-piece-start-seconds"), "10");
+  assert.equal(response.headers.get("x-piece-duration-seconds"), "10");
+  // A piece decodes from its first frame only with the initial header in front.
+  assert.equal(await response.text(), "EBMLBBBB");
+
+  const whole = await fetch(`${baseUrl}/api/jams/${jam.id}/director/archive/${sessionId}/video`);
+  assert.equal(whole.headers.get("content-type"), "video/webm");
+  assert.equal(await whole.text(), "EBMLAAAABBBB");
+
+  const missing = await fetch(
+    `${baseUrl}/api/jams/${jam.id}/director/archive/${sessionId}/pieces/7`,
+  );
+  assert.equal(missing.status, 404);
+  const invalid = await fetch(
+    `${baseUrl}/api/jams/${jam.id}/director/archive/${sessionId}/pieces/nope`,
+  );
+  assert.equal(invalid.status, 400);
 });

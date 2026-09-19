@@ -136,6 +136,30 @@ export function directorArchiveVideoSrc(jamId: string, sessionId: string): strin
   return `/api/jams/${jamId}/director/archive/${sessionId}/video`;
 }
 
+/** One piece of the film, playable on its own; the seek primitive. */
+export function directorArchivePieceSrc(jamId: string, sessionId: string, index: number): string {
+  return `/api/jams/${jamId}/director/archive/${sessionId}/pieces/${index}`;
+}
+
+export interface ArchivedPiece {
+  segmentIndex: number;
+  startSeconds: number;
+  durationSeconds: number;
+}
+
+/** A finished session's record: whether it completed, and its pieces. */
+export async function readDirectorArchive(
+  jamId: string,
+  sessionId: string,
+): Promise<{
+  durable: boolean;
+  session: { complete: boolean; container: string | null };
+  segments: ArchivedPiece[];
+  durationSeconds: number;
+}> {
+  return call(`/api/jams/${jamId}/director/archive/${sessionId}`);
+}
+
 /** The sessions a finished room archived, newest first. */
 export async function listDirectorArchive(
   jamId: string,

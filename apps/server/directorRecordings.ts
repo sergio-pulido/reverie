@@ -1,4 +1,3 @@
-import type { DirectorRecordingSink } from "./directorStream";
 import {
   MediaStorageError,
   resolveObjectStorageConfig,
@@ -37,6 +36,11 @@ export interface StoredRecording {
   bytes: Buffer;
   contentType: string;
   storedAt: string;
+}
+
+/** A whole-session recording, stored under its session id. */
+export interface DirectorRecordingSink {
+  save(jamId: string, sessionId: string, bytes: Buffer, contentType: string): Promise<void>;
 }
 
 export interface DirectorRecordingStore extends DirectorRecordingSink {

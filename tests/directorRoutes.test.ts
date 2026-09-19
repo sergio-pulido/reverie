@@ -754,3 +754,83 @@ test("a room stopped by its last viewer leaving is ended, not left playing", asy
   assert.equal(reopened.status, 409);
   assert.equal((await reopened.json()).error.code, "jam_ended");
 });
+
+test("a recording server builds the session's sinks and finishes them on end", async () => {
+  const built: { jamId: string; sessionId: string }[] = [];
+  let finished = 0;
+  const app = express();
+  app.use(
+    createDirectorRouter(store, {
+      config: { ...CONFIG, record: true },
+      limits: LIMITS,
+      recordings,
+      createPeer: () => new FakeDirectorPeer(),
+      startSession: async () => "v=0\r\nanswer\r\n",
+      createSegmentSinks: (session) => {
+        built.push(session);
+        return [{ init() {}, segment() {}, finish() { finished += 1; } }];
+      },
+    }),
+  );
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  const port = (server.address() as { port: number }).port;
+  const jam = buildJam();
+  await store.createJam(jam);
+  try {
+    const opened = await fetch(`http://127.0.0.1:${port}/api/jams/${jam.id}/director/session`, {
+      method: "POST",
+    });
+    assert.equal(opened.status, 201);
+    const { sessionId } = await opened.json();
+    // The sinks are the session's own: built for this jam and this session.
+    assert.deepEqual(built, [{ jamId: jam.id, sessionId }]);
+
+    const ended = await fetch(
+      `http://127.0.0.1:${port}/api/jams/${jam.id}/director/session/${sessionId}/end`,
+      { method: "POST" },
+    );
+    assert.equal(ended.status, 200);
+    // No track ever arrived, so nothing was muxed; the sink is still told the
+    // session is over, and the route did not wait on a muxer for it.
+    assert.equal(finished, 1);
+  } finally {
+    server.close();
+  }
+});
+
+test("a server that does not record builds no sinks at all", async () => {
+  let built = 0;
+  const app = express();
+  app.use(
+    createDirectorRouter(store, {
+      config: { ...CONFIG, record: false },
+      limits: LIMITS,
+      recordings,
+      createPeer: () => new FakeDirectorPeer(),
+      startSession: async () => "v=0\r\nanswer\r\n",
+      createSegmentSinks: () => {
+        built += 1;
+        return [];
+      },
+    }),
+  );
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  const port = (server.address() as { port: number }).port;
+  const jam = buildJam();
+  await store.createJam(jam);
+  try {
+    const opened = await fetch(`http://127.0.0.1:${port}/api/jams/${jam.id}/director/session`, {
+      method: "POST",
+    });
+    assert.equal(opened.status, 201);
+    assert.equal(built, 0);
+    const { sessionId } = await opened.json();
+    await fetch(`http://127.0.0.1:${port}/api/jams/${jam.id}/director/session/${sessionId}/end`, {
+      method: "POST",
+    });
+  } finally {
+    server.close();
+  }
+});

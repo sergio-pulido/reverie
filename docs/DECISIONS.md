@@ -1,5 +1,44 @@
 # Decisions
 
+## 2026-09-20 — The film is stored as it streams, in pieces, muxed off the serving thread (RV-18)
+
+A director session is now stored while it runs, in pieces of roughly ten seconds,
+rather than as one file when it stops. Storage is what `REVERIE_DIRECTOR_RECORD`
+now means; the in-process WebM recorder that flag used to switch on is deleted.
+
+**Why pieces.** Two things at once. A process that dies mid-stream loses the piece
+in flight and nothing before it — the previous design held a temp file and wrote it
+at `stop()`, so a crash lost the session. And going to a given minute of the film is
+a matter of fetching the piece that contains it (`GET .../archive/:sessionId/pieces/:n`)
+rather than downloading everything before it. Each piece begins on a video keyframe
+and is served with the container's initial header in front, so it decodes from its
+first frame in a plain `<video>` element. The whole film is the same header followed
+by every piece in order (`.../video`).
+
+**Why off-thread.** Muxing on the serving thread was measured taking the server down:
+99% CPU, event loop stalled, `/end` unreachable — and `/end` is the route that stops
+the paid session. The muxer (`directorPieceMuxer.ts`) runs in a worker thread
+(`directorPieceWorker.ts`); the main thread's whole per-packet cost is `serialize()`
+and a `postMessage` (`directorPieces.ts`). A dead worker is reported as
+`worker_failed`, distinct from a codec refusal, and never touches the session.
+Stopping is bounded at two seconds: the tail of the film is worth a moment, the
+route that settles the spend is worth more.
+
+**Why WebM, and why it also does fMP4.** werift's offer is VP8-only today, and WebM
+is the container that holds VP8. The archive sink follows the codec the muxer
+reports — VP8 into WebM, H.264 into fMP4 — and stores the container alongside the
+session, so nothing downstream guesses. The same `DirectorSegmentSink` interface as
+RV-19's fMP4 segmenter, by agreement: one muxer per stream, many sinks, one timeline.
+
+**Verified with real bytes, not a description.** Fabricated VP8 RTP — the payload
+format is simple enough to build honestly — pushed through the real werift pipeline
+and across the real worker thread cuts pieces at exactly the keyframe past the target:
+`[0–10s] [10–20s] [20–end]`, with the last piece settled by the muxer's own
+end-of-stream rather than a guess at stop. **Not** verified with fal's own media:
+no real session has yet run with recording on. The unknowns that only a live run can
+settle are the provider's keyframe cadence, which sets real piece length, and the
+worker's CPU on a real 480p stream.
+
 ## 2026-09-19 — A jam is live, then playing, then ended, and ended is terminal (RV-18)
 
 A room now has one readable state instead of an implied one. `live` is a room that

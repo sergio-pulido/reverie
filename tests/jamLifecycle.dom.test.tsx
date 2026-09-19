@@ -1,4 +1,4 @@
-import { cleanup, render } from "./render";
+import { cleanup, click, render, settle } from "./render";
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { JamDirector } from "../src/screens/JamDirector";
@@ -15,7 +15,11 @@ const JAM = "11111111-1111-4111-8111-111111111111";
  * asks for gets an empty object, so a new call elsewhere does not fail these
  * tests for the wrong reason.
  */
-function serve(lifecycle: string, sessions: { id: string }[] = []) {
+function serve(
+  lifecycle: string,
+  sessions: { id: string }[] = [],
+  pieces: { segmentIndex: number; startSeconds: number; durationSeconds: number }[] = [],
+) {
   const original = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = String(typeof input === "string" ? input : input.toString());
@@ -30,6 +34,17 @@ function serve(lifecycle: string, sessions: { id: string }[] = []) {
         status: 200,
         headers: { "content-type": "application/json" },
       });
+    }
+    if (/\/director\/archive\/[^/]+$/.test(url)) {
+      return new Response(
+        JSON.stringify({
+          durable: true,
+          session: { complete: true, container: "webm" },
+          segments: pieces,
+          durationSeconds: pieces.reduce((total, piece) => total + piece.durationSeconds, 0),
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
     }
     return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
@@ -57,7 +72,15 @@ describe("the room shows where it is in its life", () => {
   });
 
   it("an ended room reads ended and plays its recording instead of restarting", async () => {
-    const restore = serve("ended", [{ id: "sess-1" }]);
+    const restore = serve(
+      "ended",
+      [{ id: "sess-1" }],
+      [
+        { segmentIndex: 0, startSeconds: 0, durationSeconds: 10 },
+        { segmentIndex: 1, startSeconds: 10, durationSeconds: 10 },
+        { segmentIndex: 2, startSeconds: 20, durationSeconds: 7 },
+      ],
+    );
     try {
       await render(<JamDirector jamId={JAM} canDrive configuration={DEFAULT_CONFIGURATION} />);
       assert.equal(badge(), "ENDED");
@@ -72,6 +95,18 @@ describe("the room shows where it is in its life", () => {
       // And starting again is not on offer: the server would refuse it.
       const start = document.querySelector<HTMLButtonElement>(".button-primary");
       assert.equal(start?.disabled, true);
+
+      // The film is in pieces, so the viewer can go straight to a moment. The
+      // piece list arrives on a second read, so the render is given time to settle.
+      await settle();
+      const jump = document.querySelector<HTMLButtonElement>('[data-testid="jam-piece-1"]');
+      assert.ok(jump, "a piece per moment is offered");
+      assert.equal(jump.textContent?.trim(), "0:10");
+      await click(jump);
+      assert.match(
+        player.getAttribute("src") ?? "",
+        /\/director\/archive\/sess-1\/pieces\/1$/,
+      );
     } finally {
       restore();
     }

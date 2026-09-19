@@ -144,6 +144,16 @@ export function createDirectorRouter(
    * Shared by the teardown route and by the last viewer leaving, so a session
    * stops the same way whichever reason it stops for.
    */
+  /**
+   * Tears a session down and ends the room it belonged to.
+   *
+   * The lifecycle transition lives HERE rather than in the end route, because
+   * a session also stops when its last viewer leaves. A room stopped that way
+   * would otherwise read `playing` for ever with nothing streaming.
+   *
+   * Only a room that actually held this stream is ended, so a teardown for an
+   * unknown session id cannot end a room that is still playing.
+   */
   async function endSession(sessionId: string): Promise<void> {
     const stream = streams.get(sessionId);
     streams.delete(sessionId);
@@ -151,6 +161,8 @@ export function createDirectorRouter(
     for (const viewer of viewers.get(sessionId) ?? []) viewer.close();
     viewers.delete(sessionId);
     await stream?.stop();
+    if (!stream) return;
+    await store.advanceLifecycle(stream.jamId, "stop").catch(() => undefined);
   }
   let resolved = false;
   let config: DirectorConfig | null = options.config ?? null;
@@ -449,14 +461,13 @@ export function createDirectorRouter(
     // Idempotent: a client tearing down twice is not an error, and what
     // matters is that the reservation is released and the recording stored.
     await endSession(request.params.sessionId);
-    // A room that has stopped is ended, and what remains of it is its
-    // recording. Refused transitions are not an error here: ending twice is
-    // the same idempotent teardown as the rest of this route.
     // Closes the reproduction record too, so a session that ended cleanly is
     // distinguishable from one whose process died.
     await index.closeSession(request.params.sessionId).catch(() => undefined);
-    const stopped = await store.advanceLifecycle(request.params.id, "stop");
-    response.status(200).json({ lifecycle: stopped.lifecycle });
+    // Reports where the room ended up rather than transitioning again: the
+    // teardown already did it, and ending twice must not be an error.
+    const jam = await store.getJam(request.params.id);
+    response.status(200).json({ lifecycle: jam?.lifecycle ?? "ended" });
   });
 
   /** The stored recording of a session, served by this server only. */

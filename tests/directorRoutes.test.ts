@@ -695,6 +695,8 @@ test("ending one session leaves another session's viewers alone", async () => {
     200,
   );
   await endSession(second.jam.id, second.sessionId);
+});
+
 test("watching an ended room points at its recording instead of 404", async () => {
   const { jam, sessionId } = await openJamSession();
   await endSession(jam.id, sessionId);
@@ -726,4 +728,29 @@ test("watching a session that never existed is still a plain 404", async () => {
     },
   );
   assert.equal(watched.status, 404);
+});
+
+test("a room stopped by its last viewer leaving is ended, not left playing", async () => {
+  viewerClosers = [];
+  const { jam, sessionId } = await openJamSession();
+  const watched = await fetch(
+    `${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/watch`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sdp: "v=0\r\nviewer-offer\r\n" }),
+    },
+  );
+  assert.equal(watched.status, 201);
+
+  // The viewer rule stops the session without going through the end route, so
+  // the lifecycle has to move with the teardown rather than with the request.
+  viewerClosers[0]();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const reopened = await fetch(`${baseUrl}/api/jams/${jam.id}/director/session`, {
+    method: "POST",
+  });
+  assert.equal(reopened.status, 409);
+  assert.equal((await reopened.json()).error.code, "jam_ended");
 });

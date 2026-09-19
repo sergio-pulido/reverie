@@ -58,6 +58,14 @@ Vercel serves the Vite SPA and `/api` Node functions. API paths are excluded fro
 
 The primary agent commits and pushes completed verified slices directly to `main`, including documentation. The collaborator uses isolated PR branches and auto-merge after checks. Fetch before publication, stage owned files explicitly, and never force-push shared history.
 
+## 2026-09-19 — Ship Discover as a configuration-driven adapter with an explicit unconfigured state
+
+A credential named `TITAN_API_KEY` exists, but no Titan catalogue endpoint, request shape or response schema is published or supplied, and the Titan SDK publishes no content API. Rather than guess a base URL, substitute a different provider under Titan's name, or seed placeholder films, the catalogue adapter takes its endpoint from `TITAN_CATALOGUE_URL` and reports `catalogue_not_configured` until an authorized contract is supplied. The expected upstream contract is written down in `docs/specs/discover-titan-catalogue.md`, so adopting a real catalogue changes one adapter file and nothing else. An empty Discover screen that says why is honest; an invented catalogue is not.
+
+## 2026-09-19 — Validate every catalogue record individually and drop what fails
+
+A single malformed upstream record must not blank the whole page, and a partially trusted record must not be rendered as if complete. The adapter validates each record on its own, drops records that fail, and strips any non-`https` artwork or availability URL rather than rejecting the title around it. The browser re-validates the response it receives, so an unexpected shape becomes an explicit error state instead of a half-rendered title.
+
 ## 2026-09-19 — The invite code, not the room URL, is the entitlement
 
 A jam carries a server-generated 8-character code from an alphabet with no I, O or U so it

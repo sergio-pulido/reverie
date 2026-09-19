@@ -102,6 +102,15 @@
 - Scene acceptance and generation are deliberately absent: changing a proposal status needs
   the versioned transactional contract, and no update policy exists for one.
 
+## 2026-09-19 — TV-first Discover shipped with an unconfigured catalogue
+
+- `/discover` is a separate TV-first route from Movie Jam: couch-distance type, a high-contrast focus ring, roving arrow-key traversal, `Enter`/`Space` to open a title, `Escape` to close and restore focus, and `Tab` trapped inside the detail dialog. Search is debounced; loading, empty, error and catalogue-not-configured states are distinct.
+- `GET /api/catalogue` is implemented as a Vercel Node function shared with the local Express host. It validates the query with Zod, bounds page size and query length, rate limits per instance, refuses cross-origin browser calls, times out the upstream call, caps the upstream body, validates every upstream record individually, and maps failures to typed safe errors that never carry the credential, the upstream URL or the upstream body.
+- Catalogue identifiers are namespaced `cat:` so a catalogue record can never be confused with a generated Jam artifact.
+- **The catalogue is not configured and shows no titles.** `TITAN_API_KEY` exists locally, but no Titan catalogue contract accompanies it. The published Titan developer surface, `https://docs.titanos.tv/titan-sdk`, was fetched on 2026-09-19: the Titan SDK exposes device info, accessibility, app launch and remote-control key mapping, and publishes no catalogue, content, title-metadata or search API. The preparation material records Titan as product context with "no Titan API assumed". No base URL was guessed and no film was invented; `/api/catalogue` reports `catalogue_not_configured` and the UI states it.
+- The adapter's real network path was exercised end to end: a live outbound HTTPS request through `fetchCatalogue` to a real host returned non-contract content and was rejected as `CATALOGUE_INVALID_RESPONSE`, and the same failure was observed rendering in `/discover`.
+- Verified locally: `pnpm typecheck`, `pnpm test` (9 adapter and validation tests), `pnpm build`, and `scripts/smoke.mjs` against a local production preview covering `/discover`, `/api/catalogue`, the query limits and the same-origin guard. Browser checks covered all four Discover states, arrow/Enter/Escape traversal, focus restore, and a 375px layout with no horizontal overflow. These are local checks, not a hosted deployment.
+
 ## 2026-09-19 — Room and script streams reconciled
 
 - Two parallel streams landed on the same files. `src/core/jam.ts` stays the generated-script
@@ -138,7 +147,8 @@ produce that evidence.
 
 1. Apply every migration in `supabase/migrations` to a Supabase project and run
    `pnpm verify:realtime` to turn the lobby and Realtime work from implemented into verified.
-2. Versioned transactional scene contract: atomic voting, `expectedStateVersion`, idempotent
+2. Supply an authorized catalogue contract (`TITAN_CATALOGUE_URL` plus a credential) and
+   re-probe `/api/catalogue` against it; Discover renders real titles as soon as it validates.
+3. Versioned transactional scene contract: atomic voting, `expectedStateVersion`, idempotent
    `requestId`, and serialized scene acceptance. Generation only after that contract exists.
-3. Separate Titan Discover UI grounded only in verified catalogue records.
 4. Vonage opt-in live-media controls and consent metadata; provider adapters after documented probes.

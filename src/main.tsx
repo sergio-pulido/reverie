@@ -5,14 +5,16 @@ import type { Jam as GeneratedJam, JamSource } from "./core/jam";
 import { safeMessageOf } from "./lib/errors";
 import { createJam as createJamRoom, type JamPersistence, type JamRoom, type JamVisibility } from "./lib/jams";
 import { hasSupabaseConfiguration } from "./lib/supabase";
+import { DiscoverScreen } from "./discover/DiscoverScreen";
 import { ScriptScreen } from "./ScriptScreen";
 import { JoinRoom } from "./screens/JoinRoom";
 import { Studio } from "./screens/Studio";
 import "./styles.css";
 
-type Screen = "home" | "create" | "join" | "script" | "studio";
+type Screen = "home" | "discover" | "create" | "join" | "script" | "studio";
 type SourceKind = "from-scratch" | "from-movie";
 function screenFromPath(pathname: string): Screen {
+  if (pathname === "/discover") return "discover";
   if (pathname === "/jams/new") return "create";
   if (pathname === "/join") return "join";
   if (pathname.startsWith("/jams/")) return "studio";
@@ -125,6 +127,7 @@ function App() {
     }
   }
 
+  if (screen === "discover") return <DiscoverScreen onExit={() => navigate("home", "/")} />;
   if (screen === "create") {
     return <CreateRoom title={roomTitle} premise={premise} visibility={visibility} sourceKind={sourceKind} movieTitle={movieTitle} movieSummary={movieSummary} totalMinutes={totalMinutes} portionMinSeconds={portionMinSeconds} portionMaxSeconds={portionMaxSeconds} onTitle={setRoomTitle} onPremise={setPremise} onVisibility={setVisibility} onSourceKind={setSourceKind} onMovieTitle={setMovieTitle} onMovieSummary={setMovieSummary} onTotalMinutes={setTotalMinutes} onPortionMinSeconds={setPortionMinSeconds} onPortionMaxSeconds={setPortionMaxSeconds} onBack={() => navigate("home", "/")} onSubmit={createRoom} isCreating={isCreating} notice={notice} />;
   }
@@ -146,7 +149,7 @@ function App() {
 
 function Home({ onCreate, onJoin }: { onCreate: () => void; onJoin: () => void }) {
   return <main className="site-shell"><Header onHome={() => window.scrollTo({ top: 0, behavior: "smooth" })} />
-    <section className="hero" id="jam"><div className="hero-copy"><p className="eyebrow">A LIVE COLLABORATIVE FILM STUDIO</p><h1>Make the next scene <em>together.</em></h1><p className="intro">Start a room, invite the people around you, and direct a new story one clear turn at a time.</p><div className="hero-actions"><button className="button button-primary" onClick={onCreate}>Start a Movie Jam <span>↗</span></button><button className="button button-quiet" onClick={onJoin}>Join with an invite <span>→</span></button></div></div><LiveScene /></section>
+    <section className="hero" id="jam"><div className="hero-copy"><p className="eyebrow">A LIVE COLLABORATIVE FILM STUDIO</p><h1>Make the next scene <em>together.</em></h1><p className="intro">Start a room, invite the people around you, and direct a new story one clear turn at a time.</p><div className="hero-actions"><button className="button button-primary" onClick={onCreate}>Start a Movie Jam <span>↗</span></button><button className="button button-quiet" onClick={onJoin}>Join with an invite <span>→</span></button><a className="button button-quiet" href="/discover">Discover real films <span>→</span></a></div></div><LiveScene /></section>
     <section className="steps" aria-label="How Movie Jam works"><article><span>01</span><h2>Invite the room</h2><p>Share a QR code or link. Everyone enters with a name and a point of view.</p></article><article><span>02</span><h2>Direct the turn</h2><p>Speak, write, show an image, upload a clip, or share a live reference.</p></article><article><span>03</span><h2>See it evolve</h2><p>The selected direction becomes an editable scene, screenplay, and visual world.</p></article></section><Footer />
   </main>;
 }

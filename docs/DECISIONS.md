@@ -1,5 +1,70 @@
 # Decisions
 
+## 2026-09-19 — MiniMax H3 Max is the video model, and its limits are the product's limits (RV-16)
+
+Reverie generates video on **`minimax/h3-max/text-to-video`**. It is entry `[0]` of the
+server-owned allowlist, which makes it both the default and what an unconfigured or
+misconfigured server falls back to. `FAL_MODEL` still selects a different entry, and a value
+that is not on the list is **refused** rather than quietly replaced — serving a model the
+operator did not ask for is exactly the kind of unverified provider claim `AGENTS.md` forbids.
+
+The allowlist stopped being a list of slugs. A model differs from its neighbours in the duration
+band it accepts and the request body it wants, so `apps/server/providers/falModels.ts` holds
+typed specs and the transport adapter asks the spec how to build a request. The same file records
+that a queued request is addressed by its **application** (`minimax/h3-max/requests/<id>`) and not
+by its full slug; the previous code polled the slug, which works only for models without a
+sub-path and would have 404'd on this one.
+
+**The model's duration band is now the product's portion band: whole seconds in `[5, 15]`.**
+H3 Max publishes it as `duration`; the Director model publishes the same numbers as
+`min_chunk_duration`/`max_chunk_duration`. A portion outside that band cannot be rendered by
+anything this build can call, so it is refused at the script boundary instead of at spend time:
+the format schema enforces it, the transport schema enforces it for imported scripts, and the
+slack that lets a beat breathe may no longer widen past it. `TOTAL_MAX_SECONDS` is derived
+(`MAX_PORTIONS × 15s = 720s`) so the advertised ceiling stays reachable. The default jam is
+**20 seconds of 5-second portions**, four portions in total.
+
+A 4-second portion was asked for and is not possible: 5 seconds is the vendor floor on every
+H3 Max route. That is a vendor limit, not a preference, and nothing in this build rounds it away.
+
+## 2026-09-19 — The live director streams over WebRTC, so the browser is the peer (RV-16)
+
+`minimax/h3-max/director` is **not a queue model**. A session is a WebRTC peer connection: the
+caller POSTs an SDP offer to `/start-session`, fal answers, and video then arrives as a media
+track while direction travels over a JSON control channel (`configure`, `prompt`, `ping`, `stop`
+out; `configured`, `chunk`, `prompt_applied`, `stream_exhausted`, `error` back). There is no
+result URL. **Nothing a Director session generates can become a stored portion clip**, so it does
+not touch the playback pipeline and the two features sit side by side: `JamPlayer` is the durable
+film, `JamDirector` is the live room.
+
+**The browser is the WebRTC peer.** Only a browser can render a media track without pulling a
+native WebRTC stack into the Node server, which `AGENTS.md` would require a measured need for.
+The server brokers the handshake instead: it spends `FAL_KEY` so the client never sees it, it
+builds the `configure` message from the jam's own script so the beats are not client-supplied,
+and it decides whether a session may open at all.
+
+**What this costs us, stated plainly:** once the peer connection is up, individual prompts travel
+from the browser straight to fal on the data channel. The server does not see them and cannot
+moderate them. That is a genuine narrowing of the "server owns provider calls" rule, accepted
+because the alternative is a native WebRTC stack in the server. The server still owns
+authorization to open a session, how many may be open, and the budget.
+
+**Spend is why the ledger exists.** fal bills each Director session at a **60-second minimum of
+wall-clock runtime**, so an idle open session costs as much as a working one. Opening a session
+reserves its worst case, closing settles it against the billed minimum, and a session whose
+client stops checking in is reclaimed **without a refund** — the server cannot prove fal stopped
+generating, and guessing low would understate the bill. The default rate is fal's list price
+(`$0.08`/s) rather than the promotional rate, because the safe direction is to over-estimate.
+Director sits behind its own `REVERIE_DIRECTOR_ENABLED` flag: `REVERIE_LIVE_ENABLED` already
+means "queue generation is allowed", and one flag must not silently buy the most expensive thing
+this server can start.
+
+**Not probed.** No Director session has been opened and no generated video has been seen by
+anyone. The route shape was confirmed unauthenticated — `/start-session` and `/info` answer 401,
+`/health` and the bare application 404 — and every constant comes from the model's published
+`/info` and AsyncAPI documents. Per `AGENTS.md` this stays unprobed until a dated receipt is
+recorded here.
+
 ## 2026-09-19 — Generated streams are keyed by configuration, and a cap makes the room attach
 
 Per-participant overrides select a configuration (today `language` + `ambientation`), and Reverie

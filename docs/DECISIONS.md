@@ -225,3 +225,16 @@ authorization to waiting members — which would hand a not-yet-admitted session
 of the room's channel — the lobby polls the single row it is already authorized to read,
 its own `jam_members` row, every five seconds. Polling ends at `active`, where Postgres
 Changes take over, and at `removed`, which will not change by waiting.
+
+## 2026-09-19 — The local Supabase gateway must reproduce hosted preflight behaviour
+
+The local stack exists to exercise the same client contracts as hosted Supabase, so its nginx
+gateway echoes the browser's `Access-Control-Request-Headers` (and `Origin`, with credentials)
+instead of a fixed allow-list. Supabase JS adds `Prefer`, `Accept-Profile` and
+`Content-Profile` to PostgREST writes, and a fixed allow-list silently omits them, making the
+browser block a write that hosted Supabase accepts. Reflecting the requested headers is safe
+here because the gateway is bound to `127.0.0.1` only: the permissive surface never leaves the
+developer machine. For the same reason the local anon JWT and its signing secret are public
+and committed — they authorize only an ephemeral local database, and committing them keeps
+`docker compose up` reproducible without weakening the rule that real provider secrets stay in
+ignored `.env.local`.

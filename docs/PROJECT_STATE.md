@@ -265,6 +265,43 @@ remain unproven until `scripts/verify-realtime.mjs` completes against the migrat
 - Verified locally: `pnpm typecheck`, `pnpm test` (111 passing, including the import route and the projection), `pnpm build`, and `scripts/smoke.mjs` against a production server covering the new `/jams` deep link. The import path was exercised live against the built server: `POST /api/jams` with `mode: "import"` returned 201 and `script.md` returned the exact pasted markdown, while `mode: "generate"` without a provider returned the typed `generation_disabled` 503.
 - Not verified: no Supabase project is migrated, so the RLS-scoped remote registry is implemented and unit-tested but not exercised against a live database. The API still accepts `from-movie`, but the create screen no longer offers it.
 
+## 2026-09-19 — Local Supabase Docker stack runs the production build
+
+- `docker compose up --build --wait` at the repository root starts Postgres, Auth with
+  anonymous sign-in, PostgREST, Realtime, an nginx gateway on `127.0.0.1:54321`, a one-shot
+  migration runner, and the production Vite/Express app on `127.0.0.1:4317`. The migration
+  runner applies every `supabase/migrations` file once (tracked in
+  `reverie_local.schema_migrations`) and then reloads the PostgREST schema cache.
+- Three local-only fixes were needed to match hosted Supabase. The nginx gateway returned a
+  fixed CORS allow-list that omitted the PostgREST headers Supabase JS sends (`Prefer`,
+  `Accept-Profile`, `Content-Profile`), so Chrome blocked the `jams` insert at preflight; it
+  now echoes `Access-Control-Request-Headers`. The Express host reads `HOST` so it can bind
+  `0.0.0.0` inside the container. The migration runner grants `jams` insert plus the live-mode
+  tables, and deliberately leaves `jams` select/update to the per-column grants from
+  `20260919200000_jam_invite_lifecycle.sql` so a table-level grant cannot silently re-expose
+  the invite columns.
+- The stack was reconciled onto newer `main` commits (RV-08 invite lifecycle, live media and
+  the jam registry) without force push. It now applies all ten migrations, and the invite
+  lifecycle works locally: a host reads the code only through `get_jam_invite`, while a direct
+  select of `invite_code` is refused with `42501`.
+- The client no longer treats `new` as a room slug: loading `/jams/new` resolves to the create
+  screen with no slug, instead of opening a studio for a room called "new".
+- `.env.compose` holds only public, local-only values (the local anon JWT and its signing
+  secret) and is committed so the documented command works from a fresh clone.
+- `pnpm verify:realtime` ran for the first time, against this stack: 27/27 checks covering the
+  invite lifecycle (host-only reads, no hand-writing, rotation/revocation, throttle), lobby
+  placement, refusal of self-admission and direct membership inserts, host admission,
+  cross-session Postgres Changes delivery, reconnect snapshot recovery, outsider denial and
+  removal. One earlier run flaked on a single message delivery after admission and passed on a
+  clean re-run; that check subscribes and waits one second before the insert. Only the local
+  stack is proven — no hosted project has been migrated from this repository.
+- Verified against the running stack: anonymous Auth `200`; `POST /rest/v1/jams` from the app
+  origin `201` with the returned columns excluding the invite; `get_jam_invite` `200`; direct
+  `invite_code` select `403` (`42501`); `/api/health` and the `/jams/new` guard correct;
+  `pnpm typecheck` and `pnpm test` (148 passing). This is a local development stack: it does
+  not prove Vercel parity and the in-memory script/session/playback stores still reset when the
+  app container restarts.
+
 ## Next milestones
 
 1. Apply every migration in `supabase/migrations` to a Supabase project and run

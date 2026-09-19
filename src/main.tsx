@@ -25,7 +25,7 @@ function screenFromPath(pathname: string): Screen {
 
 function jamSlugFromPath(pathname: string) {
   const match = pathname.match(/^\/jams\/([a-z0-9-]+)$/);
-  return match?.[1] ?? null;
+  return match?.[1] === "new" ? null : match?.[1] ?? null;
 }
 
 function inviteCodeFromLocation() {

@@ -15,6 +15,7 @@ try {
 
 const isProduction = process.env.NODE_ENV === "production";
 const port = Number(process.env.PORT ?? 4317);
+const host = process.env.HOST ?? "127.0.0.1";
 const app = createApiApp();
 
 async function start() {
@@ -32,8 +33,8 @@ async function start() {
     });
   }
 
-  app.listen(port, "127.0.0.1", () => {
-    console.log(`Reverie is ready at http://127.0.0.1:${port}`);
+  app.listen(port, host, () => {
+    console.log(`Reverie is ready at http://${host}:${port}`);
   });
 }
 

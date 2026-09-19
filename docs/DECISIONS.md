@@ -349,3 +349,31 @@ the existing `jam_sessions` remain language/ambientation skins over the one shar
 - **Chips are statements, not toggles on a hidden filter.** Each carries its sentence and cites
   quotes from it; withdrawing one is a turn whose transcript quotes what is withdrawn. A session
   holds twelve turns, after which the viewer is told to start over.
+
+## 2026-09-19 — One jam_playback table, reconciled by a stacked migration
+
+Two independent slices each created `public.jam_playback`: the portion-playback work
+(`20260919190000_structured_script_revisions.sql`) with `current_portion_index`, and the shared
+clock (`20260919230000_jam_playback_clock.sql`) with `started_at`/`paused_elapsed_ms`. They were
+merged without knowing about each other, and the collision is not merely cosmetic: `190000` sorts
+first, so on a **fresh** database it creates the table, the clock migration's `create table if not
+exists` then silently no-ops, and its `jam_playback_json` function fails to compile because
+`p_row.started_at` does not exist. On an **existing** database the reverse is true — the clock
+table is present and the cursor column is missing. A migration that only worked for one history
+would have left the other broken, and a fresh deploy is exactly the path CI and a new contributor
+take.
+
+Rather than edit either migration — databases have already applied them, and editing an applied
+migration means the file no longer describes the database — a stacked migration
+(`20260919225000_reconcile_jam_playback.sql`) sits between them and converges both histories on one
+table carrying both column sets. It is idempotent and backfills before enforcing `NOT NULL`, so no
+existing row can block it. `status` becomes the union `idle|priming|playing|paused|finished`, and
+the anchor invariant is restated for the union as `(status = 'playing') = (started_at is not null)`
+— priming and finished carry no anchor, which is correct because only a playing clock needs one.
+The two representations stay deliberately distinct: the cursor is a `-1`-sentinel integer in
+Postgres and `null` in memory, mapped at the store boundary so playback semantics never see `-1`.
+
+Verified by applying the whole migration set in sorted order to a clean Postgres (the clock
+functions compile and the table ends with all seven columns) and by applying it to the existing
+local stack (which converges to the same shape). `pnpm verify:realtime` remains 34/34, including
+the clock RPCs now running against the combined table.

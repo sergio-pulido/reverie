@@ -126,6 +126,18 @@ The **shared playback clock** is a separate, room-wide position that every viewe
 
 The position is derived, never stored as a mutable counter: `elapsedMs = paused_elapsed_ms + (now() - started_at)` while playing, and `paused_elapsed_ms` otherwise. `serverNow` lets a browser correct for clock skew — it anchors to `elapsedMs` and advances with its own monotonic clock (`performance.now()`), so no participant's wall clock can move the room. Reads poll every 2.5s as an interim transport; the contract is Realtime events, so the poll interval is a single named constant a later slice replaces. The clock row is created by a trigger on `jams` and backfilled for existing rooms; the table has RLS enabled with no policies, so only the security-definer functions are reachable.
 
+**One table, both representations.** `public.jam_playback` was introduced twice — once by the portion-playback work (`20260919190000`, cursor) and once by the clock work (`20260919230000`, anchor) — and `20260919225000_reconcile_jam_playback.sql` converges every database on a single table:
+
+| Column | Meaning |
+| --- | --- |
+| `status` | Union vocabulary `idle｜priming｜playing｜paused｜finished`. `priming`/`finished` come from portion playback, `paused` from the clock. |
+| `current_portion_index` | Portion cursor, `-1` until the first portion plays (the store maps this to in-memory `null`). |
+| `started_at` | Wall-clock anchor, set exactly while `status = 'playing'`; enforced by `(status = 'playing') = (started_at is not null)`. |
+| `paused_elapsed_ms` | Time accumulated before the current playing segment. |
+| `state_version` | Compare-and-swap guard, shared by both. |
+
+The reconciliation is idempotent and backfills before enforcing `NOT NULL`. It is required because `190000` sorts before `230000`: on a fresh database the cursor migration creates the table first, so the clock migration's `create table if not exists` no-ops and its `jam_playback_json` function would fail to compile against the missing `started_at` column.
+
 `POST /api/jams` accepts an optional `format` object (`totalSeconds`, `portionMinSeconds`, `portionMaxSeconds`); omitted fields default to a 4-minute script of 10–20 second portions. The jam stores its format and all generation and validation follow it.
 
 The command is a discriminated union on `mode`:

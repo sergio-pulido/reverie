@@ -1,10 +1,14 @@
 import { FormEvent, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { createJam, getJam, type Jam, type JamPersistence, type JamVisibility } from "./lib/jams";
+import { Footer, Header } from "./chrome";
+import type { Jam as GeneratedJam, JamSource } from "./core/jam";
+import { createJam as createJamRoom, getJam as getJamRoom, type Jam as JamRoom, type JamPersistence, type JamVisibility } from "./lib/jams";
 import { hasSupabaseConfiguration } from "./lib/supabase";
+import { ScriptScreen } from "./ScriptScreen";
 import "./styles.css";
 
-type Screen = "home" | "create" | "join" | "studio";
+type Screen = "home" | "create" | "join" | "script" | "studio";
+type SourceKind = "from-scratch" | "from-movie";
 type Contribution = { author: string; text: string; kind: "host" | "director" };
 
 const starterContributions: Contribution[] = [
@@ -30,6 +34,10 @@ function App() {
   const [premise, setPremise] = useState("A signal changes what the room thinks is possible.");
   const [visibility, setVisibility] = useState<JamVisibility>("invite_only");
   const [persistence, setPersistence] = useState<JamPersistence>(hasSupabaseConfiguration() ? "remote" : "preview");
+  const [sourceKind, setSourceKind] = useState<SourceKind>("from-scratch");
+  const [movieTitle, setMovieTitle] = useState("");
+  const [movieSummary, setMovieSummary] = useState("");
+  const [generatedJam, setGeneratedJam] = useState<GeneratedJam | null>(null);
   const [contributions, setContributions] = useState(starterContributions);
   const [draft, setDraft] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
@@ -52,7 +60,7 @@ function App() {
     if (screen !== "studio" || !slug || slug.startsWith("preview-")) return;
 
     let active = true;
-    void getJam(slug)
+    void getJamRoom(slug)
       .then((jam) => {
         if (!active || !jam) return;
         applyJam(jam, "remote");
@@ -63,7 +71,7 @@ function App() {
     return () => { active = false; };
   }, [screen]);
 
-  function applyJam(jam: Jam, mode: JamPersistence) {
+  function applyJam(jam: JamRoom, mode: JamPersistence) {
     setRoomTitle(jam.title);
     setPremise(jam.premise);
     setVisibility(jam.visibility);
@@ -72,18 +80,47 @@ function App() {
 
   async function createRoom(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isCreating) return;
+    const source: JamSource = sourceKind === "from-scratch"
+      ? { kind: "from-scratch", prompt: premise.trim() }
+      : {
+          kind: "from-movie",
+          movieTitle: movieTitle.trim(),
+          ...(movieSummary.trim() ? { movieSummary: movieSummary.trim() } : {}),
+        };
+    const roomPremise = sourceKind === "from-scratch" ? premise.trim() : `An original story inspired by “${movieTitle.trim()}”.`;
     setIsCreating(true);
     setNotice(null);
     try {
-      const created = await createJam({ title: roomTitle, premise, visibility });
-      applyJam(created.jam, created.persistence);
+      const response = await fetch("/api/jams", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ source }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        setNotice(body?.error?.safeMessage ?? "The jam script could not be created.");
+        return;
+      }
+      const script = body.jam as GeneratedJam;
+      setGeneratedJam(script);
+      let scriptPath = "/jams/new";
+      let roomNote = "";
+      try {
+        const created = await createJamRoom({ title: roomTitle, premise: roomPremise.slice(0, 280), visibility });
+        applyJam(created.jam, created.persistence);
+        scriptPath = `/jams/${created.jam.slug}`;
+        roomNote = created.persistence === "remote" ? "Your persistent room is ready." : "Supabase is not configured, so the room is a local preview only.";
+      } catch (error) {
+        roomNote = error instanceof Error ? error.message : "The Jam room could not be persisted; the script is still yours.";
+      }
       setContributions([
-        { author: "Reverie", text: created.persistence === "remote" ? "Your persistent room is ready. Invite the first directors when you are ready." : "Supabase is not configured, so this is a local preview only.", kind: "director" },
-        { author: "You", text: created.jam.premise, kind: "host" },
+        { author: "Reverie", text: `Script ready: “${script.script.title}” — ${script.script.logline} ${roomNote}`.trim(), kind: "director" },
+        { author: "You", text: roomPremise, kind: "host" },
       ]);
-      navigate("studio", `/jams/${created.jam.slug}`);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "The Jam room could not be created.");
+      navigate("script", scriptPath);
+    } catch {
+      setNotice("The server could not be reached.");
     } finally {
       setIsCreating(false);
     }
@@ -98,19 +135,14 @@ function App() {
   }
 
   if (screen === "create") {
-    return <CreateRoom title={roomTitle} premise={premise} visibility={visibility} onTitle={setRoomTitle} onPremise={setPremise} onVisibility={setVisibility} onBack={() => navigate("home", "/")} onSubmit={createRoom} isCreating={isCreating} notice={notice} />;
+    return <CreateRoom title={roomTitle} premise={premise} visibility={visibility} sourceKind={sourceKind} movieTitle={movieTitle} movieSummary={movieSummary} onTitle={setRoomTitle} onPremise={setPremise} onVisibility={setVisibility} onSourceKind={setSourceKind} onMovieTitle={setMovieTitle} onMovieSummary={setMovieSummary} onBack={() => navigate("home", "/")} onSubmit={createRoom} isCreating={isCreating} notice={notice} />;
+  }
+  if (screen === "script" && generatedJam) {
+    return <ScriptScreen jam={generatedJam} roomTitle={roomTitle} onStudio={() => setScreen("studio")} onBack={() => navigate("create", "/jams/new")} />;
   }
   if (screen === "join") return <JoinRoom onBack={() => navigate("home", "/")} notice={notice} onJoin={() => setNotice("Invite lookup arrives with the Supabase membership and lobby milestone.")} />;
   if (screen === "studio") return <Studio title={roomTitle} visibility={visibility} persistence={persistence} contributions={contributions} draft={draft} onDraft={setDraft} onSubmit={addContribution} onExit={() => navigate("home", "/")} />;
   return <Home onCreate={() => navigate("create", "/jams/new")} onJoin={() => navigate("join", "/join")} />;
-}
-
-function Header({ onHome }: { onHome: () => void }) {
-  return <nav className="topbar" aria-label="Primary navigation">
-    <button className="brand brand-button" onClick={onHome} aria-label="Reverie home"><span className="brand-mark">✳</span><span>REVERIE</span></button>
-    <div className="nav-links"><button className="active" onClick={onHome}>Discover</button><button onClick={onHome}>Movie Jam</button></div>
-    <span className="status"><i /> HackBarna 2026</span>
-  </nav>;
 }
 
 function Home({ onCreate, onJoin }: { onCreate: () => void; onJoin: () => void }) {
@@ -120,9 +152,37 @@ function Home({ onCreate, onJoin }: { onCreate: () => void; onJoin: () => void }
   </main>;
 }
 
-type CreateRoomProps = { title: string; premise: string; visibility: JamVisibility; onTitle: (value: string) => void; onPremise: (value: string) => void; onVisibility: (value: JamVisibility) => void; onBack: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; isCreating: boolean; notice: string | null };
-function CreateRoom({ title, premise, visibility, onTitle, onPremise, onVisibility, onBack, onSubmit, isCreating, notice }: CreateRoomProps) {
-  return <main className="site-shell setup-shell"><Header onHome={onBack} /><section className="setup-layout"><div className="setup-intro"><button className="back-link" onClick={onBack}>← Back to Reverie</button><p className="eyebrow">NEW MOVIE JAM</p><h1>Set the first <em>scene.</em></h1><p className="intro">This is the host's opening direction. Guests can shape what happens next once the room opens.</p></div><form className="room-form" onSubmit={onSubmit}><label>Jam title<input value={title} onChange={(event) => onTitle(event.target.value)} maxLength={72} required /></label><label>Opening premise<textarea value={premise} onChange={(event) => onPremise(event.target.value)} maxLength={280} required /></label><label>Who can join?<select value={visibility} onChange={(event) => onVisibility(event.target.value as JamVisibility)}><option value="invite_only">Invite only</option><option value="public">Public room</option></select></label><p className="form-note">{hasSupabaseConfiguration() ? "This room will receive its own persistent URL." : "Supabase is not configured yet, so this creates a clearly labelled local preview."}</p><button className="button button-primary form-submit" type="submit" disabled={isCreating}>{isCreating ? "Creating…" : "Create the room"}<span>↗</span></button>{notice && <aside className="notice" role="alert"><span className="notice-dot" />{notice}</aside>}</form></section><Footer />
+type CreateRoomProps = {
+  title: string; premise: string; visibility: JamVisibility;
+  sourceKind: SourceKind; movieTitle: string; movieSummary: string;
+  onTitle: (value: string) => void; onPremise: (value: string) => void; onVisibility: (value: JamVisibility) => void;
+  onSourceKind: (value: SourceKind) => void; onMovieTitle: (value: string) => void; onMovieSummary: (value: string) => void;
+  onBack: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; isCreating: boolean; notice: string | null;
+};
+
+function CreateRoom({ title, premise, visibility, sourceKind, movieTitle, movieSummary, onTitle, onPremise, onVisibility, onSourceKind, onMovieTitle, onMovieSummary, onBack, onSubmit, isCreating, notice }: CreateRoomProps) {
+  return <main className="site-shell setup-shell"><Header onHome={onBack} /><section className="setup-layout">
+    <div className="setup-intro"><button className="back-link" onClick={onBack}>← Back to Reverie</button><p className="eyebrow">NEW MOVIE JAM</p><h1>Set the first <em>scene.</em></h1><p className="intro">Start from scratch with a small prompt, or riff on a movie you love. Reverie writes a 4-minute script in 10–20 second scene portions for the room to direct.</p></div>
+    <form className="room-form" onSubmit={onSubmit}>
+      <label>Jam title<input value={title} onChange={(event) => onTitle(event.target.value)} maxLength={72} required /></label>
+      <div className="jam-kind" role="radiogroup" aria-label="Story source">
+        <button type="button" role="radio" aria-checked={sourceKind === "from-scratch"} className={sourceKind === "from-scratch" ? "active" : ""} onClick={() => onSourceKind("from-scratch")}>From scratch</button>
+        <button type="button" role="radio" aria-checked={sourceKind === "from-movie"} className={sourceKind === "from-movie" ? "active" : ""} onClick={() => onSourceKind("from-movie")}>From an existing movie</button>
+      </div>
+      {sourceKind === "from-scratch" ? (
+        <label>Opening premise<textarea value={premise} onChange={(event) => onPremise(event.target.value)} minLength={8} maxLength={280} required /></label>
+      ) : (
+        <>
+          <label>Movie title<input value={movieTitle} onChange={(event) => onMovieTitle(event.target.value)} maxLength={120} placeholder="The film your room wants to riff on" required /></label>
+          <label>What the room remembers about it (optional)<textarea value={movieSummary} onChange={(event) => onMovieSummary(event.target.value)} maxLength={1000} /></label>
+        </>
+      )}
+      <label>Who can join?<select value={visibility} onChange={(event) => onVisibility(event.target.value as JamVisibility)}><option value="invite_only">Invite only</option><option value="public">Public room</option></select></label>
+      <p className="form-note">{hasSupabaseConfiguration() ? "This room will receive its own persistent URL." : "Supabase is not configured yet, so this creates a clearly labelled local preview."} The script is an original generated work — never a copy of an existing film.</p>
+      <button className="button button-primary form-submit" type="submit" disabled={isCreating}>{isCreating ? "Writing your 4-minute script…" : "Write the script"}<span>↗</span></button>
+      {notice && <aside className="notice" role="alert"><span className="notice-dot" />{notice}</aside>}
+    </form>
+  </section><Footer />
   </main>;
 }
 
@@ -139,5 +199,5 @@ function Studio({ title, visibility, persistence, contributions, draft, onDraft,
 function LiveScene({ compact = false }: { compact?: boolean }) {
   return <div className={`scene-card ${compact ? "scene-card-compact" : ""}`} aria-label="Illustration of a live film jam"><div className="scene-meta"><span><i /> LIVE DIRECTION</span><span>SCENE 01 / 06</span></div><div className="moon" /><div className="mountains mountain-back" /><div className="mountains mountain-front" /><div className="character character-left"><span /></div><div className="character character-center"><span /></div><div className="character character-right"><span /></div><div className="scene-caption"><p>NOW DIRECTING</p><h2>Three friends follow a signal through the stars.</h2></div></div>;
 }
-function Footer() { return <footer><span>REVERIE / MOVIE JAM</span><span>Made for HackBarna 2026</span><span>Every story can branch.</span></footer>; }
+
 createRoot(document.getElementById("root")!).render(<App />);

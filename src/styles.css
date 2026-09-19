@@ -56,6 +56,23 @@ h1 em { color: #cbd5ff; font-weight: 500; }
 .steps h2 { margin: 29px 0 12px; font-size: 20px; font-weight: 600; }
 .steps p { color: #b4b8c7; line-height: 1.5; margin-bottom: 0; }
 footer { max-width: 1410px; margin: 0 auto; padding: 24px 48px; border-top: 1px solid rgba(213, 218, 255, .12); display: flex; justify-content: space-between; color: #8e94a8; }
+.jam-kind { display: flex; gap: 10px; margin-bottom: 21px; }
+.jam-kind button { flex: 1; padding: 12px 14px; border-radius: 6px; border: 1px solid #48506a; background: transparent; color: #c2c4d0; font-size: 14px; font-weight: 600; }
+.jam-kind button.active { background: #f6f4ee; border-color: #f6f4ee; color: #10131d; }
+.jam-error { margin: 0 0 12px; color: #ffb9b0; font-size: 14px; line-height: 1.5; }
+.jam-note { margin: 0; color: #8e94a8; font-size: 13px; line-height: 1.5; }
+.room-form .button:disabled { opacity: .55; cursor: wait; transform: none; }
+.script-layout { width: min(880px, 100%); margin: 0 auto; padding: 70px 48px 88px; }
+.script-head { margin-bottom: 34px; }
+.script-head h1 { font-size: clamp(42px, 5.4vw, 76px); margin-bottom: 18px; }
+.script-head .hero-actions { margin-top: 26px; }
+.jam-scene { border-top: 1px solid #474d61; padding-top: 22px; margin-top: 26px; }
+.jam-scene h2 { margin: 0 0 16px; font-size: 24px; font-weight: 600; font-family: Fraunces, Georgia, serif; letter-spacing: -.02em; }
+.jam-portion { margin-bottom: 14px; font-size: 14px; line-height: 1.5; color: #d7daf0; }
+.jam-portion p { margin: 0 0 4px; }
+.jam-portion-time { letter-spacing: .16em; font-family: "DM Mono", monospace; font-size: 11px; color: #bbc6fa; }
+.jam-dialogue { color: #fffdf8; font-style: italic; }
+.jam-visuals { color: #8e94a8; }
 @media (max-width: 850px) { .topbar { height: 75px; padding: 0 24px; } .nav-links, .status { display: none; } .hero { padding: 62px 24px 50px; grid-template-columns: 1fr; gap: 45px; } .scene-card { min-height: 420px; } .steps { padding: 16px 24px 50px; grid-template-columns: 1fr; } footer { padding: 24px; gap: 13px; flex-direction: column; } }
 
 .brand-button, .nav-links button { color: inherit; background: transparent; border: 0; }

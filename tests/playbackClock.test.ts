@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { formatClock } from "../src/core/clock";
 import {
-  formatClock,
   playbackReadingSchema,
   playheadSeconds,
   positionSeconds,
@@ -47,7 +47,8 @@ test("the playhead stops at the end of the film, because the clock does not know
   assert.equal(playheadSeconds(anchor(), 1_000, 0), 0, "a film with no runtime has no playhead");
 });
 
-test("the clock reads as minutes and seconds, and nonsense reads as zero", () => {
+test("a playhead's fractional seconds read as whole ones, and nonsense reads as zero", () => {
+  assert.equal(formatClock(12.9), "0:12");
   assert.equal(formatClock(0), "0:00");
   assert.equal(formatClock(9), "0:09");
   assert.equal(formatClock(131), "2:11");

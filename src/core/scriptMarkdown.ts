@@ -1,3 +1,4 @@
+import { formatClock } from "./clock";
 import { totalDurationSeconds, type JamScript } from "./script";
 import type { JamSource } from "./jam";
 import type { JamSession } from "./session";
@@ -76,8 +77,4 @@ function count(value: number, noun: string): string {
   return `${value} ${noun}${value === 1 ? "" : "s"}`;
 }
 
-export function formatClock(seconds: number): string {
-  const minutes = Math.floor(seconds / 60);
-  const rest = seconds % 60;
-  return `${minutes}:${String(rest).padStart(2, "0")}`;
-}
+export { formatClock };

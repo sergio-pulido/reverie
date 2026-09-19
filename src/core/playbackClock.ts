@@ -62,9 +62,3 @@ export function playheadSeconds(
 ): number {
   return Math.min(Math.max(0, runtimeSeconds), positionSeconds(anchor, now));
 }
-
-/** `m:ss`, the way a transport bar reads. Negative and nonsense read as zero. */
-export function formatClock(seconds: number): string {
-  const whole = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
-  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
-}

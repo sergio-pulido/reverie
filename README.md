@@ -91,6 +91,21 @@ Only `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are browser configuration.
 
 ## Run and deploy
 
+For the local Docker stack, start Docker Desktop and run:
+
+```bash
+docker compose up --build --wait
+# Open http://localhost:4317
+```
+
+The root Compose file loads `.env.compose` for local Supabase configuration.
+The app service loads optional `.env.local` for server-side provider credentials and
+settings; these files are excluded from the image. Public Supabase values are embedded
+at build time. Stop with `docker compose down`; database data stays in its named volume.
+This runs the production Vite build with the local Express host. It does not yet prove
+Vercel parity: script/session/playback APIs still depend on the local server and memory.
+`pnpm verify:realtime` runs against this stack and passed 27/27 checks on 2026-09-19.
+
 ```bash
 pnpm install --frozen-lockfile
 pnpm dev
@@ -127,13 +142,13 @@ The HackBarna demo will start with a host-led story, then reveal a QR code so au
 
 ## Status
 
-Implemented: landing page, create/join/studio routes, the TV-first `/discover` route with keyboard traversal and search, the privileged `GET /api/catalogue` adapter, local preview, Supabase-backed room creation, invite-code entitlement, display names, the waiting lobby, host admission and removal, append-only chat and proposals synchronized through Supabase Realtime with reconnect snapshots, plus local and Vercel health handlers. Opt-in live media (camera, microphone, screen) is implemented behind `POST /api/live/token`
+Implemented: landing page, create/join/studio routes, the TV-first `/discover` route with keyboard traversal and search, the privileged `GET /api/catalogue` adapter, local preview, Supabase-backed room creation, the `/jams` registry that lists the rooms you host or have joined, script generation from a prompt, script import that keeps the pasted markdown, invite-code entitlement, display names, the waiting lobby, host admission and removal, append-only chat and proposals synchronized through Supabase Realtime with reconnect snapshots, plus local and Vercel health handlers. Opt-in live media (camera, microphone, screen) is implemented behind `POST /api/live/token`
 with a consent register that records owner, purpose, expiry and a server-issued asset
 reference, and withdrawing consent stops the track; nothing is recorded, exported or
 transformed. The Vonage credentials in this repository are account-level, not a video-capable
 application, so a session has never been opened from here and the route reports
 `live_not_configured` — see `docs/PROJECT_STATE.md` for the dated probe receipts. Voting,
-scene acceptance and generation remain unimplemented; scene acceptance is deliberately blocked on a versioned transactional contract. No catalogue contract has been supplied, so Discover reports an unconfigured catalogue rather than showing titles. No Supabase project has been migrated from this repository, so the collaborative behaviour is implemented and unit-tested but not yet verified against a live database — run `pnpm verify:realtime` against a configured project to produce that evidence. Hosted deployment also remains pending.
+scene acceptance and generation remain unimplemented; scene acceptance is deliberately blocked on a versioned transactional contract. No catalogue contract has been supplied, so Discover reports an unconfigured catalogue rather than showing titles. No hosted Supabase project has been migrated from this repository; the collaborative behaviour and RLS are verified against the local Docker stack (`pnpm verify:realtime`, 27/27) but not against a hosted database — run it against a configured project to produce that evidence. Hosted deployment also remains pending.
 
 ## Contributing
 

@@ -1,14 +1,29 @@
-import type { JamSource } from "../../src/core/jam";
+import type { GeneratedJamSource } from "../../src/core/jam";
 import type { JamScript, ScriptFormat } from "../../src/core/script";
-import { DEFAULT_SCRIPT_FORMAT } from "../../src/core/script";
+import {
+  DEFAULT_SCRIPT_FORMAT,
+  hardPortionBounds,
+  totalDurationSeconds,
+} from "../../src/core/script";
 import {
   finalizeScriptDraft,
   jamScriptDraftSchema,
   ScriptDraftError,
+  type JamScriptDraft,
 } from "../../src/core/scriptDraft";
 import { completeJson, NebiusError, type NebiusConfig } from "./providers/nebius";
 
-const ATTEMPTS = 2;
+// Each attempt is a paid provider call. The writer feeds the previous failure
+// back to the model, so the expected number of calls is small; the cap bounds
+// worst-case spend when a provider keeps returning an unusable draft.
+export const SCRIPT_ATTEMPTS = 4;
+
+/** One provider completion. Injectable so the retry loop is testable offline. */
+export type ScriptCompletion = (options: {
+  system: string;
+  user: string;
+  maxTokens: number;
+}) => Promise<string>;
 
 export function expectedPortions(format: ScriptFormat): number {
   const averagePortion = (format.portionMinSeconds + format.portionMaxSeconds) / 2;
@@ -41,6 +56,47 @@ export function buildSystemPrompt(format: ScriptFormat): string {
   ].join(" ");
 }
 
+/**
+ * Tell the model exactly what was wrong with its last draft and how to fix it,
+ * so a retry is a correction rather than the same prompt again. The numbers are
+ * derived from the draft that actually failed, not from the original request.
+ */
+export function buildCorrectionPrompt(
+  draft: JamScriptDraft,
+  format: ScriptFormat = DEFAULT_SCRIPT_FORMAT,
+): string {
+  const target = format.totalSeconds;
+  const total = totalDurationSeconds(draft);
+  const portions = draft.scenes.reduce((sum, scene) => sum + scene.portions.length, 0);
+  const bounds = hardPortionBounds(format);
+  const average = Math.max(
+    1,
+    Math.round((format.portionMinSeconds + format.portionMaxSeconds) / 2),
+  );
+  const minPortions = Math.max(1, Math.ceil(target / bounds.max));
+  const maxPortions = Math.max(minPortions, Math.floor(target / bounds.min));
+
+  const parts = [
+    `Correction required: your previous draft ran ${total} seconds across ${portions} portions and does not fit the ${target}-second runtime.`,
+  ];
+  if (total < target) {
+    parts.push(
+      `It is ${target - total} seconds too short; add about ${Math.ceil((target - total) / average)} more portion(s) or lengthen the existing ones.`,
+    );
+  } else if (total > target) {
+    parts.push(
+      `It is ${total - target} seconds too long; remove or shorten about ${Math.ceil((total - target) / average)} portion(s).`,
+    );
+  } else {
+    parts.push("The total is right but the per-portion timings are not usable.");
+  }
+  parts.push(
+    `Plan ${minPortions} to ${maxPortions} portions of ${format.portionMinSeconds}-${format.portionMaxSeconds} seconds so the durations sum to exactly ${target}.`,
+    "Reply with the complete corrected JSON object only.",
+  );
+  return parts.join(" ");
+}
+
 export class ScriptwriterError extends Error {
   constructor(
     message: string,
@@ -53,8 +109,9 @@ export class ScriptwriterError extends Error {
 
 export async function writeJamScript(
   config: NebiusConfig,
-  source: JamSource,
+  source: GeneratedJamSource,
   format: ScriptFormat = DEFAULT_SCRIPT_FORMAT,
+  complete: ScriptCompletion = (options) => completeJson(config, options),
 ): Promise<JamScript> {
   const user =
     source.kind === "from-scratch"
@@ -67,11 +124,16 @@ export async function writeJamScript(
           .join("\n");
 
   let lastFailure = "The generated script was not usable.";
-  for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
+  // Carried into the next attempt so the model corrects the actual failure
+  // (too long, too short, wrong shape) instead of repeating it.
+  let correction: string | null = null;
+  for (let attempt = 1; attempt <= SCRIPT_ATTEMPTS; attempt += 1) {
     let raw: string;
     try {
-      raw = await completeJson(config, {
-        system: buildSystemPrompt(format),
+      raw = await complete({
+        system: correction
+          ? `${buildSystemPrompt(format)} ${correction}`
+          : buildSystemPrompt(format),
         user,
         maxTokens: completionTokenBudget(format),
       });
@@ -85,6 +147,8 @@ export async function writeJamScript(
     const draft = jamScriptDraftSchema.safeParse(parseJson(raw));
     if (!draft.success) {
       lastFailure = "The provider returned a script in an unexpected shape.";
+      correction =
+        'Correction required: reply with a single JSON object only, shaped exactly like {"title", "logline", "scenes":[{"heading", "portions":[{"durationSeconds", "action"}]}]}.';
       continue;
     }
     try {
@@ -92,6 +156,7 @@ export async function writeJamScript(
     } catch (error) {
       if (error instanceof ScriptDraftError) {
         lastFailure = `The generated script could not be fitted to the ${format.totalSeconds}-second runtime.`;
+        correction = buildCorrectionPrompt(draft.data, format);
         continue;
       }
       throw error;

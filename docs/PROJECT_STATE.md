@@ -257,6 +257,88 @@ remain unproven until `scripts/verify-realtime.mjs` completes against the migrat
   failed invite attempts commit their throttle counter instead of being rolled back with an
   exception.
 
+## 2026-09-19 — Jam registry and script import (RV-08)
+
+- Every jam now registers its room first and passes that room id to `POST /api/jams` as `jamId`, so the generated or imported script and its revision history attach to that exact room instead of a second, server-minted id.
+- `/jams` is the registry: it lists the rooms this identity hosts or has joined (RLS-scoped `jams` select, newest first), hides `completed`/`closed`, and offers "start a new jam". Home's primary action opens it. Without Supabase it reads a browser-local preview registry and labels it non-shareable.
+- Creation offers two sources: a from-scratch prompt (Nebius, generation-gated) or an imported script. Import makes no provider call, keeps the pasted markdown verbatim as revision 1, and derives a word-boundary, format-bounded portion projection; text too short or too long for the runtime is refused with `invalid_script_import` rather than padded or split mid-word.
+- Verified locally: `pnpm typecheck`, `pnpm test` (111 passing, including the import route and the projection), `pnpm build`, and `scripts/smoke.mjs` against a production server covering the new `/jams` deep link. The import path was exercised live against the built server: `POST /api/jams` with `mode: "import"` returned 201 and `script.md` returned the exact pasted markdown, while `mode: "generate"` without a provider returned the typed `generation_disabled` 503.
+- Not verified: no Supabase project is migrated, so the RLS-scoped remote registry is implemented and unit-tested but not exercised against a live database. The API still accepts `from-movie`, but the create screen no longer offers it.
+
+## 2026-09-19 — Local Supabase Docker stack runs the production build
+
+- `docker compose up --build --wait` at the repository root starts Postgres, Auth with
+  anonymous sign-in, PostgREST, Realtime, an nginx gateway on `127.0.0.1:54321`, a one-shot
+  migration runner, and the production Vite/Express app on `127.0.0.1:4317`. The migration
+  runner applies every `supabase/migrations` file once (tracked in
+  `reverie_local.schema_migrations`) and then reloads the PostgREST schema cache.
+- Three local-only fixes were needed to match hosted Supabase. The nginx gateway returned a
+  fixed CORS allow-list that omitted the PostgREST headers Supabase JS sends (`Prefer`,
+  `Accept-Profile`, `Content-Profile`), so Chrome blocked the `jams` insert at preflight; it
+  now echoes `Access-Control-Request-Headers`. The Express host reads `HOST` so it can bind
+  `0.0.0.0` inside the container. The migration runner grants `jams` insert plus the live-mode
+  tables, and deliberately leaves `jams` select/update to the per-column grants from
+  `20260919200000_jam_invite_lifecycle.sql` so a table-level grant cannot silently re-expose
+  the invite columns.
+- The stack was reconciled onto newer `main` commits (RV-08 invite lifecycle, live media and
+  the jam registry) without force push. It now applies all ten migrations, and the invite
+  lifecycle works locally: a host reads the code only through `get_jam_invite`, while a direct
+  select of `invite_code` is refused with `42501`.
+- The client no longer treats `new` as a room slug: loading `/jams/new` resolves to the create
+  screen with no slug, instead of opening a studio for a room called "new".
+- `.env.compose` holds only public, local-only values (the local anon JWT and its signing
+  secret) and is committed so the documented command works from a fresh clone.
+- `pnpm verify:realtime` ran for the first time, against this stack: 27/27 checks covering the
+  invite lifecycle (host-only reads, no hand-writing, rotation/revocation, throttle), lobby
+  placement, refusal of self-admission and direct membership inserts, host admission,
+  cross-session Postgres Changes delivery, reconnect snapshot recovery, outsider denial and
+  removal. One earlier run flaked on a single message delivery after admission and passed on a
+  clean re-run; that check subscribes and waits one second before the insert. Only the local
+  stack is proven — no hosted project has been migrated from this repository.
+- Verified against the running stack: anonymous Auth `200`; `POST /rest/v1/jams` from the app
+  origin `201` with the returned columns excluding the invite; `get_jam_invite` `200`; direct
+  `invite_code` select `403` (`42501`); `/api/health` and the `/jams/new` guard correct;
+  `pnpm typecheck` and `pnpm test` (148 passing). This is a local development stack: it does
+  not prove Vercel parity and the in-memory script/session/playback stores still reset when the
+  app container restarts.
+
+## 2026-09-19 — Script generation self-corrects runtime misses (RV-10)
+
+- `writeJamScript` no longer fails after sending the same prompt twice. A draft
+  that cannot be fitted to the jam's runtime is retried with targeted feedback:
+  the next prompt carries the rejected draft's actual total seconds, its portion
+  count, whether it ran long or short, and the feasible portion band for the
+  target. A reply that fails the draft shape is retried with the exact JSON
+  shape restated.
+- Attempts are bounded at four paid completions, so the cost of a stubborn
+  provider is capped; only after that do we return the existing typed, retryable
+  `generation_failed`, which the create screen can retry without losing the
+  already-registered room. The 0.8×–1.25× rescale window is unchanged.
+- The provider completion is now an injectable argument of `writeJamScript`, so
+  the retry loop is tested offline: a too-short draft is corrected into an exact
+  240-second script, an unusable shape is retried, and an uncorrectable draft
+  stops after the bounded attempts (`tests/scriptwriter.test.ts`).
+- Verified locally: `pnpm typecheck` and `pnpm test` (153 passing). No live
+  provider call was made for this change, so provider behaviour is implemented
+  and unit-tested here, not claimed as a live probe.
+
+## 2026-09-19 — Room creation recovers from a dead persisted identity
+
+- A persisted Supabase session can outlive the user it names, for example after the project
+  database is reset. `getSession` reads that record straight from local storage, so the app
+  trusted a deleted `auth.uid()`; the `jams` insert then failed on the orphaned `host_id`
+  foreign key (`23503`) and surfaced as "The Jam room could not be created."
+- `ensureUserId` now confirms a stored identity with `auth.getUser()` before trusting it. A
+  4xx auth rejection discards the dead local session and mints a fresh anonymous identity, so
+  room creation heals itself; a network failure is reported instead, so a flaky connection
+  never silently replaces the participant's identity.
+- `toJamError` now maps the codes this exposed: `23503` to a recoverable session message and
+  the missing-table/function codes (`42P01`/`PGRST205`/`42883`/`PGRST202`) to a
+  `not_configured` message naming the unapplied migrations, instead of a generic outage.
+- Verified against the local Docker stack: with a stored session whose user was deleted,
+  `GET /auth/v1/user` `403` → local sign-out → anonymous signup `200` →
+  `POST /rest/v1/jams` `201`. `pnpm typecheck` and `pnpm test` (157 passing).
+
 ## 2026-09-19 — Live-project verification: 27/27
 
 - Before the rerun, one anonymous RPC call showed the hosted database still ran the old

@@ -9,12 +9,14 @@ import { DiscoverScreen } from "./discover/DiscoverScreen";
 import { ScriptScreen } from "./ScriptScreen";
 import { JoinRoom } from "./screens/JoinRoom";
 import { Studio } from "./screens/Studio";
+import { JamRegistry } from "./screens/JamRegistry";
 import "./styles.css";
 
-type Screen = "home" | "discover" | "create" | "join" | "script" | "studio";
-type SourceKind = "from-scratch" | "from-movie";
+type Screen = "home" | "discover" | "jams" | "create" | "join" | "script" | "studio";
+type SourceKind = "from-scratch" | "import-script";
 function screenFromPath(pathname: string): Screen {
   if (pathname === "/discover") return "discover";
+  if (pathname === "/jams") return "jams";
   if (pathname === "/jams/new") return "create";
   if (pathname === "/join") return "join";
   if (pathname.startsWith("/jams/")) return "studio";
@@ -23,7 +25,7 @@ function screenFromPath(pathname: string): Screen {
 
 function jamSlugFromPath(pathname: string) {
   const match = pathname.match(/^\/jams\/([a-z0-9-]+)$/);
-  return match?.[1] ?? null;
+  return match?.[1] === "new" ? null : match?.[1] ?? null;
 }
 
 function inviteCodeFromLocation() {
@@ -39,14 +41,14 @@ function App() {
   const [visibility, setVisibility] = useState<JamVisibility>("invite_only");
   const [persistence, setPersistence] = useState<JamPersistence>(hasSupabaseConfiguration() ? "remote" : "preview");
   const [sourceKind, setSourceKind] = useState<SourceKind>("from-scratch");
-  const [movieTitle, setMovieTitle] = useState("");
-  const [movieSummary, setMovieSummary] = useState("");
+  const [importedScript, setImportedScript] = useState("");
   const [totalMinutes, setTotalMinutes] = useState(4);
   const [portionMinSeconds, setPortionMinSeconds] = useState(10);
   const [portionMaxSeconds, setPortionMaxSeconds] = useState(20);
   const [generatedJam, setGeneratedJam] = useState<GeneratedJam | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [registeredRoom, setRegisteredRoom] = useState<JamRoom | null>(null);
 
   function navigate(next: Screen, path: string) {
     window.history.pushState({}, "", path);
@@ -78,20 +80,24 @@ function App() {
     if (isCreating) return;
     const source: JamSource = sourceKind === "from-scratch"
       ? { kind: "from-scratch", prompt: premise.trim() }
-      : {
-          kind: "from-movie",
-          movieTitle: movieTitle.trim(),
-          ...(movieSummary.trim() ? { movieSummary: movieSummary.trim() } : {}),
-        };
-    const roomPremise = sourceKind === "from-scratch" ? premise.trim() : `An original story inspired by “${movieTitle.trim()}”.`;
+      : { kind: "imported-script", scriptTitle: roomTitle.trim() };
+    const roomPremise = sourceKind === "from-scratch" ? premise.trim() : "A Movie Jam created from an imported script.";
     setIsCreating(true);
     setNotice(null);
     try {
+      const created = registeredRoom
+        ? { jam: registeredRoom, persistence }
+        : await createJamRoom({ id: crypto.randomUUID(), title: roomTitle.trim(), premise: roomPremise.slice(0, 280), visibility });
+      setRegisteredRoom(created.jam);
+      applyJam(created.jam, created.persistence);
       const response = await fetch("/api/jams", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
+          mode: sourceKind === "from-scratch" ? "generate" : "import",
           source,
+          ...(sourceKind === "import-script" ? { scriptMarkdown: importedScript.trim() } : {}),
+          jamId: created.jam.id,
           format: {
             totalSeconds: Math.round(totalMinutes * 60),
             portionMinSeconds,
@@ -101,35 +107,24 @@ function App() {
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
-        setNotice(body?.error?.safeMessage ?? "The jam script could not be created.");
+        setNotice(`Jam registered, but its script is not ready: ${body?.error?.safeMessage ?? "the script could not be created."}`);
         return;
       }
       const script = body.jam as GeneratedJam;
       setGeneratedJam(script);
-      let scriptPath = "/jams/new";
-      let roomNote = "";
-      try {
-        const created = await createJamRoom({ title: roomTitle, premise: roomPremise.slice(0, 280), visibility });
-        applyJam(created.jam, created.persistence);
-        scriptPath = `/jams/${created.jam.slug}`;
-        roomNote = created.persistence === "remote" ? "" : "Supabase is not configured, so the room is a local preview only.";
-      } catch (error) {
-        // The script is already written. Say plainly that the room did not persist
-        // rather than letting the script screen imply a shareable room exists.
-        roomNote = safeMessageOf(error, "The Jam room could not be persisted; the script is still yours.");
-      }
-      navigate("script", scriptPath);
-      if (roomNote) setNotice(roomNote);
-    } catch {
-      setNotice("The server could not be reached.");
+      navigate("script", `/jams/${created.jam.slug}`);
+      if (created.persistence === "preview") setNotice("Supabase is not configured, so the jam is registered in this browser as a local preview only.");
+    } catch (error) {
+      setNotice(safeMessageOf(error, "The jam could not be registered."));
     } finally {
       setIsCreating(false);
     }
   }
 
   if (screen === "discover") return <DiscoverScreen onExit={() => navigate("home", "/")} />;
+  if (screen === "jams") return <JamRegistry onBack={() => navigate("home", "/")} onNew={() => { setRegisteredRoom(null); setGeneratedJam(null); navigate("create", "/jams/new"); }} onOpen={(jam, mode) => { applyJam(jam, mode); navigate("studio", `/jams/${jam.slug}`); }} />;
   if (screen === "create") {
-    return <CreateRoom title={roomTitle} premise={premise} visibility={visibility} sourceKind={sourceKind} movieTitle={movieTitle} movieSummary={movieSummary} totalMinutes={totalMinutes} portionMinSeconds={portionMinSeconds} portionMaxSeconds={portionMaxSeconds} onTitle={setRoomTitle} onPremise={setPremise} onVisibility={setVisibility} onSourceKind={setSourceKind} onMovieTitle={setMovieTitle} onMovieSummary={setMovieSummary} onTotalMinutes={setTotalMinutes} onPortionMinSeconds={setPortionMinSeconds} onPortionMaxSeconds={setPortionMaxSeconds} onBack={() => navigate("home", "/")} onSubmit={createRoom} isCreating={isCreating} notice={notice} />;
+    return <CreateRoom title={roomTitle} premise={premise} visibility={visibility} sourceKind={sourceKind} importedScript={importedScript} totalMinutes={totalMinutes} portionMinSeconds={portionMinSeconds} portionMaxSeconds={portionMaxSeconds} onTitle={setRoomTitle} onPremise={setPremise} onVisibility={setVisibility} onSourceKind={setSourceKind} onImportedScript={setImportedScript} onTotalMinutes={setTotalMinutes} onPortionMinSeconds={setPortionMinSeconds} onPortionMaxSeconds={setPortionMaxSeconds} onBack={() => navigate("jams", "/jams")} onSubmit={createRoom} isCreating={isCreating} notice={notice} />;
   }
   if (screen === "script" && generatedJam) {
     return <ScriptScreen jam={generatedJam} roomTitle={roomTitle} onStudio={() => setScreen("studio")} onBack={() => navigate("create", "/jams/new")} />;
@@ -144,7 +139,7 @@ function App() {
       ? <Studio slug={slug} onExit={() => navigate("home", "/")} />
       : <PreviewStudio slug={slug ?? roomTitle} persistence={persistence} onExit={() => navigate("home", "/")} />;
   }
-  return <Home onCreate={() => navigate("create", "/jams/new")} onJoin={() => navigate("join", "/join")} />;
+  return <Home onCreate={() => navigate("jams", "/jams")} onJoin={() => navigate("join", "/join")} />;
 }
 
 function Home({ onCreate, onJoin }: { onCreate: () => void; onJoin: () => void }) {
@@ -156,29 +151,28 @@ function Home({ onCreate, onJoin }: { onCreate: () => void; onJoin: () => void }
 
 type CreateRoomProps = {
   title: string; premise: string; visibility: JamVisibility;
-  sourceKind: SourceKind; movieTitle: string; movieSummary: string;
+  sourceKind: SourceKind; importedScript: string;
   totalMinutes: number; portionMinSeconds: number; portionMaxSeconds: number;
   onTitle: (value: string) => void; onPremise: (value: string) => void; onVisibility: (value: JamVisibility) => void;
-  onSourceKind: (value: SourceKind) => void; onMovieTitle: (value: string) => void; onMovieSummary: (value: string) => void;
+  onSourceKind: (value: SourceKind) => void; onImportedScript: (value: string) => void;
   onTotalMinutes: (value: number) => void; onPortionMinSeconds: (value: number) => void; onPortionMaxSeconds: (value: number) => void;
   onBack: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; isCreating: boolean; notice: string | null;
 };
 
-function CreateRoom({ title, premise, visibility, sourceKind, movieTitle, movieSummary, totalMinutes, portionMinSeconds, portionMaxSeconds, onTitle, onPremise, onVisibility, onSourceKind, onMovieTitle, onMovieSummary, onTotalMinutes, onPortionMinSeconds, onPortionMaxSeconds, onBack, onSubmit, isCreating, notice }: CreateRoomProps) {
+function CreateRoom({ title, premise, visibility, sourceKind, importedScript, totalMinutes, portionMinSeconds, portionMaxSeconds, onTitle, onPremise, onVisibility, onSourceKind, onImportedScript, onTotalMinutes, onPortionMinSeconds, onPortionMaxSeconds, onBack, onSubmit, isCreating, notice }: CreateRoomProps) {
   return <main className="site-shell setup-shell"><Header onHome={onBack} /><section className="setup-layout">
-    <div className="setup-intro"><button className="back-link" onClick={onBack}>← Back to Reverie</button><p className="eyebrow">NEW MOVIE JAM</p><h1>Set the first <em>scene.</em></h1><p className="intro">Start from scratch with a small prompt, or riff on a movie you love. Pick the runtime and portion length, and Reverie writes a script in scene portions for the room to direct.</p></div>
+    <div className="setup-intro"><button className="back-link" onClick={onBack}>← Back to your jams</button><p className="eyebrow">NEW MOVIE JAM</p><h1>Set the first <em>scene.</em></h1><p className="intro">Start from a prompt and let Reverie write, or bring an existing script into its own room.</p></div>
     <form className="room-form" onSubmit={onSubmit}>
       <label>Jam title<input value={title} onChange={(event) => onTitle(event.target.value)} maxLength={72} required /></label>
       <div className="jam-kind" role="radiogroup" aria-label="Story source">
         <button type="button" role="radio" aria-checked={sourceKind === "from-scratch"} className={sourceKind === "from-scratch" ? "active" : ""} onClick={() => onSourceKind("from-scratch")}>From scratch</button>
-        <button type="button" role="radio" aria-checked={sourceKind === "from-movie"} className={sourceKind === "from-movie" ? "active" : ""} onClick={() => onSourceKind("from-movie")}>From an existing movie</button>
+        <button type="button" role="radio" aria-checked={sourceKind === "import-script"} className={sourceKind === "import-script" ? "active" : ""} onClick={() => onSourceKind("import-script")}>Import a script</button>
       </div>
       {sourceKind === "from-scratch" ? (
         <label>Opening premise<textarea value={premise} onChange={(event) => onPremise(event.target.value)} minLength={8} maxLength={280} required /></label>
       ) : (
         <>
-          <label>Movie title<input value={movieTitle} onChange={(event) => onMovieTitle(event.target.value)} maxLength={120} placeholder="The film your room wants to riff on" required /></label>
-          <label>What the room remembers about it (optional)<textarea value={movieSummary} onChange={(event) => onMovieSummary(event.target.value)} maxLength={1000} /></label>
+          <label>Existing script<textarea value={importedScript} onChange={(event) => onImportedScript(event.target.value)} minLength={40} maxLength={9000} placeholder="Paste the script this jam should use…" required /></label>
         </>
       )}
       <div className="format-row" role="group" aria-label="Script length">

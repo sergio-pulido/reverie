@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { JamError, safeMessageOf, toJamError } from "../src/lib/errors";
+import { isStaleIdentityError, JamError, safeMessageOf, toJamError } from "../src/lib/errors";
 
 describe("toJamError", () => {
   it("shows a message our own schema authored, without the marker", () => {
@@ -29,6 +29,25 @@ describe("toJamError", () => {
     assert.equal(error.safeMessage, "The jam could not be reached.");
   });
 
+  it("maps an orphaned host foreign key to a recoverable session message", () => {
+    const native = 'insert or update on table "jams" violates foreign key constraint "jams_host_id_fkey"';
+    const error = toJamError({ code: "23503", message: native }, "The Jam room could not be created.");
+    assert.equal(error.code, "unauthenticated");
+    assert.equal(error.safeMessage, "Your session is no longer recognized. Reload the page to sign in again.");
+    assert.equal(error.safeMessage.includes("jams_host_id_fkey"), false);
+  });
+
+  it("names an unapplied migration instead of the operation's generic fallback", () => {
+    const table = toJamError({ code: "PGRST205", message: "Could not find the table 'public.jams' in the schema cache" }, "The Jam room could not be created.");
+    assert.equal(table.code, "not_configured");
+    assert.match(table.safeMessage, /migrations/);
+    assert.equal(table.safeMessage.includes("public.jams"), false);
+
+    const fn = toJamError({ code: "42883", message: 'function public.get_jam_invite(uuid) does not exist' }, "f");
+    assert.equal(fn.code, "not_configured");
+    assert.match(fn.safeMessage, /migrations/);
+  });
+
   it("maps a missing invite to not_found", () => {
     assert.equal(toJamError({ code: "P0002", message: "jam: invite not found" }, "f").code, "not_found");
   });
@@ -52,5 +71,20 @@ describe("safeMessageOf", () => {
   it("never forwards an arbitrary thrown error's text", () => {
     assert.equal(safeMessageOf(new Error("connect ECONNREFUSED 127.0.0.1:5432"), "fallback"), "fallback");
     assert.equal(safeMessageOf("some string", "fallback"), "fallback");
+  });
+});
+
+describe("isStaleIdentityError", () => {
+  it("treats a 4xx auth rejection as a dead identity to replace", () => {
+    assert.equal(isStaleIdentityError({ status: 400 }), true);
+    assert.equal(isStaleIdentityError({ status: 401 }), true);
+    assert.equal(isStaleIdentityError({ status: 403 }), true);
+  });
+
+  it("does not treat a network failure or a missing error as a dead identity", () => {
+    assert.equal(isStaleIdentityError({ status: 0 }), false);
+    assert.equal(isStaleIdentityError({}), false);
+    assert.equal(isStaleIdentityError(null), false);
+    assert.equal(isStaleIdentityError(undefined), false);
   });
 });

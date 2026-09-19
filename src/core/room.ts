@@ -18,6 +18,9 @@ export const jamRoomSchema = z.object({
   visibility: jamVisibilitySchema,
   status: jamStatusSchema,
   host_id: z.string().uuid().optional(),
+  // invite_code is host-only now and is read through get_jam_invite, never off the room row.
+  created_at: z.string().optional(),
+  updated_at: z.string().optional(),
 });
 
 export const jamMemberSchema = z.object({

@@ -33,6 +33,16 @@ VITE_SUPABASE_ANON_KEY=sb_publishable_...
 
 The anonymous/publishable key is safe for the browser because the database is protected by Row Level Security. Never put `SUPABASE_SERVICE_ROLE_KEY`, provider secrets, Vonage secrets, or a private key in a `VITE_` environment variable.
 
+### Local Supabase instead of a hosted project
+
+To run the migrations and collaborative behaviour without creating a hosted project, use the
+Docker stack: `docker compose up --build --wait`, then open `http://localhost:4317`. It starts
+Postgres, anonymous Auth, PostgREST, Realtime, an nginx gateway on `127.0.0.1:54321` and the
+production app build, and applies every migration in `supabase/migrations` once. The local
+anon JWT and its signing secret in `.env.compose` are public and local-only; change the JWT
+secret and you must mint a matching anon key. This stack is development-only and is not Vercel
+parity.
+
 ## 3. Configure Vercel
 
 Add the same `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` values to the Vercel project for Preview and Production. Add private keys only to server-side function variables, without the `VITE_` prefix. Vercel deploys the Vite single-page app; `vercel.json` preserves deep links such as `/jams/<slug>`.
@@ -67,8 +77,14 @@ by anyone including the host, that a host cannot hand-write a code, that a non-h
 read, rotate or revoke an invite, that a revoked invite is indistinguishable from an unknown
 code, that rotation kills the previous code, that a repeated request is idempotent, and that
 repeated wrong codes are throttled. It leaves one test jam
-behind and prints its slug so it can be deleted from the dashboard. This repository has no
-Supabase credentials, so the script has never been run here.
+behind and prints its slug so it can be deleted from the dashboard.
+
+Against the local Docker stack the script now runs clean: set `SUPABASE_URL` to
+`http://localhost:54321` and `SUPABASE_ANON_KEY` to the local anon JWT in `.env.compose`, then
+`pnpm verify:realtime` (27/27 checks on 2026-09-19). One earlier run flaked on a single
+Postgres Changes delivery after admission and passed on a clean re-run; that check subscribes
+and waits one second before the insert. No hosted project has been migrated from this
+repository, so the hosted path and Supabase Auth's anonymous-sign-in limits remain unverified.
 
 By hand: create a room in one browser and reload its persistent URL; open the host invite
 panel and scan the QR with a phone; join from a second browser profile and confirm it waits

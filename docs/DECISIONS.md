@@ -1,5 +1,13 @@
 # Decisions
 
+## 2026-09-19 — A draft that misses the runtime is corrected on the next attempt
+
+The scriptwriter no longer sends the same prompt twice and then reports a fit failure. When a draft is outside the rescalable window, its actual total seconds, portion count, and whether it ran long or short are fed back into the next attempt together with the feasible portion band for the jam's target, so the retry is a directed correction. The same applies to a reply that fails the draft shape: the exact JSON shape is restated. Attempts stay bounded at four paid completions because each one costs money and the concurrency gate is the only other spend control; only after that cap does the fit miss become the typed, retryable `generation_failed` that a room can retry. The 0.8×–1.25× rescale window is unchanged — a draft too far off is still never silently stretched.
+
+## 2026-09-19 — A jam registers its room first, and import is a first-class creation source
+
+Creating a jam now registers the room before the script exists, and the pre-minted room id is passed to `POST /api/jams` as `jamId`, so one jam owns exactly one script and its revision history instead of a second, unrelated server id. `/jams` lists the rooms an identity can read (host or any member) and offers "start a new jam"; without Supabase it is an explicitly non-shareable browser-local registry, never presented as shared. Creation has two sources: generate from a prompt (Nebius, behind the existing gate) or import an existing script. Import makes no provider call, stores the pasted markdown verbatim as revision 1, and derives a word-boundary, format-bounded timed projection for playback; text that cannot fill or fit the runtime is refused with `invalid_script_import` rather than padded or shredded into mid-word fragments. The earlier "from an existing movie" prompt path stays supported by the API but is no longer a create-screen option, matching the product decision that a room brings its own script.
+
 ## 2026-09-19 — A live token is minted from membership, never requested
 
 The browser asks for a live token with a jam id and its Supabase access token, and nothing
@@ -223,6 +231,32 @@ authorization to waiting members — which would hand a not-yet-admitted session
 of the room's channel — the lobby polls the single row it is already authorized to read,
 its own `jam_members` row, every five seconds. Polling ends at `active`, where Postgres
 Changes take over, and at `removed`, which will not change by waiting.
+
+## 2026-09-19 — The local Supabase gateway must reproduce hosted preflight behaviour
+
+The local stack exists to exercise the same client contracts as hosted Supabase, so its nginx
+gateway echoes the browser's `Access-Control-Request-Headers` (and `Origin`, with credentials)
+instead of a fixed allow-list. Supabase JS adds `Prefer`, `Accept-Profile` and
+`Content-Profile` to PostgREST writes, and a fixed allow-list silently omits them, making the
+browser block a write that hosted Supabase accepts. Reflecting the requested headers is safe
+here because the gateway is bound to `127.0.0.1` only: the permissive surface never leaves the
+developer machine. For the same reason the local anon JWT and its signing secret are public
+and committed — they authorize only an ephemeral local database, and committing them keeps
+`docker compose up` reproducible without weakening the rule that real provider secrets stay in
+ignored `.env.local`.
+
+## 2026-09-19 — A stored session is not trusted until the auth server confirms it
+
+Supabase's `getSession` is a storage read: it returns whatever session the browser persisted,
+including a user row that the project no longer has (a database reset deletes `auth.users`,
+while the browser keeps its token). Trusting that identity made every room insert fail on the
+`jams.host_id` foreign key, and the generic fallback hid the cause behind "The Jam room could
+not be created." Identity is now confirmed once per page load with `auth.getUser()`; a 4xx
+from the auth server means the identity is gone and a fresh anonymous sign-in replaces it,
+while a network failure is surfaced rather than silently swapping the participant's identity.
+The unmapped `23503`, `42P01`/`PGRST205` and `42883`/`PGRST202` codes now map to an
+actionable message (reload to sign in again; apply the migrations) instead of a retryable
+outage, because the two failures need different fixes.
 
 ## 2026-09-19 — The catalogue is a curated TMDB snapshot in Postgres; there is no Titan API
 

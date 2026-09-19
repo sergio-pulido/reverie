@@ -89,6 +89,17 @@ footer { max-width: 1410px; margin: 0 auto; padding: 24px 48px; border-top: 1px 
 .nav-links button { padding: 38px 0 34px; border-bottom: 2px solid transparent; }
 .nav-links button.active, .nav-links button:hover { color: #fffdf8; border-color: #d9ddff; }
 .setup-shell, .studio-shell { display: flex; min-height: 100vh; flex-direction: column; }
+.registry-shell { display: flex; min-height: 100vh; flex-direction: column; }
+.registry-layout { width: min(1180px, 100%); margin: auto; padding: 70px 48px 88px; display: grid; grid-template-columns: .8fr 1.2fr; gap: 72px; align-items: start; }
+.registry-head { position: sticky; top: 36px; }
+.registry-head h1 { font-size: clamp(46px, 5.5vw, 78px); }
+.registry-list { display: grid; gap: 14px; }
+.registry-list .notice { max-width: none; margin: 0 0 6px; }
+.registry-card { padding: 26px; border: 1px solid #3e4969; background: rgba(16, 24, 43, .86); display: flex; align-items: end; justify-content: space-between; gap: 24px; }
+.registry-card h2, .registry-empty h2 { margin: 0 0 10px; font: 500 30px Fraunces, Georgia, serif; letter-spacing: -.025em; }
+.registry-card p:not(.eyebrow), .registry-empty p { margin: 0; color: #aeb5c6; line-height: 1.5; }
+.registry-card .button { flex: 0 0 auto; }
+.registry-empty { padding: 34px; border: 1px dashed #465476; color: #aeb5c6; }
 .setup-layout, .join-layout { width: min(1180px, 100%); margin: auto; padding: 70px 48px 88px; display: grid; grid-template-columns: .9fr 1.1fr; gap: 100px; align-items: center; }
 .back-link { margin: 0 0 58px; border: 0; padding: 0; color: #c6cbdb; background: transparent; font-size: 14px; }
 .back-link:hover { color: #fff; }
@@ -125,8 +136,8 @@ footer { max-width: 1410px; margin: 0 auto; padding: 24px 48px; border-top: 1px 
 .queue-card { display: flex; justify-content: space-between; gap: 30px; padding: 24px 26px; align-items: end; }
 .queue-card p:not(.eyebrow) { max-width: 270px; margin: 0; color: #aeb5c6; font-size: 14px; line-height: 1.5; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-@media (max-width: 950px) { .setup-layout, .studio-grid { grid-template-columns: 1fr; gap: 35px; } .setup-layout { padding: 48px 24px 66px; } .studio-header, .studio-grid { padding-left: 24px; padding-right: 24px; } .studio-header { align-items: start; flex-direction: column; } }
-@media (max-width: 600px) { .contribution-form { grid-template-columns: 1fr; } .studio-actions, .studio-actions .button { width: 100%; } .queue-card { align-items: start; flex-direction: column; } }
+@media (max-width: 950px) { .setup-layout, .studio-grid, .registry-layout { grid-template-columns: 1fr; gap: 35px; } .setup-layout, .registry-layout { padding: 48px 24px 66px; } .registry-head { position: static; } .studio-header, .studio-grid { padding-left: 24px; padding-right: 24px; } .studio-header { align-items: start; flex-direction: column; } }
+@media (max-width: 600px) { .contribution-form { grid-template-columns: 1fr; } .studio-actions, .studio-actions .button, .registry-card .button { width: 100%; } .queue-card, .registry-card { align-items: start; flex-direction: column; } }
 
 /* Live room: connection state, roster and presence. */
 .connection { padding: 2px 7px; border: 1px solid #526080; border-radius: 3px; color: #c9d4ff; }

@@ -1,0 +1,5 @@
+name: reverie-local
+include:
+  - path: ./docker/compose.yaml
+    project_directory: .
+    env_file: ./.env.compose

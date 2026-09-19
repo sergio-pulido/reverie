@@ -35,7 +35,7 @@ export function ScriptScreen({ jam, roomTitle, onStudio, onBack }: ScriptScreenP
         <p className="eyebrow">{roomTitle} · SCRIPT · {formatClock(total)} · {jam.script.scenes.length} SCENES · {portions} PORTIONS</p>
         <h1>{jam.script.title}</h1>
         <p className="intro">{jam.script.logline}</p>
-        <p className="jam-note">An original generated Movie Jam script — not an existing film or catalogue title.</p>
+        <p className="jam-note">{jam.source.kind === "imported-script" ? "Imported into this Movie Jam as its own editable script." : "An original generated Movie Jam script — not an existing film or catalogue title."}</p>
         <div className="hero-actions">
           <button className="button button-primary" onClick={onStudio}>Open the studio <span>↗</span></button>
           <a className="button button-quiet" href={`/api/jams/${jam.id}/script.md`} target="_blank" rel="noreferrer">Open as markdown <span>→</span></a>

@@ -8,3 +8,6 @@ secret/
 .env
 .env.*
 !.env.example
+# Public, local-only Compose values (local anon JWT and JWT secret) needed for
+# `docker compose up` from a fresh clone. It contains no hosted credentials.
+!.env.compose

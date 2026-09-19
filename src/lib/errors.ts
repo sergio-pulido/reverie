@@ -41,9 +41,30 @@ const SQLSTATE: Record<string, { code: JamErrorCode; message: string; retryable?
   P0002: { code: "not_found", message: "That invite code does not match an open jam." },
   "42501": { code: "forbidden", message: "You are not allowed to do that in this jam." },
   "23505": { code: "conflict", message: "That record already exists." },
+  // A foreign key failure on insert means the identity this browser kept no longer has a
+  // user record (for example after the project database is reset). It is actionable, not
+  // a mystery outage: reloading re-runs identity confirmation and signs in again.
+  "23503": { code: "unauthenticated", message: "Your session is no longer recognized. Reload the page to sign in again." },
+  // The migrations were never applied or are incomplete. Name the fix instead of hiding it
+  // behind the operation's generic fallback, which made a missing table look like an outage.
+  "42P01": { code: "not_configured", message: "The room database is missing a required table. Apply the Supabase migrations." },
+  PGRST205: { code: "not_configured", message: "The room database is missing a required table. Apply the Supabase migrations." },
+  "42883": { code: "not_configured", message: "The room database is missing a required function. Apply the Supabase migrations." },
+  PGRST202: { code: "not_configured", message: "The room database is missing a required function. Apply the Supabase migrations." },
   "53400": { code: "rate_limited", message: "Too many attempts. Wait a few minutes and try again.", retryable: true },
   PGRST301: { code: "unauthenticated", message: "Your session is no longer signed in. Reload the page to continue." },
 };
+
+/**
+ * True when Supabase Auth rejected the stored session because the identity it points at
+ * no longer exists or can no longer be used. A 4xx from the auth server is definitive; a
+ * transient network failure reports status 0/undefined and must not be treated as stale,
+ * or a flaky connection would silently replace the participant's identity.
+ */
+export function isStaleIdentityError(error: { status?: number | null } | null | undefined): boolean {
+  const status = error?.status;
+  return status === 400 || status === 401 || status === 403;
+}
 
 /**
  * Maps a Supabase/PostgREST failure onto a typed error. Only a message our own schema

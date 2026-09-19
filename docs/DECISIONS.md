@@ -242,3 +242,16 @@ developer machine. For the same reason the local anon JWT and its signing secret
 and committed — they authorize only an ephemeral local database, and committing them keeps
 `docker compose up` reproducible without weakening the rule that real provider secrets stay in
 ignored `.env.local`.
+
+## 2026-09-19 — A stored session is not trusted until the auth server confirms it
+
+Supabase's `getSession` is a storage read: it returns whatever session the browser persisted,
+including a user row that the project no longer has (a database reset deletes `auth.users`,
+while the browser keeps its token). Trusting that identity made every room insert fail on the
+`jams.host_id` foreign key, and the generic fallback hid the cause behind "The Jam room could
+not be created." Identity is now confirmed once per page load with `auth.getUser()`; a 4xx
+from the auth server means the identity is gone and a fresh anonymous sign-in replaces it,
+while a network failure is surfaced rather than silently swapping the participant's identity.
+The unmapped `23503`, `42P01`/`PGRST205` and `42883`/`PGRST202` codes now map to an
+actionable message (reload to sign in again; apply the migrations) instead of a retryable
+outage, because the two failures need different fixes.

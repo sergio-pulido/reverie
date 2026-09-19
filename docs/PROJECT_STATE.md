@@ -322,6 +322,23 @@ remain unproven until `scripts/verify-realtime.mjs` completes against the migrat
   provider call was made for this change, so provider behaviour is implemented
   and unit-tested here, not claimed as a live probe.
 
+## 2026-09-19 — Room creation recovers from a dead persisted identity
+
+- A persisted Supabase session can outlive the user it names, for example after the project
+  database is reset. `getSession` reads that record straight from local storage, so the app
+  trusted a deleted `auth.uid()`; the `jams` insert then failed on the orphaned `host_id`
+  foreign key (`23503`) and surfaced as "The Jam room could not be created."
+- `ensureUserId` now confirms a stored identity with `auth.getUser()` before trusting it. A
+  4xx auth rejection discards the dead local session and mints a fresh anonymous identity, so
+  room creation heals itself; a network failure is reported instead, so a flaky connection
+  never silently replaces the participant's identity.
+- `toJamError` now maps the codes this exposed: `23503` to a recoverable session message and
+  the missing-table/function codes (`42P01`/`PGRST205`/`42883`/`PGRST202`) to a
+  `not_configured` message naming the unapplied migrations, instead of a generic outage.
+- Verified against the local Docker stack: with a stored session whose user was deleted,
+  `GET /auth/v1/user` `403` → local sign-out → anonymous signup `200` →
+  `POST /rest/v1/jams` `201`. `pnpm typecheck` and `pnpm test` (157 passing).
+
 ## Next milestones
 
 1. Apply every migration in `supabase/migrations` to a Supabase project and run

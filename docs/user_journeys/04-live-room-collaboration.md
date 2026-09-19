@@ -1,10 +1,10 @@
-# UJ-03 — Live room: join, collaborate, moderate
+# UJ-04 — Live room: join, collaborate, moderate
 
 Covers: the invite lifecycle and join form, the invite-only waiting lobby and host admission,
 the public-room immediate admit, cross-session chat/proposals, reconnect recovery, host
 moderation, and the denied-access and RLS guarantees that back it.
 Runtime: ~25 minutes.
-Environment: A or B. Needs a room: create one with [UJ-02](02-jam-lifecycle-create-script-video.md)
+Environment: A or B. Needs a room: create one with [UJ-02](02-reproduce-the-video.md)
 or the fixture in [Appendix A](README.md#appendix-a--seed-a-room-without-a-provider-call).
 
 ## Goal

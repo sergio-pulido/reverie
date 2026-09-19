@@ -15,8 +15,8 @@ move, a connection badge, a network response, or a playable clip.
 1. Pick the environment in [Environments](#environments) and start the app.
 2. Read [Agent operating rules](#agent-operating-rules) and
    [Locating elements](#locating-elements). They apply to every journey.
-3. Run the journeys in order. UJ-02 creates the jam that UJ-03 uses, but each file declares
-   its own preconditions so it can also be run alone.
+3. Run the journeys in order. UJ-02 creates the jam that UJ-03 and UJ-04 use, but each file
+   declares its own preconditions so it can also be run alone.
 4. Record evidence and report pass/fail using the [report template](#report-template).
 
 ## What these runbooks cover
@@ -24,19 +24,20 @@ move, a connection badge, a network response, or a playable clip.
 | ID | Journey | Surfaces | Needs Supabase | Needs live providers |
 | --- | --- | --- | --- | --- |
 | [UJ-01](01-discover-and-navigation.md) | Discover, jam registry and navigation | `/`, `/jams`, `/discover`, `/join`, `/api/catalogue` | no | no |
-| [UJ-02](02-jam-lifecycle-create-script-video.md) | Jam lifecycle: create, script, video | `/jams/new`, script screen, `/api/jams`, `/api/sessions`, playback routes | yes | generate: Nebius + fal; import: none |
-| [UJ-03](03-live-room-collaboration.md) | Live room: join, collaborate, moderate | `/join`, `/jams/<slug>`, Supabase RPCs and Realtime | yes | only to create via the UI; a fixture needs none |
+| [UJ-02](02-reproduce-the-video.md) | Reproduce the video | `/jams/new`, script screen, playback routes, Studio `SHARED PLAYBACK` | yes | generated script: Nebius + fal; imported script: fal |
+| [UJ-03](03-session-configuration-cap.md) | Session configuration cap | session routes, configuration streams | yes | none for the cap — **BLOCKED: intended, not implemented** |
+| [UJ-04](04-live-room-collaboration.md) | Live room: join, collaborate, moderate | `/join`, `/jams/<slug>`, Supabase RPCs and Realtime | yes | only to create via the UI; a fixture needs none |
 
-`Needs live providers` means the journey calls a paid model. UJ-02's "Import a script"
-variant is a pure projection with **no** provider call, so a jam and its video can be tested
-cheaply once a room exists. Where a provider is not configured each runbook has an explicit
-expected failure path, and
-[Appendix A](#appendix-a--seed-a-room-without-a-provider-call) documents how to obtain a
-room without spending on generation.
+UJ-02 and UJ-03 are the two journeys for the jam → script → session → video path. UJ-02's
+"Import a script" variant is a pure projection with **no** provider call, so the script screen
+can be reached cheaply (the clip still needs fal). UJ-03 is a specification-level runbook: the
+configuration cap and attach flow are not implemented, so its third step is expected to be
+`BLOCKED` until they land — never report it as passing.
 
-**No playback UI exists yet.** Portion playback and video generation are a server API
-(`docs/API_CONTRACTS.md`), so UJ-02 drives them with `evaluate_script` from the app origin.
-Test them as API behaviour, and report the missing UI as a known gap rather than a failure.
+**Clip generation has no UI yet.** The per-portion generation and streaming routes are a server
+API (`docs/API_CONTRACTS.md`), so UJ-02 drives them with `evaluate_script` from the app origin.
+The room's shared playback *position* does have a UI in the Studio. Report the missing clip UI
+as a known gap rather than a failure.
 
 **Live media (Vonage) is a separate slice and is not covered here.** The active Studio shows
 a `LIVE STAGE` panel; where Vonage is unconfigured it must say live media is not enabled.
@@ -66,8 +67,8 @@ The app build uses `VITE_SUPABASE_URL=http://localhost:54321` and the public
 
 - `.env.compose` holds public, local-only values and is committed. Do not change it.
 - `.env.local` is loaded by the app service. For UJ-02 it needs `REVERIE_LIVE_ENABLED=true`
-  and `NEBIUS_API_KEY=...` (for a generated script) plus `FAL_KEY=...` (for the video). The
-  import variant needs neither.
+  and `NEBIUS_API_KEY=...` (for a generated script) plus `FAL_KEY=...` (for the clip). The
+  imported-script variant needs `FAL_KEY` only.
 - This stack is development-only. It is not Vercel parity, and in-memory script/session/
   playback state resets when the app container restarts.
 
@@ -85,9 +86,10 @@ see `docs/SUPABASE_SETUP.md`. Without a hosted project, use environment A.
 
 ### C. `pnpm dev` without Supabase (limited)
 
-Only UJ-01 runs fully. In UJ-02 the import variant and the script/video steps can run against
-a browser-only preview registration (`preview-` slug), but the persisted-room assertions
-cannot, and UJ-03 is unavailable. The app must say so rather than simulate a room.
+Only UJ-01 runs fully. In UJ-02 the imported-script variant and the script steps can run
+against a browser-only preview registration (`preview-` slug), but the persisted-room
+assertions cannot, and UJ-03 and UJ-04 need Supabase. The app must say so rather than simulate
+a room.
 
 ## Required configuration
 
@@ -204,9 +206,9 @@ to three short clips. Do not use the default 4-minute format for smoke runs.
 
 ## Appendix A — Seed a room without a provider call
 
-Use this only when you need a room for UJ-03 but cannot or must not call a provider to create
-one through the UI. It is test scaffolding, not product behaviour, and it must be reported as
-such.
+Use this only when you need a room for UJ-03 or UJ-04 but cannot or must not call a provider
+to create one through the UI. It is test scaffolding, not product behaviour, and it must be
+reported as such.
 
 The room has to be owned by the browser's own anonymous session, otherwise the browser is
 not the host and the lobby tools are absent. The reliable way is a two-step fixture:
@@ -268,7 +270,7 @@ fixture never substitutes for UJ-02 when you are actually verifying generation.
 
 | Journey | Steps | Result | Evidence | Notes |
 | --- | --- | --- | --- | --- |
-| UJ-01 | 8/8 | PASS | uj-01-*.png | |
+| UJ-01 | <passed>/<total> | PASS | uj-01-*.png | |
 
 ## Blocked or failed steps
 - UJ-0N step M — expected X, saw Y. Evidence: <file>. Suspected cause: <...>.

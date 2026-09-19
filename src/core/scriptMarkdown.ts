@@ -18,7 +18,7 @@ export function renderScriptMarkdown(
   lines.push("");
   lines.push(`- Source: ${describeSource(source)}`);
   lines.push(
-    `- Runtime: ${formatClock(total)} (${total}s) across ${script.scenes.length} scenes and ${portionCount} scene portions`,
+    `- Runtime: ${formatClock(total)} (${total}s) across ${count(script.scenes.length, "scene")} and ${count(portionCount, "scene portion")}`,
   );
   lines.push(
     "- This is a generated Movie Jam script, not an existing film or catalogue title.",
@@ -57,6 +57,10 @@ function describeSource(source: JamSource): string {
     return `from scratch, prompted by “${source.prompt}”`;
   }
   return `an original story inspired by “${source.movieTitle}”`;
+}
+
+function count(value: number, noun: string): string {
+  return `${value} ${noun}${value === 1 ? "" : "s"}`;
 }
 
 export function formatClock(seconds: number): string {

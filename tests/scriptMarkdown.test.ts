@@ -25,6 +25,13 @@ test("names the movie when a jam starts from an existing film", () => {
   assert.match(markdown, /inspired by “Solaris”/);
 });
 
+test("uses singular nouns for a one-scene script", () => {
+  const script = buildScript(15);
+  script.scenes = [{ heading: "Only beat", portions: [script.scenes[0].portions[0]] }];
+  const markdown = renderScriptMarkdown(script, { kind: "from-scratch", prompt: "A tiny test." });
+  assert.match(markdown, /across 1 scene and 1 scene portion\b/);
+});
+
 test("formats clocks as m:ss", () => {
   assert.equal(formatClock(0), "0:00");
   assert.equal(formatClock(65), "1:05");

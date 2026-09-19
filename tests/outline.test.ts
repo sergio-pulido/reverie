@@ -157,7 +157,11 @@ test("dropped optional fields do not survive a cascade as stale text", () => {
 });
 
 test("the cascade prompt marks settled beats immutable and asks for the exact count", () => {
-  const prompt = buildCascadePrompt(scriptOf(), 1, "she drops it");
+  const prompt = buildCascadePrompt(scriptOf(), {
+    intent: "set",
+    beatIndex: 1,
+    summary: "she drops it",
+  });
   assert.match(prompt, /CANNOT change/);
   assert.match(prompt, /0\. she finds the key/);
   assert.match(prompt, /Return exactly 2 object\(s\)/);
@@ -165,4 +169,18 @@ test("the cascade prompt marks settled beats immutable and asks for the exact co
   // The settled beat must not appear in the replaced list.
   const replaced = prompt.slice(prompt.indexOf("being replaced"));
   assert.doesNotMatch(replaced, /she finds the key/);
+});
+
+test("a reroll prompt names what was rejected and asks for something different", () => {
+  const prompt = buildCascadePrompt(scriptOf(), {
+    intent: "reroll",
+    beatIndex: 1,
+    reason: "too convenient",
+  });
+  assert.match(prompt, /rejected beat 1, which read: "she pockets it"/);
+  assert.match(prompt, /too convenient/);
+  assert.match(prompt, /clearly different/);
+  assert.match(prompt, /Return exactly 2 object\(s\)/);
+  // A reroll carries no replacement text, and the prompt must not invent one.
+  assert.doesNotMatch(prompt, /has rewritten beat/);
 });

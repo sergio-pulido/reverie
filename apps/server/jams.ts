@@ -15,14 +15,18 @@ import {
   currentRevision,
   findRevision,
   PortionLockedError,
+  portionsDifferBelow,
   revertToRevision,
   ScriptHistoryError,
+  StaleRevisionError,
   type JamScriptHistory,
   type PortionPatch,
   type ScriptRevision,
 } from "../../src/core/scriptHistory";
-import type { JamScript } from "../../src/core/script";
-import { resolveNebiusConfig, NebiusError } from "./providers/nebius";
+import { jamScriptSchema, type JamScript } from "../../src/core/script";
+import { missingBeatCount } from "../../src/core/outlineSummary";
+import { resolveNebiusConfig, NebiusError, type NebiusConfig } from "./providers/nebius";
+import { ensureOutline } from "./outlineWriter";
 import { ScriptwriterError, writeJamScript } from "./scriptwriter";
 
 const MAX_STORED_JAMS = 100;
@@ -36,13 +40,26 @@ const CREATIONS_PER_MINUTE_PER_IP = 5;
 // persistence-only: lock enforcement takes minEditablePortionIndex as a
 // parameter (the router wires it from the playback guard), and playback
 // semantics live outside — the store only persists the record under CAS.
-// Contract: docs/API_CONTRACTS.md "Portion playback, locking, and video
-// generation". A Supabase implementation must serialize per-jam mutations
-// (updatePortion, revertScriptToRevision, updatePlayback) — e.g. a
-// transaction with a row lock on the jam's script row.
+// Contract: docs/API_CONTRACTS.md "Beat locking and the live director" and
+// "Outline edits". A Supabase implementation must serialize per-jam mutations
+// (updatePortion, revertScriptToRevision, commitScript) — e.g. a transaction
+// with a row lock on the jam's script row.
 export interface JamStore {
   createJam(jam: Jam, options?: { initialMarkdown?: string }): Promise<void>;
   getJam(id: string): Promise<Jam | null>;
+  /**
+   * Lands a whole rewritten script as one revision — the outline cascade's
+   * commit. Refused with PortionLockedError if any portion below the boundary
+   * would change, and with StaleRevisionError if `expectedRevision` is no
+   * longer current: the cascade ran outside the critical section, so a
+   * direct edit or a revert may have landed underneath it.
+   */
+  commitScript(
+    jamId: string,
+    script: JamScript,
+    minEditablePortionIndex: number,
+    options?: RevisionOptions & { expectedRevision?: number },
+  ): Promise<ScriptRevision>;
   updatePortion(
     jamId: string,
     portionIndex: number,
@@ -145,6 +162,37 @@ export class InMemoryJamStore implements JamStore {
 
   async getJam(id: string): Promise<Jam | null> {
     return this.jams.get(id)?.jam ?? null;
+  }
+
+  async commitScript(
+    jamId: string,
+    script: JamScript,
+    minEditablePortionIndex: number,
+    options?: RevisionOptions & { expectedRevision?: number },
+  ): Promise<ScriptRevision> {
+    const entry = this.requireEntry(jamId);
+    const current = currentRevision(entry.history);
+    const { expectedRevision, ...revisionOptions } = options ?? {};
+    if (expectedRevision !== undefined && expectedRevision !== current.revision) {
+      throw new StaleRevisionError(
+        `The script moved from revision ${expectedRevision} to ${current.revision} while this change was being prepared.`,
+        expectedRevision,
+        current.revision,
+      );
+    }
+    const next = jamScriptSchema.parse(script);
+    if (portionsDifferBelow(current.script, next, minEditablePortionIndex)) {
+      throw new PortionLockedError(
+        "This change would rewrite a portion that has played or is locked for generation.",
+        minEditablePortionIndex - 1,
+      );
+    }
+    entry.history = appendRevision(entry.history, {
+      script: next,
+      createdAt: this.clock().toISOString(),
+      ...revisionOptions,
+    });
+    return currentRevision(entry.history);
   }
 
   async updatePortion(
@@ -269,8 +317,24 @@ export function createJamsRouter(
           format: data.format,
           script,
         };
+        // Beats are born with the script. Import has nothing that wrote its
+        // portions, so the one fill-in call runs here when a provider is
+        // configured and a slot is free; the import itself never waits on a
+        // provider being present.
+        let outline = { complete: missingBeatCount(script) === 0 };
+        const config = resolveNebiusConfigOrNull();
+        if (!outline.complete && config && activeGenerations < MAX_CONCURRENT_GENERATIONS) {
+          activeGenerations += 1;
+          try {
+            const filled = await ensureOutline(config, script);
+            jam.script = filled.script;
+            outline = { complete: filled.complete };
+          } finally {
+            activeGenerations -= 1;
+          }
+        }
         await store.createJam(jam, { initialMarkdown: data.scriptMarkdown });
-        response.status(201).json({ jam, scriptMarkdown: data.scriptMarkdown });
+        response.status(201).json({ jam, scriptMarkdown: data.scriptMarkdown, outline });
       } catch (error) {
         handleCreateError(response, error);
       }
@@ -303,7 +367,10 @@ export function createJamsRouter(
     }
     activeGenerations += 1;
     try {
-      const script = await writeJamScript(config, command.data.source, command.data.format);
+      const written = await writeJamScript(config, command.data.source, command.data.format);
+      // The writer asked for a beat per portion in the same completion; any
+      // it left out are filled by one more call, never invented here.
+      const { script, complete } = await ensureOutline(config, written);
       const jam: Jam = {
         id: command.data.jamId ?? randomUUID(),
         createdAt: new Date().toISOString(),
@@ -313,7 +380,7 @@ export function createJamsRouter(
       };
       const scriptMarkdown = renderScriptMarkdown(script, jam.source);
       await store.createJam(jam, { initialMarkdown: scriptMarkdown });
-      response.status(201).json({ jam, scriptMarkdown });
+      response.status(201).json({ jam, scriptMarkdown, outline: { complete } });
     } catch (error) {
       handleCreateError(response, error);
     } finally {
@@ -475,8 +542,28 @@ function attachStateVersion(error: unknown, stateVersion: number): unknown {
   return error;
 }
 
+/** A configured provider, or null — a misconfigured one is null here too, because the import must not fail over the fill-in. */
+function resolveNebiusConfigOrNull(): NebiusConfig | null {
+  try {
+    return resolveNebiusConfig(process.env);
+  } catch {
+    return null;
+  }
+}
+
 /** Maps store/history errors to safe responses; returns false if unhandled. */
-function handleStoreError(response: Response, error: unknown): boolean {
+export function handleStoreError(response: Response, error: unknown): boolean {
+  if (error instanceof StaleRevisionError) {
+    response.status(409).json({
+      error: {
+        code: "stale_state_version",
+        safeMessage: error.message,
+        retryable: true,
+      },
+      revision: error.currentRevision,
+    });
+    return true;
+  }
   if (error instanceof PortionLockedError) {
     response.status(409).json({
       error: {

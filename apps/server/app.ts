@@ -6,8 +6,9 @@ import liveToken from "../../api/live/token";
 import discoverTurn from "../../api/discover/turn";
 import discoverRank from "../../api/discover/rank";
 import voiceTranscribe from "../../api/voice/transcribe";
-import { createJamsRouter, InMemoryJamStore, type JamStore } from "./jams";
+import { createJamsRouter, InMemoryJamStore, type JamStore, type PlaybackGuard } from "./jams";
 import { createDirectorRouter, DirectorStreamRegistry } from "./director";
+import { createOutlineRouter } from "./outline";
 import { createSessionsRouter } from "./sessions";
 
 /**
@@ -42,11 +43,18 @@ export function createApiApp(store: JamStore = new InMemoryJamStore()): Express 
   // beat, and the script routes refuse an edit to the same portion. Two
   // answers to one question would be worse than either alone.
   const streams = new DirectorStreamRegistry();
+  const guard: PlaybackGuard = (jamId) => ({
+    minEditablePortionIndex: streams.minEditablePortionIndex(jamId),
+    stateVersion: 0,
+  });
+  app.use(createJamsRouter(store, guard));
+  // The outline queue reads the same guard inside the same critical section,
+  // and sends a landed beat to the same streams the director holds.
   app.use(
-    createJamsRouter(store, (jamId) => ({
-      minEditablePortionIndex: streams.minEditablePortionIndex(jamId),
-      stateVersion: 0,
-    })),
+    createOutlineRouter(store, guard, {
+      window: (jamId) => streams.beatWindow(jamId),
+      streamsFor: (jamId) => streams.streamsFor(jamId),
+    }),
   );
   app.use(createSessionsRouter(store));
   app.use(createDirectorRouter(store, { registry: streams }));

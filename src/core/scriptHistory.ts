@@ -52,6 +52,23 @@ export class PortionLockedError extends Error {
   }
 }
 
+/**
+ * Thrown when a commit was computed from a revision that is no longer current.
+ * The cascade runs outside the per-jam critical section, so a direct edit or a
+ * revert can land underneath it; the commit must then be recomputed, not
+ * applied over a story it never saw.
+ */
+export class StaleRevisionError extends Error {
+  constructor(
+    message: string,
+    readonly expectedRevision: number,
+    readonly currentRevision: number,
+  ) {
+    super(message);
+    this.name = "StaleRevisionError";
+  }
+}
+
 export function currentRevision(history: JamScriptHistory): ScriptRevision {
   return history.revisions[history.revisions.length - 1];
 }

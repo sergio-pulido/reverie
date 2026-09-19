@@ -74,8 +74,8 @@ test("completion token budget scales with the script size and stays capped", () 
     portionMinSeconds: 15,
     portionMaxSeconds: 15,
   });
-  assert.equal(completionTokenBudget(tiny), 800 + 4 * 260);
-  assert.equal(completionTokenBudget(FOUR_MINUTES), 800 + 18 * 260);
+  assert.equal(completionTokenBudget(tiny), 800 + 4 * 300);
+  assert.equal(completionTokenBudget(FOUR_MINUTES), 800 + 18 * 300);
   assert.equal(completionTokenBudget(huge), 8000);
 });
 

@@ -52,6 +52,8 @@ export function parentPath(screen: Screen, filmOpen: boolean, from: string | nul
       return HOME_PATH;
     case "create":
     case "studio":
+    // A Director session is opened from the Movie Jam list, and Back returns there.
+    case "director":
       return JAMS_PATH;
     case "script":
       return NEW_JAM_PATH;

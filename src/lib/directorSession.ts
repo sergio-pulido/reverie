@@ -1,6 +1,7 @@
 import type { DirectorState } from "../core/directorProtocol";
 import type { DirectorAuditEntry } from "../core/directorAudit";
 import type { DirectorBeatWindow } from "../core/directorBeats";
+import type { DirectorSpend } from "../core/directorSpend";
 import type { SessionSettings } from "../core/session";
 
 /**
@@ -31,6 +32,7 @@ export interface OpenedDirectorSession {
   recordingDurable: boolean;
   state: DirectorState;
   beats: DirectorBeatWindow;
+  spend: DirectorSpend;
 }
 
 export interface DirectorSnapshot {
@@ -38,6 +40,14 @@ export interface DirectorSnapshot {
   beats: DirectorBeatWindow;
   audit: DirectorAuditEntry[];
   droppedAuditEntries: number;
+  spend: DirectorSpend;
+}
+
+/** What this server will spend on generation, before any of it is spent. */
+export interface DirectorBudget {
+  /** False when no director is configured here: nothing can be generated at all. */
+  configured: boolean;
+  spend: DirectorSpend;
 }
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
@@ -68,6 +78,17 @@ export function startDirectorSession(
     headers: { "content-type": "application/json" },
     body: JSON.stringify(configuration ? { configuration } : {}),
   });
+}
+
+/**
+ * The server's director budget, read before a paid session exists.
+ *
+ * Its own route rather than a field on the jam: the ceiling belongs to this
+ * process, and a screen has to be able to say what a beat would cost before
+ * it offers to generate one.
+ */
+export function readDirectorBudget(jamId: string): Promise<DirectorBudget> {
+  return call<DirectorBudget>(`/api/jams/${jamId}/director/budget`);
 }
 
 export function readDirectorSession(

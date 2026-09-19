@@ -1,156 +1,124 @@
 # Reverie — Movie Jam
 
-> Real cinema to discover together, plus a live studio where a room becomes the director's room for a new story.
+> Find a real film to watch by talking about what you are in the mood for, then open a room where a group writes a new short film together.
 
-Reverie is an open-source HackBarna project built around a real movie catalogue: a curated snapshot of the TMDB dataset named by the Titan OS challenge. People can browse and discover actual films and series, then join a **Movie Jam** to collaboratively direct a new living story: propose what happens next, shape characters and worlds, vote on the strongest direction, and watch the film evolve together.
+Reverie is an open-source HackBarna 2026 project with two separate modes. **Discover** searches a real movie catalogue: a curated snapshot of the TMDB dataset named by the Titan OS challenge. **Movie Jam** is a room where a host and admitted participants chat, queue proposals for what happens next, and work from a generated or imported screenplay. Proposals are shared with the whole room as they arrive. Voting on them and turning an accepted proposal into the next scene are not built yet: both wait on a versioned transactional contract that does not exist.
 
-The aim is to make film discovery and cinematic creation feel as social and immediate as choosing songs for a shared playlist. A Jam prompt can be as simple as _“a tiny dragon visits a pink unicorn world”_ or as detailed as a full character bible, visual language, plot turn, soundtrack cue, and camera direction.
+## What works today
 
-## Real catalogue, real recommendations
+### Discover
 
-Reverie shows real films from a curated TMDB snapshot (27,839 titles) held in Postgres. Their titles, artwork, metadata and editorial identity remain intact, with TMDB attribution. The dataset says nothing about where a film streams, so Reverie never implies it. The product does not create parody replacements, invented robot remakes, or misleading synthetic listings for existing cinema.
+- **A real catalogue.** 27,839 released films from the TMDB dataset, held in `public.catalogue_titles` on the hosted Supabase project and searched with ranked full-text search. Titles, artwork and metadata are the dataset's own, and every screen that shows them carries the TMDB attribution. The dataset says nothing about where a film streams, so Discover never implies it.
+- **Conversation, backed by Nebius.** The viewer types what they feel like watching. Nebius turns each message into constraints (genres, a runtime limit, an era), asks at most one clarifying question, and then reorders the shortlist the database returned. It cannot add a film the database did not return, and any quote it cites must appear word for word in the viewer's message. If Nebius is unavailable, Discover says so and ranks by genre match instead.
+- **Refinement without the model.** Chips ("Something scary", "Under two hours", "From the nineties"), a rail showing what currently shapes the results, and "Not this one" to turn a title down.
+- **Built for a TV.** Laid out for 1920×1080 viewed from about three metres, fully usable with arrow keys, Enter and Escape. The grid keeps loading as you scroll, and each film has its own page at `/discover/:id`.
 
-The catalogue powers a conversational, TV-first **Discover** experience: viewers can ask for what they feel like watching, refine the answer naturally, and browse genuine titles. Movie Jam is a separate, clearly labelled creative mode for directing a new story with other people.
+### Movie Jam
 
-## The experience
+- **Rooms with real access control.** Supabase-backed rooms, anonymous identity, and a `/jams` list of the rooms you host or have joined. Invites work by code, link or QR, can expire, and can be rotated or revoked. A public room admits guests on arrival; an invite-only room holds them in a lobby until the host admits them. The host can remove anyone. Row-level security enforces each of these rules, not just the UI.
+- **Shared chat and proposals.** Append-only, synchronized through Supabase Realtime, and reloaded from the database on every reconnect.
+- **A shared playback clock.** The host starts, pauses and resets a room-wide timer anchored to the database's clock, so every participant sees the same position.
+- **A screenplay to work from.** The host generates one from a short prompt (Nebius) or imports their own markdown. The script is split into timed portions. Each portion can be edited on its own, and every change is kept as a revision that can be restored.
+- **Opt-in live camera, microphone and screen (Vonage Video API).** Nothing is published until the participant consents. Each consent records its owner, purpose and expiry, and withdrawing it stops the track. Nothing is recorded. Opening a session and minting a token have been proven against Vonage, but a live stage between two browsers has not been tested.
 
-1. **Discover something real** — viewers use natural conversation to find films in the TMDB catalogue.
-2. **Create or join a Movie Jam** — hosts can create a public room, a private room, or share an invite link / QR code with an audience.
-3. **Direct together** — participants write, speak, upload a reference, or share a live camera moment for the story, characters, locations, visual style, mood, dialogue, and scene changes.
-4. **Build a coherent film** — Reverie turns the room's ideas into editable creative material: story beats, screenplay, character sheets, world bible, shot list, prompts, sound direction, and scene assets.
-5. **Vote and transition** — ideas are queued and voted on so the generation system receives one clear creative turn at a time instead of conflicting instructions.
-6. **Watch it take shape** — the active direction updates the live visual and the next scene. Every scene remains editable, and any earlier moment can fork into a new version of the story.
-7. **Keep the result** — a completed Jam becomes a shareable short film or episodic story, with its creative history and branches preserved.
+## Not built yet
 
-## What makes it different
+- Voting, and turning an accepted proposal into a scene. The Studio says this on screen.
+- Generated video. A fal.ai adapter and a portion video pipeline exist, but no fal model has been verified, and starting playback generation returns `generation_disabled`.
+- Voice input and transcription (SLNG), image and video-clip uploads, forks, recording, broadcast and export.
+- Translated or re-styled playback per participant. A session stores those settings, but nothing renders them.
 
-- **Many directors, one coherent story.** A room can be playful and chaotic without producing an incoherent film.
-- **Natural level of detail.** Children can ask for a magical pig; filmmakers can set lens language, pacing, character arcs, and production constraints.
-- **A living production package.** Inputs do not disappear into a single generation. They continuously update editable script and asset documents.
-- **Real-time, audience-ready.** It is designed for friends, families, classrooms, festivals, and a HackBarna demo with audience members joining through a QR code.
-- **Branchable cinema.** Fork from any past scene and explore alternate endings, tones, or universes.
-- **Respect for real films.** Genuine catalogue titles stay genuine; collaborative generation is distinct and clearly labelled.
-
-## Direct in any medium
-
-A Movie Jam should accept ideas in the medium that makes them easiest to express. Each contribution becomes an attributed, editable **creative turn** in the same shared story timeline.
-
-| Contribution | What a participant can add | How it can shape the movie |
-| --- | --- | --- |
-| Text | A plot twist, character detail, line of dialogue, camera instruction, or full scene brief | Story beats, screenplay, dialogue, shot list, and generation direction |
-| Voice | A spoken idea, performance, sound cue, or fast instruction | Live transcription, tone and dialogue references, and the next creative turn |
-| Image | A drawing, moodboard, character reference, costume, location, or colour palette | Character/world bible, visual palette, prop and composition direction |
-| Video clip | A movement reference, performance, texture, location, or camera-language example | Blocking, pacing, motion, scene energy, and visual-transition direction |
-| Live camera | A host or participant appears in the Jam, shows an object, performs a moment, or directs the scene in real time | A time-bounded live reference that can inform the current scene and be transformed into the shared visual language |
-
-The participant always states the purpose of an image or video — for example, “use the colour palette,” “use this movement,” or “make this character feel like this.” The system stores that intent alongside the asset rather than treating an upload as an opaque prompt.
-
-### Live co-direction with Vonage + fal.ai
-
-Vonage will make Movie Jam a real collaborative studio rather than a text chat with a video result. Hosts and remote participants can join a WebRTC room, contribute a live camera or screen, receive captions, and see the evolving film together. Supabase Realtime carries authoritative room updates, chat, and proposal notifications. Vonage signaling is limited to media-session coordination; its broadcast and archive capabilities can power a public Watch page, optional RTMP output, and a Jam replay.
-
-fal.ai then becomes the creative media layer: it can transform a permitted camera feed or uploaded media into the Jam's visual world, while the screenplay and production package keep the result coherent. The Vonage starter shown at HackBarna demonstrates this exact category of integration: Vonage Video API broadcast, archiving, and signaling alongside a WebRTC camera feed passed to fal for live video editing. [Vonage Video API × fal starter](https://github.com/Vonage-Community/demo-video-javascript-fal-starter)
-
-Live and uploaded media are opt-in contributions. The product will show who is live, what is being used as a reference, and when a contribution expires. Raw camera/audio should remain transient unless the room deliberately enables recording or export.
-
-## Sponsor-first technical direction
-
-Reverie will be built to showcase the strongest relevant HackBarna 2026 sponsor technologies, while keeping each provider behind a replaceable adapter.
-
-Potential capabilities include:
-
-| Need | Possible sponsor integration |
-| --- | --- |
-| Real catalogue, title metadata, and TV discovery context | Curated TMDB snapshot in Supabase Postgres (no Titan API exists) |
-| Real-time conversational direction, transcription, and script reasoning | Titan and other event-provided AI models |
-| Live participant video, broadcast, recording, captions, and room signaling | Vonage Video API |
-| Image, video, and visual asset generation | fal.ai |
-| Live rooms, events, presence, and voting | Event-supported real-time / cloud infrastructure |
-| Media storage, rendering, and exports | Event-supported cloud and media tools |
-
-The exact provider stack will follow the official HackBarna 2026 sponsor list and available APIs. No provider is assumed to be enabled until it has been confirmed for the event.
+The Studio's scene panel is a static illustration, not generated output.
 
 ## Technology stack
 
-The deployed application uses React, TypeScript and Vite on **Vercel**, with **Supabase** for persistent rooms, anonymous identity, RLS and Realtime. The local Express process serves the app during development; it is not a production room server.
-
-| Layer | Technology | Responsibility |
+| Layer | Technology | State |
 | --- | --- | --- |
-| Client | React, TypeScript, Vite | Discover, Jam host and participant experiences |
-| Deployment and private APIs | Vercel Node functions | Health endpoint now; provider calls, media operations, budgets and token signing later |
-| Persistent collaboration | Supabase Postgres, Auth, RLS, Realtime | Room records and host identity now; admission, proposals, chat, votes and presence next |
-| Validation | Zod | Boundary schemas for commands and provider responses |
-| Creative reasoning | Nebius | Planned structured story and catalogue reasoning |
-| Speech | SLNG | Planned transcription and optional speech responses |
-| Generated media | fal.ai | Planned image/video generation and visual transformations |
-| Live media | Vonage Video API | Implemented opt-in camera/microphone/screen with a consent register; no video-capable credential supplied yet |
-| Real-title discovery | TMDB snapshot in Postgres | Live: 27,839 films, ranked full-text search |
-| Invites | `qrcode.react` | Host invite panel: link, QR, code, expiry, rotation and revocation |
+| Client | React, TypeScript, Vite | Discover, the jam list, create, join, lobby and Studio screens |
+| Vercel functions | Node handlers in `api/` | `health`, `catalogue`, `catalogue-title`, `discover/turn`, `discover/rank`, `live/token`. A Vercel deployment has not been verified. |
+| Local server | Express (`apps/server`) | Serves the app and the same handlers, plus the script, session and playback routes. Those routes run only here and keep their state in memory. |
+| Collaboration | Supabase Postgres, Auth, RLS, Realtime | Hosted project migrated; `pnpm verify:realtime` passed 27/27 against it |
+| Validation | Zod | Command and provider-response schemas at every boundary |
+| Reasoning | Nebius (`Qwen/Qwen3-30B-A3B-Instruct-2507` for Discover) | Script generation and the Discover conversation, both verified live |
+| Live media | Vonage Video API | Implemented. `pnpm probe:vonage` passed; the two-browser stage is untested. |
+| Generated media | fal.ai | Adapter behind a model allowlist; no model verified |
+| Speech | SLNG | Planned, no code |
+| Catalogue | TMDB snapshot in Postgres | Live: 27,839 films |
+| Invites | `qrcode.react` | Link, QR, code, expiry, rotation and revocation |
 
-Only `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are browser configuration. Provider secrets stay in ignored local environment files or Vercel server environment variables. Discover reads `public.catalogue_titles`, a curated TMDB snapshot in the same Supabase project, through the `search_catalogue_titles` RPC as the viewer's own session; without Supabase configuration `/api/catalogue` reports `catalogue_not_configured` and Discover shows no titles. There is no Titan API. No provider is verified or enabled yet.
+Only `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are browser configuration. Provider secrets stay in ignored local environment files or server environment variables. Discover reads the catalogue through the `search_catalogue_titles` and `get_catalogue_title` functions using the viewer's own session. The server reads `SUPABASE_URL`/`SUPABASE_ANON_KEY` and falls back to the `VITE_` pair. Paid provider calls stay off until `REVERIE_LIVE_ENABLED=true`. There is no Titan API.
 
-## Run and deploy
+## Run it
 
 For the local Docker stack, start Docker Desktop and run:
 
 ```bash
 docker compose up --build --wait
-# Open http://localhost:4317
 ```
 
-The root Compose file loads `.env.compose` for local Supabase configuration.
-The app service loads optional `.env.local` for server-side provider credentials and
-settings; these files are excluded from the image. Public Supabase values are embedded
-at build time. Stop with `docker compose down`; database data stays in its named volume.
-This runs the production Vite build with the local Express host. It does not yet prove
-Vercel parity: script/session/playback APIs still depend on the local server and memory.
-`pnpm verify:realtime` runs against this stack and passed 27/27 checks on 2026-09-19.
+Then open http://localhost:4317.
+
+This starts local Supabase (Postgres, Auth, PostgREST, Realtime and a gateway), applies every migration, and serves the production build from the local Express host. `.env.compose` holds the local-only Supabase values; the app also loads an optional `.env.local` for server-side provider credentials. Stop the stack with `docker compose down`; database data stays in its named volume. This does not prove Vercel parity, and the script, session and playback stores reset when the app container restarts. `pnpm verify:realtime` passes 34/34 against this stack, including 7 playback-clock checks.
+
+Without Docker:
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm dev
-# Open http://127.0.0.1:4317
 ```
 
 ```bash
+pnpm dev
+```
+
+Then open http://127.0.0.1:4317.
+
+Checks:
+
+```bash
 pnpm typecheck
+```
+
+```bash
+pnpm test
+```
+
+```bash
 pnpm build
+```
+
+```bash
 curl --fail http://127.0.0.1:4317/api/health
 ```
 
-Create `.env.local` from `.env.example`, then follow [Supabase setup](docs/SUPABASE_SETUP.md) and [Vercel deployment](docs/VERCEL_SETUP.md). No Supabase configuration means an explicitly non-persistent local preview. Configuration failures must not silently become previews.
+Create `.env.local` from `.env.example`, then follow [Supabase setup](docs/SUPABASE_SETUP.md) and [Vercel deployment](docs/VERCEL_SETUP.md). Without Supabase configuration the app runs as a clearly labelled, non-shareable local preview. A configured project that fails reports the failure and never falls back to the preview. Live checks against configured services: `pnpm verify:realtime`, `pnpm verify:shortlist`, `pnpm verify:conversation` and `pnpm probe:vonage`.
 
-Technical design documents:
+Design documents:
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Technology stack and provider strategy](docs/TECHNOLOGY_STACK.md)
 - [Internal API contracts](docs/API_CONTRACTS.md)
 - [State machines](docs/STATE_MACHINE.md)
+- [Decisions](docs/DECISIONS.md)
 - [User-journey runbooks](docs/user_journeys/README.md)
 - [Contributor instructions](AGENTS.md)
 
-## Core product principles
+## Status and known gaps
 
-- **The audience remains in control.** AI is the production partner, not the sole author.
-- **One clear turn at a time.** Queue, voting, and scene boundaries protect story continuity and model quality.
-- **Fast feedback over long waits.** Text, story state, and visual direction should update immediately; expensive generation can continue progressively.
-- **Every important decision is editable.** Scripts, character definitions, prompts, scenes, and forks are first-class artifacts.
-- **Safe public collaboration.** Rooms need host controls, invite permissions, moderation, and appropriate rate limits.
+[Project state](docs/PROJECT_STATE.md) is the dated record of what exists and what has been verified. As of 2026-09-19:
 
-## Initial demo
-
-The HackBarna demo will start with a host-led story, then reveal a QR code so audience members can join. The host admits participants, who submit and vote on twists. The winning direction becomes the next scene while the audience watches the movie take shape in real time.
-
-## Status
-
-Implemented: landing page, create/join/studio routes, the TV-first `/discover` route with keyboard traversal and search, the privileged `GET /api/catalogue` adapter, local preview, Supabase-backed room creation, the `/jams` registry that lists the rooms you host or have joined, script generation from a prompt, script import that keeps the pasted markdown, invite-code entitlement, display names, the waiting lobby, host admission and removal, append-only chat and proposals synchronized through Supabase Realtime with reconnect snapshots, plus local and Vercel health handlers. Opt-in live media (camera, microphone, screen) is implemented behind `POST /api/live/token`
-with a consent register that records owner, purpose, expiry and a server-issued asset
-reference, and withdrawing consent stops the track; nothing is recorded, exported or
-transformed. The Vonage credentials in this repository are account-level, not a video-capable
-application, so a session has never been opened from here and the route reports
-`live_not_configured` — see `docs/PROJECT_STATE.md` for the dated probe receipts. Voting,
-scene acceptance and generation remain unimplemented; scene acceptance is deliberately blocked on a versioned transactional contract. No catalogue contract has been supplied, so Discover reports an unconfigured catalogue rather than showing titles. No hosted Supabase project has been migrated from this repository; the collaborative behaviour and RLS are verified against the local Docker stack (`pnpm verify:realtime`, 27/27) but not against a hosted database — run it against a configured project to produce that evidence. Hosted deployment also remains pending.
+- **Verified against live services:**
+  - the hosted Supabase project: `verify:realtime` 27/27, covering invites, lobby, admission, RLS, Realtime delivery, reconnect and removal
+  - Discover over the live catalogue: `verify:shortlist`, and `verify:conversation` with Nebius, which passed three times
+  - script generation through Nebius
+  - Vonage session and token creation: `probe:vonage`
+- **Verified locally only:** the shared playback clock, in two browsers on the local stack; 400/400 unit tests.
+- **Not verified:** a Vercel deployment; a live Vonage stage between two browsers; any fal.ai model. Hosted migrations were applied by hand, so no tracking table records them.
+- **Not implemented:** everything under [Not built yet](#not-built-yet).
 
 ## Contributing
 
-The primary agent ships small verified commits to `main`; the collaborating developer uses PRs and auto-merge. Read [the collaboration workflow](docs/CONTRIBUTING.md) before editing shared files. Current milestones and limitations live in [project state](docs/PROJECT_STATE.md).
+The primary agent ships small verified commits to `main`. The collaborating developer works on branches, opens PRs and uses auto-merge after checks. Read [the collaboration workflow](docs/CONTRIBUTING.md) before editing shared files.
+
+## License
+
+[MIT](LICENSE)

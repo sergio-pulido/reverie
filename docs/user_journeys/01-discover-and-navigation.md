@@ -4,9 +4,11 @@ Covers: the home screen and its entry points, the `/jams` registry, the TV-first
 experience (all four states, search, the endless grid, keyboard traversal, film pages at
 `/discover/:id`, the same-origin API guard), and what the app does when no catalogue or no Supabase is configured.
 Runtime: ~18 minutes.
-Environment: A, B or C. The "ready grid" section additionally needs a configured
-`TITAN_CATALOGUE_URL` + `TITAN_API_KEY`; without them that section is `BLOCKED` and the
-unconfigured state is the real assertion.
+Environment: A, B or C. The "ready grid" section needs a Supabase project that holds
+`public.catalogue_titles` (the curated TMDB snapshot) and the server variables
+`SUPABASE_URL` + `SUPABASE_ANON_KEY` (or the `VITE_` pair they fall back to). The hosted
+project already holds the snapshot, so environments pointed at it run section C. Only an
+environment without Supabase shows the unconfigured state, and there it is the real assertion.
 
 ## Goal
 
@@ -18,8 +20,8 @@ half-rendered grid or a fake room.
 ## Preconditions
 
 - The app is reachable at the recorded origin and `GET /api/health` returns `200`.
-- Record whether `TITAN_CATALOGUE_URL`/`TITAN_API_KEY` and Supabase are configured (say only
-  `set`/`missing`).
+- Record whether `SUPABASE_URL`/`SUPABASE_ANON_KEY` (or `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY`)
+  are configured (say only `set`/`missing`).
 
 ## A. Home, registry and entry points
 
@@ -232,7 +234,7 @@ Read the `/api/catalogue` response and branch:
 ## Failure signals
 
 - A poster or title that did not come from the response.
-- An error page that includes `TITAN_API_KEY`, the upstream URL, or upstream JSON.
+- An error page that includes a Supabase key or access token, the upstream URL, or upstream JSON.
 - Focus lost to the page body after closing a film page, a retry, or new posters arriving.
 - A film page showing "unknown", "0" or "—" for a field the record lacks.
 - A 500 or an HTML body where typed JSON is expected.

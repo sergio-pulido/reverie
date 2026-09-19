@@ -36,6 +36,13 @@
 - Supabase is selected for Postgres, anonymous participant identity, RLS, persistent Jam URLs, and Realtime collaboration.
 - The initial migration and setup guide are committed, but no Supabase project credentials or live database migration have been applied yet.
 
+## 2026-09-19 — Persistent Jam URL client foundation added
+
+- The frontend now uses `/jams/new`, `/jams/<slug>`, and `/join` routes, with a Vercel SPA rewrite for direct navigation.
+- When `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are configured and the initial migration has been applied, room creation performs anonymous sign-in and persists a host-owned Jam record in Supabase.
+- Without that configuration, the UI explicitly creates a local preview URL and labels it as non-shareable; it does not present local state as a persistent room.
+- Room membership, invite lookup, proposal persistence, Realtime subscriptions, voting, and host admission remain the next milestones.
+
 ## Next milestone
 
 Implement an independently testable local Jam room: server-owned room state, name/admission flow, shared WebSocket presence and chat, proposal queue, vote state, and a host-controlled scene transition. Provider adapters remain disabled until their individual probes pass.

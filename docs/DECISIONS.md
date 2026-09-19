@@ -1,5 +1,31 @@
 # Decisions
 
+## 2026-09-19 — Generated streams are keyed by configuration, and a cap makes the room attach
+
+Per-participant overrides select a configuration (today `language` + `ambientation`), and Reverie
+generates **one stream per distinct configuration present in the room**, not one per participant:
+two sessions with the same configuration receive the same stream. To keep paid generation and
+storage from scaling with headcount, the server caps how many distinct configurations are held at
+once. When the cap is full, a participant whose configuration is not active is shown the active
+configurations and **attaches to one** instead of triggering a new generation. The cap is a
+budget control in the same family as the provider model allowlist and the concurrency gate; it
+must never silently fall back to a mock or generate outside the budget. This is intended, not
+implemented: the cap value, eviction policy, configuration-key normalization, and whether
+attaching rewrites session settings remain unspecified. See
+`docs/specs/configuration-keyed-streams.md`.
+
+## 2026-09-19 — A session is a seat in the collaborative room, with per-participant overrides
+
+A jam has one collaborative room and one authoritative script; a `jam_sessions` record is a
+participant's seat **in that same room**, not a separate playback space. The session carries
+only per-participant overrides (`language`, `ambientation`) layered on the common behaviour, so
+everyone still collaborates on the same shared activity. This refines "A jam session is one
+user's playback seat" below: the variation is still stored and never forked into the script, but
+the seat is understood to sit *inside* the shared room rather than beside it. Implementation gap:
+the playback session (owner-token `JamSession`) and room membership (Supabase `jam_members`) are
+currently separate records, and creating a session does not admit the participant. Unifying the
+two is a design task, not shipped behaviour.
+
 ## 2026-09-19 — A draft that misses the runtime is corrected on the next attempt
 
 The scriptwriter no longer sends the same prompt twice and then reports a fit failure. When a draft is outside the rescalable window, its actual total seconds, portion count, and whether it ran long or short are fed back into the next attempt together with the feasible portion band for the jam's target, so the retry is a directed correction. The same applies to a reply that fails the draft shape: the exact JSON shape is restated. Attempts stay bounded at four paid completions because each one costs money and the concurrency gate is the only other spend control; only after that cap does the fit miss become the typed, retryable `generation_failed` that a room can retry. The 0.8×–1.25× rescale window is unchanged — a draft too far off is still never silently stretched.

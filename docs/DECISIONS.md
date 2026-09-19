@@ -1,5 +1,19 @@
 # Decisions
 
+## 2026-09-19 — Generated streams are keyed by configuration, and a cap makes the room attach
+
+Per-participant overrides select a configuration (today `language` + `ambientation`), and Reverie
+generates **one stream per distinct configuration present in the room**, not one per participant:
+two sessions with the same configuration receive the same stream. To keep paid generation and
+storage from scaling with headcount, the server caps how many distinct configurations are held at
+once. When the cap is full, a participant whose configuration is not active is shown the active
+configurations and **attaches to one** instead of triggering a new generation. The cap is a
+budget control in the same family as the provider model allowlist and the concurrency gate; it
+must never silently fall back to a mock or generate outside the budget. This is intended, not
+implemented: the cap value, eviction policy, configuration-key normalization, and whether
+attaching rewrites session settings remain unspecified. See
+`docs/specs/configuration-keyed-streams.md`.
+
 ## 2026-09-19 — A session is a seat in the collaborative room, with per-participant overrides
 
 A jam has one collaborative room and one authoritative script; a `jam_sessions` record is a

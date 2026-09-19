@@ -78,12 +78,16 @@ sessions. After creation the card shows **Save my playback** (an owner-only
 
 **Model.** The session is your identity in the shared activity plus per-participant overrides
 layered on the common behaviour. Everyone still collaborates on the same room and the same
-script; the overrides change how it plays for you, not what the room is doing.
+script; the overrides change how it plays for you, not what the room is doing. Overrides select
+a **configuration**, and each active configuration maps to one shared generated stream — held up
+to a capped number of distinct configurations, after which participants attach to an existing
+one. See `docs/specs/configuration-keyed-streams.md`.
 
 **Boundary.** A session stores and exposes the parameters that *will* skin its owner's
 playback; it does not translate or re-ambient the script yet. `renderScriptMarkdown` only
 annotates the header with the owner's name, language and ambientation — the scene body is still
-the shared script. Per-session generated playback is a later, budgeted provider step. The owner
+the shared script. Per-session generated playback is a later, budgeted provider step, keyed by
+configuration rather than by person (`docs/specs/configuration-keyed-streams.md`). The owner
 token is issued once, is never listed, and must be treated as a secret.
 
 **Current gap — "same room" is intent, not wiring.** Today the playback session (`JamSession`,

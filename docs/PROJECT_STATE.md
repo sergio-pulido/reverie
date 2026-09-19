@@ -356,6 +356,10 @@ remain unproven until `scripts/verify-realtime.mjs` completes against the migrat
 - It also records the intended (not implemented) direction: **Open as markdown** becomes the
   door to an editable script **version**, and the screenplay is revised through a **chat** on
   this screen, appended as versions rather than overwriting the shared script.
+- `docs/specs/configuration-keyed-streams.md` records the intended playback economics: generate
+  **one stream per distinct configuration**, not per participant; cap the number of distinct
+  configurations the server holds; and, when the cap is full, show the active configurations so
+  participants **attach** to an existing one instead of triggering new paid generation.
 - Documentation only; no code or runtime behaviour changed.
 
 ## Next milestones

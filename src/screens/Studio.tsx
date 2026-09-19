@@ -4,6 +4,7 @@ import { Footer, Notice } from "../chrome";
 import { TopBar } from "../shell/TopBar";
 import { InvitePanel } from "./InvitePanel";
 import { JamPlayer } from "./JamPlayer";
+import { JamDirector } from "./JamDirector";
 import { useAccessStatus } from "./useAccessStatus";
 import { useJamRoom } from "./useJamRoom";
 import { readJamConfiguration } from "../lib/jamConfiguration";
@@ -87,6 +88,7 @@ export function Studio({ slug, onLeave }: { slug: string; onLeave: () => void })
 
           <div className="studio-scene">
             <JamPlayer jamId={jam.id} canDrive={isHost} configuration={configuration} />
+            <JamDirector jamId={jam.id} canDrive={isHost} />
             <div className="queue-card queue-card-stack">
               <div><p className="eyebrow">UP NEXT</p><h2>Proposal queue</h2></div>
               <div className="contribution-list" aria-live="polite">

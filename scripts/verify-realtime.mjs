@@ -60,7 +60,7 @@ function waitForMessage(session, jamId, predicate) {
     }, REALTIME_TIMEOUT_MS);
 
     const channel = session.client
-      .channel(`jam:${jamId}`, { config: { private: true } })
+      .channel(`jam:${jamId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "jam_messages", filter: `jam_id=eq.${jamId}` }, ({ new: row }) => {
         if (!predicate(row)) return;
         clearTimeout(timer);
@@ -199,7 +199,7 @@ await check("a proposal from the guest reaches the host over Realtime", async ()
   const delivered = new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("no realtime delivery within the timeout")), REALTIME_TIMEOUT_MS);
     const channel = host.client
-      .channel(`jam:${jam.id}`, { config: { private: true } })
+      .channel(`jam:${jam.id}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "jam_proposals", filter: `jam_id=eq.${jam.id}` }, ({ new: row }) => {
         if (row.body !== body) return;
         clearTimeout(timer);

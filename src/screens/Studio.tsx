@@ -35,14 +35,13 @@ export function Studio({ slug, onExit }: { slug: string; onExit: () => void }) {
   const isHost = self?.role === "host";
   const waitingMembers = members.filter((member) => member.status === "waiting");
   const activeMembers = members.filter((member) => member.status === "active");
-  const onlineIds = new Set(state.presence.map((entry) => entry.userId));
 
   return <Shell onExit={onExit}>
     <section className="studio-header">
       <div>
         <p className="eyebrow">MOVIE JAM / <ConnectionBadge state={state.connection} /></p>
         <h1>{jam.title}</h1>
-        <p>{jam.visibility === "public" ? "Public room" : "Invite-only room"} · {activeMembers.length} in the room · {onlineIds.size} connected now</p>
+        <p>{jam.visibility === "public" ? "Public room" : "Invite-only room"} · {activeMembers.length} in the room</p>
       </div>
       <div className="studio-actions">
         <button className="button button-quiet" onClick={onExit}>Leave</button>
@@ -86,7 +85,7 @@ export function Studio({ slug, onExit }: { slug: string; onExit: () => void }) {
 
             <LiveStage jamId={jam.id} userId={self.user_id} members={members} canJoin={contributionAllowed} />
 
-            <Roster members={activeMembers} onlineIds={onlineIds} selfId={self.user_id} isHost={isHost} onRemove={actions.remove} />
+            <Roster members={activeMembers} selfId={self.user_id} isHost={isHost} onRemove={actions.remove} />
             {isHost && <Lobby waiting={waitingMembers} onAdmit={actions.admit} onRemove={actions.remove} />}
           </div>
         </section>}
@@ -126,9 +125,8 @@ function WaitingLobby({ jamId, onAdmitted }: { jamId: string; onAdmitted: () => 
   </aside><div className="studio-scene"><LiveScene compact /></div></section>;
 }
 
-function Roster({ members, onlineIds, selfId, isHost, onRemove }: {
+function Roster({ members, selfId, isHost, onRemove }: {
   members: readonly JamMember[];
-  onlineIds: ReadonlySet<string>;
   selfId: string;
   isHost: boolean;
   onRemove: (memberId: string) => void;
@@ -137,7 +135,7 @@ function Roster({ members, onlineIds, selfId, isHost, onRemove }: {
     <div><p className="eyebrow">IN THE ROOM</p><h2>{members.length} director{members.length === 1 ? "" : "s"}</h2></div>
     <ul className="roster">
       {members.map((member) => <li key={member.user_id}>
-        <span className={onlineIds.has(member.user_id) ? "roster-dot online" : "roster-dot"} aria-label={onlineIds.has(member.user_id) ? "connected" : "away"} />
+        <span className="roster-dot online" aria-label="active member" />
         <span>{member.display_name}{member.role === "host" ? " · host" : ""}{member.user_id === selfId ? " · you" : ""}</span>
         {isHost && member.role !== "host" && <button className="button button-quiet" onClick={() => onRemove(member.user_id)}>Remove</button>}
       </li>)}

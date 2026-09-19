@@ -90,9 +90,8 @@
 - `jam_messages` and `jam_proposals` are append-only tables readable and writable only by an
   active member. `author_id` defaults to `auth.uid()` and the insert policy pins it there, so
   author identity always comes from Auth.
-- Durable updates arrive through Postgres Changes; Presence reports who is connected;
-  Broadcast is not used as authority. Realtime channel `jam:<id>` is private and authorized
-  through `realtime.messages` RLS against active membership.
+- Durable updates arrive through Postgres Changes, filtered by the RLS policies on their
+  source tables. Presence and Broadcast are not enabled on the hosted Supabase transport.
 - Every successful subscribe reloads the authorized snapshot, so a reconnect closes its gap
   with durable state instead of replaying events. Rows are deduplicated by id and ordered by
   `(created_at, id)` so two clients converge.
@@ -251,9 +250,9 @@ remain unproven until `scripts/verify-realtime.mjs` completes against the migrat
   a `public`-only search path. `20260919212000_fix_invite_code_randomness.sql` now qualifies
   `extensions.gen_random_bytes(8)`. Apply it, then rerun `pnpm verify:realtime`; no
   collaboration, RLS or Realtime assertion has been claimed as passed before that rerun.
-- Supabase Cloud rejected the original collaboration migration's attempt to alter its
-  service-owned `realtime.messages` table. The updated migration leaves that already-RLS
-  protected table alone and creates only the supported authorization policies.
+- Supabase Cloud rejects policy changes on its service-owned `realtime.messages` table. The
+  hosted collaboration transport therefore uses public channels only for Postgres Changes,
+  whose durable tables enforce their own RLS; Presence and Broadcast remain disabled.
 
 ## Next milestones
 

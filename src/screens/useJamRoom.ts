@@ -6,7 +6,6 @@ import {
   type ConnectionState,
   type JamMember,
   type JamRoomSnapshot,
-  type PresenceEntry,
 } from "../core/room";
 import { JamError, safeMessageOf } from "../lib/errors";
 import { createJamProposal, loadJamSnapshot, sendJamMessage, subscribeToJamRoom } from "../lib/jamRoom";
@@ -16,11 +15,10 @@ export type JamRoomState = {
   phase: "loading" | "ready" | "error";
   snapshot: JamRoomSnapshot | null;
   connection: ConnectionState;
-  presence: readonly PresenceEntry[];
   error: string | null;
 };
 
-const INITIAL: JamRoomState = { phase: "loading", snapshot: null, connection: "idle", presence: [], error: null };
+const INITIAL: JamRoomState = { phase: "loading", snapshot: null, connection: "idle", error: null };
 
 /**
  * Owns one jam subscription. Durable rows come from the snapshot and Postgres Changes;
@@ -47,7 +45,7 @@ export function useJamRoom(slug: string | null) {
       .then((snapshot) => { if (active) applySnapshot(snapshot); })
       .catch((error: unknown) => {
         if (!active) return;
-        setState({ phase: "error", snapshot: null, connection: "idle", presence: [], error: safeMessageOf(error, "This jam could not be opened.") });
+        setState({ phase: "error", snapshot: null, connection: "idle", error: safeMessageOf(error, "This jam could not be opened.") });
       });
 
     return () => { active = false; };
@@ -61,10 +59,9 @@ export function useJamRoom(slug: string | null) {
     const snapshot = state.snapshot;
     if (!snapshot || !snapshot.self || !selfIsActive) return;
 
-    const stop = subscribeToJamRoom(snapshot.jam, snapshot.self, {
+    const stop = subscribeToJamRoom(snapshot.jam, {
       onSnapshot: applySnapshot,
       onConnection: (connection) => setState((current) => ({ ...current, connection })),
-      onPresence: (presence) => setState((current) => ({ ...current, presence })),
       onMessage: (message) => setState((current) => current.snapshot
         ? { ...current, snapshot: { ...current.snapshot, messages: mergeRow(current.snapshot.messages, message) } }
         : current),

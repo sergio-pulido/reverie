@@ -13,13 +13,12 @@ Reverie uses Supabase as the authoritative store for Jam rooms, membership, chat
    `20260919210000_jam_live_media.sql`, `20260919211000_live_session_reservation.sql`, and
    `20260919212000_fix_invite_code_randomness.sql`.
    The collaboration migration adds `jam_messages`,
-   `jam_proposals` and `jam_members` to the `supabase_realtime` publication and creates the
-   `realtime.messages` policies that authorize the private `jam:<id>` channel, so no manual
-   publication step is needed.
+   `jam_proposals` and `jam_members` to the `supabase_realtime` publication. Chat and
+   proposals are authorized by their table RLS policies, so no manual publication step is
+   needed.
 4. Keep later migrations ordered and versioned in `supabase/migrations`. Apply the initial migration once; it is not an idempotent reset script.
    If `20260919190000_jam_collaboration.sql` was previously rejected with "must be owner of
-   table messages", pull the current `main` and rerun its complete updated contents. The
-   hosted Realtime table already has RLS; the migration now only adds its policies.
+   table messages", pull the current `main` and rerun its complete updated contents.
 5. In Database → Publications, add any further realtime table to `supabase_realtime` only once its subscription and its RLS policies exist.
 
 ## 2. Configure local development
@@ -41,8 +40,8 @@ Add the same `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` values to the Verc
 
 The migrations support server-authoritative Jam records, script/session metadata, invite
 entitlement and lifecycle, display names, the waiting lobby, host admission and removal,
-append-only chat and proposals, Postgres Changes, a private Presence channel, and opt-in
-live-media consent/session records. Membership is mutated only through
+append-only chat and proposals, RLS-filtered Postgres Changes, and opt-in live-media
+consent/session records. Membership is mutated only through
 `request_jam_admission` and `set_jam_member_status`; the browser has no write policy on
 `jam_members`. Live-session creation is reserved in Postgres before the server calls Vonage,
 so concurrent joins create one provider room. Votes, scene transitions, forks, Storage and every provider call remain
@@ -80,11 +79,11 @@ the same invite does not let them back in.
 
 Anonymous Auth users receive the `authenticated` database role; the public API key alone is not a signed-in identity. RLS enforces room membership on every collaborative table. The join and admit RPCs constrain who can change membership and refuse self-promotion, removed-member re-entry and private-room enumeration.
 
-Postgres Changes subscriptions need table publication and RLS; Presence needs separate
-Realtime authorization with private channels, so knowing a channel name never grants access.
-Reconnects reload authorized durable state, and membership revocation stops subsequent reads
-and writes. All of this is implemented in the migrations and the client, and none of it has
-been verified against a live project from this repository.
+Postgres Changes subscriptions need table publication and RLS. The current hosted Supabase
+setup uses public channels only as transport for those changes; it does not enable Presence or
+Broadcast, because project SQL cannot safely own policies on Supabase's internal Realtime
+table. Reconnects reload authorized durable state, and membership revocation stops subsequent
+reads and writes.
 
 Anonymous sessions persist in one browser profile. Do not promise cross-device host recovery. Before a public audience launch, configure Auth abuse protection and appropriate limits. No remote project or migration has been verified by this repository setup alone.
 

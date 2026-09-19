@@ -9,14 +9,12 @@ import {
   jamMessageSchema,
   jamProposalSchema,
   jamRoomSchema,
-  presenceEntrySchema,
   type ConnectionState,
   type JamRoom,
   type JamMember,
   type JamMessage,
   type JamProposal,
   type JamRoomSnapshot,
-  type PresenceEntry,
 } from "../core/room";
 import { JamError, notConfigured, toJamError } from "./errors";
 import { currentUserId } from "./session";
@@ -110,7 +108,6 @@ export type JamRoomHandlers = {
   onMember: (member: JamMember) => void;
   onMessage: (message: JamMessage) => void;
   onProposal: (proposal: JamProposal) => void;
-  onPresence: (entries: readonly PresenceEntry[]) => void;
   onConnection: (state: ConnectionState) => void;
   onError: (error: JamError) => void;
 };
@@ -120,7 +117,7 @@ export type JamRoomHandlers = {
  * stops every callback, so a React effect can tear the subscription down on unmount or
  * when the participant changes.
  */
-export function subscribeToJamRoom(jam: JamRoom, self: JamMember, handlers: JamRoomHandlers): () => void {
+export function subscribeToJamRoom(jam: JamRoom, handlers: JamRoomHandlers): () => void {
   if (!supabase) {
     handlers.onError(notConfigured("Live collaboration"));
     return () => {};
@@ -156,26 +153,14 @@ export function subscribeToJamRoom(jam: JamRoom, self: JamMember, handlers: JamR
     }
   }
 
-  function readPresence(source: RealtimeChannel) {
-    const state = source.presenceState<Record<string, unknown>>();
-    const entries = Object.values(state)
-      .flat()
-      .flatMap((raw) => {
-        const parsed = presenceEntrySchema.safeParse(raw);
-        return parsed.success ? [parsed.data] : [];
-      });
-    handlers.onPresence(entries);
-  }
-
   async function connect() {
     handlers.onConnection("connecting");
-    // Private channels authorize against realtime.messages RLS using the current session.
+    // Postgres Changes are authorized by each subscribed table's RLS policy. This public
+    // channel carries no Presence or Broadcast payloads.
     await client.realtime.setAuth();
     if (disposed) return;
 
-    const jamChannel = client.channel(topic, {
-      config: { private: true, presence: { key: self.user_id } },
-    });
+    const jamChannel = client.channel(topic);
     channel = jamChannel;
 
     jamChannel
@@ -187,7 +172,6 @@ export function subscribeToJamRoom(jam: JamRoom, self: JamMember, handlers: JamR
       // validation and is dropped. There is no delete path on jam_members today.
       .on("postgres_changes", { event: "*", schema: "public", table: "jam_members", filter: `jam_id=eq.${jam.id}` },
         guard(({ new: row }: { new: unknown }) => emitRow(jamMemberSchema, row, handlers.onMember)))
-      .on("presence", { event: "sync" }, () => { if (!disposed) readPresence(jamChannel); })
       .subscribe((status, error) => {
         if (disposed) return;
         if (status === "SUBSCRIBED") {
@@ -195,7 +179,6 @@ export function subscribeToJamRoom(jam: JamRoom, self: JamMember, handlers: JamR
           // Every successful subscribe reloads durable state, so a reconnect closes the
           // gap with a snapshot instead of assuming no event was missed.
           void reloadSnapshot();
-          void jamChannel.track({ userId: self.user_id, displayName: self.display_name, at: Date.now() });
           hasConnectedOnce = true;
           return;
         }

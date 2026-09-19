@@ -19,7 +19,7 @@ import { SearchTranscript, turnRow } from "./SearchTranscript";
 import { TurnFilms } from "./TurnFilms";
 import { useHoverPreview } from "./useHoverPreview";
 import { useNarrow } from "./useNarrow";
-import { useRows, type Row } from "./useRows";
+import { useRows, type Row } from "../shell/useRows";
 import { useSearch } from "./useSearch";
 import { useViewport } from "./useViewport";
 import { useVoicePreview } from "./useVoicePreview";

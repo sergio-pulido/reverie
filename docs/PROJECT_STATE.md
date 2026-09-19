@@ -30,6 +30,12 @@
 - `docs/GALTEA_AGENT_SPEC.md` defines the Discover Agent and Movie Jam Story Director behaviour, refusal boundaries, grounding rules, and adversarial evaluation scenarios.
 - It is ready to upload as a product specification during Galtea onboarding; no Galtea account, SDK, or evaluation run has been added yet.
 
+## 2026-09-19 — Persistent-room foundation selected
+
+- Vercel is the deployment target for the Vite frontend and privileged provider functions.
+- Supabase is selected for Postgres, anonymous participant identity, RLS, persistent Jam URLs, and Realtime collaboration.
+- The initial migration and setup guide are committed, but no Supabase project credentials or live database migration have been applied yet.
+
 ## Next milestone
 
 Implement an independently testable local Jam room: server-owned room state, name/admission flow, shared WebSocket presence and chat, proposal queue, vote state, and a host-controlled scene transition. Provider adapters remain disabled until their individual probes pass.

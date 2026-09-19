@@ -143,6 +143,13 @@ removal are therefore specified and implemented but unproven. Run
 `SUPABASE_URL=... SUPABASE_ANON_KEY=... pnpm verify:realtime` against a migrated project to
 produce that evidence.
 
+## 2026-09-19 — Portion playback, locking, and video-generation pipeline (RV-06)
+
+- The server now owns a per-jam playback cursor with a derived lock window: played portions are immutable, the next portion is locked as the generation buffer, and only later portions stay editable (contract in `docs/API_CONTRACTS.md`). Advancing is host-driven, `expectedStateVersion`-guarded, and only possible one portion at a time once the locked portion's clip is ready.
+- Locking a portion enqueues a bounded video-generation job (concurrency 1); finished clips land in a capped in-memory `PortionMediaStore` and stream to clients at `GET /api/jams/:id/portions/:index/video` with Range support. Clients never receive provider URLs. `GET /api/jams/:id/playback` is the polling surface until Realtime events land.
+- A typed fal.ai queue adapter exists behind `REVERIE_LIVE_ENABLED` + `FAL_KEY` with a server-owned model allowlist. It is NOT probed: no fal model has been verified, no credentials exist in the repo, and playback start returns a typed `generation_disabled` error until live configuration is provided. A dated probe receipt in `docs/DECISIONS.md` must precede any claim that generation works.
+- Playback state and the edit-lock guard are in-memory pending the RV-07 structured-script store rework; the pinned portion text currently reads from the creation-time structured script (structural edits are forbidden in v1, so indices are stable). Verified: `pnpm typecheck` and `pnpm test` (60/60) locally.
+
 ## Next milestones
 
 1. Apply every migration in `supabase/migrations` to a Supabase project and run

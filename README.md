@@ -126,6 +126,7 @@ Technical design documents:
 - [Technology stack and provider strategy](docs/TECHNOLOGY_STACK.md)
 - [Internal API contracts](docs/API_CONTRACTS.md)
 - [State machines](docs/STATE_MACHINE.md)
+- [User-journey runbooks](docs/user_journeys/README.md)
 - [Contributor instructions](AGENTS.md)
 
 ## Core product principles

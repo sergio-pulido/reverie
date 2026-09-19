@@ -375,6 +375,24 @@ export function createDirectorRouter(
   router.post("/api/jams/:id/director/session/:sessionId/watch", async (request, response) => {
     const stream = streams.get(request.params.sessionId);
     if (!stream) {
+      // A room that has ended is not a missing one. The room exists and so
+      // does its recording; only the live stream is gone, and saying so with
+      // a pointer is more useful than "no such thing". Any route that serves
+      // a LIVE stream answers an ended room this way.
+      const jam = await store.getJam(request.params.id);
+      if (jam?.lifecycle === "ended") {
+        response.status(409).json({
+          error: {
+            code: "jam_ended",
+            safeMessage: "This jam has ended. Its recording is what remains of it.",
+            retryable: false,
+          },
+          // The collection, not a resolved session: which session was last is
+          // a read the archive already does.
+          archive: `/api/jams/${request.params.id}/director/archive`,
+        });
+        return;
+      }
       sendError(response, 404, "not_found", "That director session is not open.", false);
       return;
     }

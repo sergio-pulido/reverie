@@ -1074,9 +1074,9 @@ truncates rather than corrupting the tail. Segments stay individually addressabl
 anything that wants to seek, and an HLS VOD playlist remains available later without
 changing what is stored.
 
-**Known limit, unverified: seeking.** A concatenated fMP4 carries no `sidx` or
-fragment index, and players differ on whether they will scrub one — some play it
-start to finish happily and refuse to seek. The `<video controls>` element offers a
+**Known limit, unverified: seeking, and only seeking.** A concatenated fMP4 plays
+start to finish in the ordinary case; what it lacks is a `sidx` or fragment index, so
+players differ on whether they will let a viewer scrub one. The `<video controls>` element offers a
 scrub bar regardless, so if scrubbing matters it needs testing in Safari as well as
 Chrome, and the fix is the HLS VOD playlist over the same segment rows rather than a
 change to what is stored.
@@ -1087,6 +1087,13 @@ it was sent, and the room read `live` then `playing` then `ended`. **Not** verif
 with real director media: capture is still off by default
 (`REVERIE_DIRECTOR_RECORD`) until it runs off the main thread, so the archive has
 only been exercised with synthetic segments.
+
+**A live route answers an ended room with `409 jam_ended` and a pointer, not `404`.**
+The room exists and so does its recording; only the live stream is gone, and a
+missing-thing answer sends a viewer looking for something that is right there. The
+pointer is the archive COLLECTION rather than a resolved session, since which session
+was the last one is a read the archive side already does. Applied to the live relay's
+`watch` route here; any other route that serves a live stream answers the same way.
 
 **The audit trail is now durable.** `DirectorAuditLog` takes an optional listener and
 the director route writes each entry to `jam_director_audit` as it is recorded —

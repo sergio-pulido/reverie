@@ -695,4 +695,35 @@ test("ending one session leaves another session's viewers alone", async () => {
     200,
   );
   await endSession(second.jam.id, second.sessionId);
+test("watching an ended room points at its recording instead of 404", async () => {
+  const { jam, sessionId } = await openJamSession();
+  await endSession(jam.id, sessionId);
+
+  const watched = await fetch(
+    `${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/watch`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sdp: "v=0\r\noffer\r\n" }),
+    },
+  );
+  // The room exists and so does its recording; only the live stream is gone.
+  assert.equal(watched.status, 409);
+  const body = await watched.json();
+  assert.equal(body.error.code, "jam_ended");
+  assert.equal(body.archive, `/api/jams/${jam.id}/director/archive`);
+});
+
+test("watching a session that never existed is still a plain 404", async () => {
+  const jam = buildJam();
+  await store.createJam(jam);
+  const watched = await fetch(
+    `${baseUrl}/api/jams/${jam.id}/director/session/nope/watch`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sdp: "v=0\r\noffer\r\n" }),
+    },
+  );
+  assert.equal(watched.status, 404);
 });

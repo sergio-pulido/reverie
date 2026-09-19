@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toCandidates } from "../catalogue/candidates";
 import { providerIdOf, type CatalogueOk, type CatalogueTitle } from "../catalogue/contract";
-import { rankShortlist } from "../catalogue/scorer";
 import { isRefined, toShortlistFilters } from "../catalogue/shortlistFilters";
 import type { FilmRoute } from "../lib/routes";
-import type { PreferenceState } from "../preferences/schema";
+import { ConversationBar } from "./ConversationBar";
 import { FilmPage } from "./FilmPage";
 import type { Feed, FeedController } from "./pageFeed";
+import { RANKED_BY, orderShortlist, type ShownShortlist } from "./rankedShortlist";
 import { RefinementBar } from "./RefinementBar";
-import { useCatalogue, type CatalogueState } from "./useCatalogue";
+import { useAssistantRanking } from "./useAssistantRanking";
+import { catalogueRequestKey, useCatalogue, type CatalogueState } from "./useCatalogue";
+import { useConversation } from "./useConversation";
 import { useGridNavigation } from "./useGridNavigation";
 import { useRefinement } from "./useRefinement";
 import "./discover.css";
@@ -34,6 +35,7 @@ type ReturnFocus = { id: string; index: number };
 export function DiscoverScreen({ film, onOpenFilm, onCloseFilm, onExit }: DiscoverScreenProps) {
   const [searchInput, setSearchInput] = useState("");
   const searchRef = useRef<HTMLInputElement | null>(null);
+  const talkRef = useRef<HTMLInputElement | null>(null);
   const refineRef = useRef<HTMLElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const returnFocus = useRef<ReturnFocus | null>(null);
@@ -47,16 +49,28 @@ export function DiscoverScreen({ film, onOpenFilm, onCloseFilm, onExit }: Discov
   }, [filmOpen]);
 
   const refinement = useRefinement();
+  const talk = useConversation({ sessionId: refinement.state.sessionId, current: refinement.current, say: refinement.say });
   const refined = isRefined(refinement.state);
   const filters = useMemo(() => (refined ? toShortlistFilters(refinement.state) : null), [refined, refinement.state]);
-  const { state, retry, feed, more } = useCatalogue(searchInput, filters, gridWanted);
+  const { state, retry, feed, more, loadedFor } = useCatalogue(searchInput, filters, gridWanted);
   const response = shownResponse(state);
-  const { items, pickIds } = useMemo(
-    () => (refined ? orderForViewer(response, refinement.state) : { items: feed.items, pickIds: new Set<string>() }),
-    [refined, response, refinement.state, feed.items],
+
+  // The assistant ranks only once the viewer has talked to it; chips alone use the scorer.
+  const wantsAssistant = refined && talk.conversation.spoken && talk.conversation.available;
+  // Only a shortlist loaded for the current filters is ranked: between a change and its reload,
+  // the old shortlist is still on screen and must not be paid for again under the new state.
+  const current = loadedFor === catalogueRequestKey(searchInput, filters);
+  const readyTitles = refined && current && state.phase === "ready" ? state.response.items : null;
+  const rankingStatus = useAssistantRanking(readyTitles, refinement.state, wantsAssistant);
+  const shown = useMemo<ShownShortlist | null>(
+    () => (refined && response ? orderShortlist(response.items, refinement.state, rankingStatus, wantsAssistant) : null),
+    [refined, response, refinement.state, rankingStatus, wantsAssistant],
   );
+  const items = refined ? (shown?.items ?? []) : feed.items;
+  const pickIds = shown?.pickIds ?? NO_PICKS;
 
   const focusSearch = useCallback(() => searchRef.current?.focus(), []);
+  const focusTalk = useCallback(() => talkRef.current?.focus(), []);
   const focusRefine = useCallback((rail: "first" | "last") => {
     const rails = refineRef.current?.querySelectorAll<HTMLElement>("[data-rail]");
     const target = rails && rails.length > 0 ? rails[rail === "first" ? 0 : rails.length - 1] : null;
@@ -203,7 +217,7 @@ export function DiscoverScreen({ film, onOpenFilm, onCloseFilm, onExit }: Discov
                 onKeyDown={(event) => {
                   if (event.key === "ArrowDown") {
                     event.preventDefault();
-                    focusRefine("first");
+                    focusTalk();
                   }
                   if (event.key === "Escape") {
                     if (searchInput) setSearchInput("");
@@ -213,8 +227,17 @@ export function DiscoverScreen({ film, onOpenFilm, onCloseFilm, onExit }: Discov
               />
             </label>
           </div>
-          {spotlight && <Spotlight title={spotlight} />}
+          {spotlight && <Spotlight title={spotlight} reason={shown?.reasons.get(spotlight.id) ?? null} />}
         </section>
+
+        <ConversationBar
+          conversation={talk.conversation}
+          pending={talk.pending}
+          inputRef={talkRef}
+          onSend={(message) => void talk.send(message)}
+          onExitUp={focusSearch}
+          onExitDown={() => focusRefine("first")}
+        />
 
         <RefinementBar
           state={refinement.state}
@@ -226,14 +249,22 @@ export function DiscoverScreen({ film, onOpenFilm, onCloseFilm, onExit }: Discov
           onWithdraw={refinement.withdraw}
           onRestore={refinement.restore}
           onReset={refinement.reset}
-          onExitUp={focusSearch}
+          onExitUp={focusTalk}
           onExitDown={() => (items.length > 0 ? focusItem(activeIndex) : undefined)}
         />
+
+        {shown && items.length > 0 && (
+          <p className={`discover-ranked-by discover-ranked-by-${shown.source}`} role="status">
+            {RANKED_BY[shown.source]}
+            {shown.note && <span className="discover-ranked-note"> — {shown.note}</span>}
+          </p>
+        )}
 
         <CatalogueRegion
           state={state}
           items={items}
           pickIds={pickIds}
+          reasons={shown?.reasons ?? NO_REASONS}
           refined={refined}
           gridRef={gridRef}
           activeIndex={activeIndex}
@@ -332,22 +363,14 @@ function shownResponse(state: CatalogueState): CatalogueOk | null {
   return null;
 }
 
-/**
- * Unrefined, the grid keeps the catalogue's own order. Refined, the shortlist is ranked for the
- * viewer: ineligible titles drop out at once, even before the database answers, and the top
- * picks lead.
- */
-function orderForViewer(response: CatalogueOk | null, state: PreferenceState | null) {
-  if (!response) return { items: [], pickIds: new Set<string>() };
-  if (!state) return { items: response.items, pickIds: new Set<string>() };
-  const { picks, ordered } = rankShortlist(toCandidates(response.items), state);
-  return { items: ordered.map(({ title }) => title), pickIds: new Set(picks.map(({ id }) => id)) };
-}
+const NO_PICKS: ReadonlySet<string> = new Set();
+const NO_REASONS: ReadonlyMap<string, string> = new Map();
 
 type CatalogueRegionProps = {
   state: CatalogueState;
   items: readonly CatalogueTitle[];
   pickIds: ReadonlySet<string>;
+  reasons: ReadonlyMap<string, string>;
   refined: boolean;
   gridRef: React.RefObject<HTMLDivElement | null>;
   activeIndex: number;
@@ -359,7 +382,7 @@ type CatalogueRegionProps = {
 };
 
 function CatalogueRegion(props: CatalogueRegionProps) {
-  const { state, items, pickIds, refined, gridRef, activeIndex, onKeyDown, onOpen, onFocusIndex, onRetry, query } = props;
+  const { state, items, pickIds, reasons, refined, gridRef, activeIndex, onKeyDown, onOpen, onFocusIndex, onRetry, query } = props;
   if (state.phase === "loading" && items.length === 0) {
     return (
       <section className="discover-state" aria-busy="true" aria-live="polite">
@@ -440,6 +463,7 @@ function CatalogueRegion(props: CatalogueRegionProps) {
                 <span className="discover-card-meta">
                   {[title.year, title.rating, title.genres[0]].filter(Boolean).join(" · ")}
                 </span>
+                {reasons.has(title.id) && <span className="sr-only">. Why it’s here: {reasons.get(title.id)}</span>}
               </button>
             </li>
           ))}
@@ -459,7 +483,7 @@ function emptyMessage(query: string, refined: boolean) {
  * opening it. It repeats what the focused button already announces, so it is hidden from
  * assistive technology.
  */
-function Spotlight({ title }: { title: CatalogueTitle }) {
+function Spotlight({ title, reason }: { title: CatalogueTitle; reason: string | null }) {
   return (
     <div className="discover-spotlight" aria-hidden="true">
       <p className="discover-spotlight-eyebrow">Selected</p>
@@ -469,6 +493,7 @@ function Spotlight({ title }: { title: CatalogueTitle }) {
           .filter(Boolean)
           .join(" · ")}
       </p>
+      {reason && <p className="discover-spotlight-reason">Why it’s here: {reason}</p>}
       {title.synopsis && <p className="discover-spotlight-synopsis">{title.synopsis}</p>}
     </div>
   );

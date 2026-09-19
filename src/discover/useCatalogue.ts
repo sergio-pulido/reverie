@@ -55,6 +55,11 @@ function toState(response: CatalogueResponse): CatalogueState {
   return { phase: "error", code: response.code, safeMessage: response.safeMessage, retryable: response.retryable };
 }
 
+/** Identifies one query and set of filters, as `loadedFor` reports them. */
+export function catalogueRequestKey(query: string, filters: CatalogueFilters | null): string {
+  return `${query}|${filters ? JSON.stringify(filters) : ""}`;
+}
+
 type PageRequest = { query: string; page: number; filters: CatalogueFilters | null };
 
 /**
@@ -110,6 +115,8 @@ const MORE_FAILED = "More films could not be loaded.";
  */
 export function useCatalogue(query: string, filters: CatalogueFilters | null, enabled = true) {
   const [state, setState] = useState<CatalogueState>({ phase: "loading" });
+  /** The query and filters the state on screen was loaded for, so callers never pair it with newer ones. */
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const [feed, setFeed] = useState<Feed>(EMPTY_FEED);
   const [attempt, setAttempt] = useState(0);
   const controllerRef = useRef<AbortController | null>(null);
@@ -139,6 +146,7 @@ export function useCatalogue(query: string, filters: CatalogueFilters | null, en
         if (!next || controller.signal.aborted) return;
         feedQuery.current = request;
         setState(next);
+        setLoadedFor(catalogueRequestKey(query, refined));
         if (next.phase === "ready") more.reset(seedFeed(next.response, !refined));
       });
     }, query ? SEARCH_DEBOUNCE_MS : 0);
@@ -154,5 +162,5 @@ export function useCatalogue(query: string, filters: CatalogueFilters | null, en
     [more],
   );
 
-  return { state, retry, feed, more };
+  return { state, retry, feed, more, loadedFor };
 }

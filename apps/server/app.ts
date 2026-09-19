@@ -3,6 +3,8 @@ import health from "../../api/health";
 import catalogue from "../../api/catalogue";
 import catalogueTitle from "../../api/catalogue-title";
 import liveToken from "../../api/live/token";
+import discoverTurn from "../../api/discover/turn";
+import discoverRank from "../../api/discover/rank";
 import { createJamsRouter, InMemoryJamStore, type JamStore } from "./jams";
 import { createPlaybackRouter } from "./playback";
 import { createSessionsRouter } from "./sessions";
@@ -25,6 +27,12 @@ export function createApiApp(store: JamStore = new InMemoryJamStore()): Express 
   // function does, instead of letting the catch-all turn a wrong method into a 404.
   app.all("/api/live/token", (request, response) => {
     void liveToken(request, response);
+  });
+  app.all("/api/discover/turn", (request, response) => {
+    void discoverTurn(request, response);
+  });
+  app.all("/api/discover/rank", (request, response) => {
+    void discoverRank(request, response);
   });
   app.use(createJamsRouter(store));
   app.use(createSessionsRouter(store));

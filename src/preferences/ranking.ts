@@ -14,6 +14,19 @@ export function acceptRanking<C extends Candidate>(
   stateVersion: number,
   input: unknown,
 ): C[] {
+  return acceptFullRanking(candidates, state, stateVersion, input).slice(0, SHORTLIST_SIZE);
+}
+
+/**
+ * The same boundary as `acceptRanking`, returning every candidate the ranking names in its
+ * order rather than only the shortlist. Candidates it does not name are not returned.
+ */
+export function acceptFullRanking<C extends Candidate>(
+  candidates: readonly C[],
+  state: PreferenceState,
+  stateVersion: number,
+  input: unknown,
+): C[] {
   if (stateVersion !== state.stateVersion) {
     throw new PreferenceError(
       "stale_ranking",
@@ -35,7 +48,6 @@ export function acceptRanking<C extends Candidate>(
 
   return ranked
     .sort((a, b) => b.utility - a.utility || compareIds(a.candidate.id, b.candidate.id))
-    .slice(0, SHORTLIST_SIZE)
     .map(({ candidate }) => candidate);
 }
 

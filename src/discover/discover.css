@@ -320,6 +320,48 @@
 /* Below TV widths the spotlight gives way to the search, and type steps down for handheld use. */
 /* Refinement rails: one horizontal row each, scrolled rather than wrapped, so Left/Right always
    walk the row a remote user sees and Up/Down always change row. */
+/* The conversation: one field for the viewer's own words, the assistant's replies beneath. */
+.discover-talk { display: grid; gap: 14px; padding: 0 var(--safe-x) 22px; }
+.discover-talk-form { display: flex; gap: 14px; align-items: stretch; max-width: 1100px; }
+.discover-talk-field { flex: 1 1 auto; min-width: 0; }
+.discover-talk-field input {
+  width: 100%;
+  padding: 18px 24px;
+  font-size: 24px;
+  color: var(--ink);
+  background: rgba(24, 30, 56, .92);
+  border: 2px solid #6f7bb8;
+  border-radius: 12px;
+}
+.discover-talk-field input::placeholder { color: #aab1d0; }
+.discover-talk-field input:focus-visible { outline: 5px solid var(--focus); outline-offset: 5px; }
+.discover-talk-send {
+  flex: 0 0 auto;
+  min-width: 128px;
+  padding: 0 28px;
+  border: 2px solid #cfd7ff;
+  border-radius: 12px;
+  background: #cfd7ff;
+  color: #0a0f1a;
+  font-size: 22px;
+  font-weight: 700;
+}
+.discover-talk-send:disabled { opacity: .55; }
+.discover-talk-send:focus-visible { outline: 5px solid var(--focus); outline-offset: 5px; }
+.discover-talk-log { display: grid; gap: 8px; max-width: 1100px; margin: 0; padding: 0; list-style: none; }
+.discover-talk-line { margin: 0; font-size: 21px; line-height: 1.4; overflow-wrap: anywhere; }
+.discover-talk-viewer { color: var(--muted); }
+.discover-talk-viewer::before { content: "You · "; color: #8d93ad; font-family: "DM Mono", monospace; font-size: 16px; letter-spacing: .1em; }
+.discover-talk-assistant { color: var(--ink); }
+.discover-talk-assistant::before { content: "✳ "; color: #cfd7ff; }
+.discover-talk-question { color: #ffe6b8; font-weight: 600; }
+.discover-talk-system { color: #ffd9a8; }
+.discover-ranked-by { margin: 0; padding: 0 var(--safe-x) 16px; color: #cbd5ff; font-family: "DM Mono", monospace; font-size: 17px; letter-spacing: .08em; }
+.discover-ranked-by-pending { color: var(--muted); }
+.discover-ranked-by-fallback { color: #ffd9a8; }
+.discover-ranked-note { letter-spacing: 0; font-family: inherit; }
+.discover-spotlight-reason { margin-top: 12px !important; color: #ffe6b8; font-size: 21px; line-height: 1.4; }
+
 .discover-refine { display: grid; gap: 14px; padding: 0 var(--safe-x) 28px; }
 .discover-rail {
   display: flex;
@@ -521,7 +563,9 @@ html.film-page-open { overflow: hidden; }
 @media (max-width: 720px) {
   .discover-shell { --attribution-height: 88px; }
   .discover-grid ul { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 24px 18px; }
-  .discover-note, .discover-search input { font-size: 18px; }
+  .discover-note, .discover-search input, .discover-talk-field input { font-size: 18px; }
+  .discover-talk-line, .discover-spotlight-reason { font-size: 17px; }
+  .discover-talk-send { min-width: 88px; padding: 0 16px; font-size: 18px; }
   .discover-eyebrow { font-size: 14px; }
   .discover-card-title { font-size: 18px; }
   .discover-card-meta, .discover-attribution { font-size: 15px; }

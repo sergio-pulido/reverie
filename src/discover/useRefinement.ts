@@ -31,15 +31,18 @@ export function useRefinement() {
   // The latest state, so two quick presses build on each other instead of on the same render.
   const latest = useRef(state);
 
-  const change = useCallback((next: (current: PreferenceState) => PreferenceState) => {
+  /** Applies a change through the engine; true when it was accepted. */
+  const change = useCallback((next: (current: PreferenceState) => PreferenceState): boolean => {
     try {
       const updated = next(latest.current);
       latest.current = updated;
       setState(updated);
       setNotice(null);
+      return true;
     } catch (error) {
       if (!(error instanceof PreferenceError)) throw error;
       setNotice(NOTICES[error.code] ?? FALLBACK_NOTICE);
+      return false;
     }
   }, []);
 
@@ -61,6 +64,10 @@ export function useRefinement() {
   const reject = useCallback((candidateId: string) => change((current) => rejectCandidate(current, candidateId)), [change]);
   const restore = useCallback(() => change(restoreRejected), [change]);
   const reset = useCallback(() => change(newSession), [change]);
+  /** A turn the assistant interpreted from the viewer's words, judged here again by the engine. */
+  const say = useCallback((turn: TurnInput) => change((current) => applyTurn(current, turn, CATALOGUE_CONFIGURATION)), [change]);
+  /** The latest state, for a request made between renders. */
+  const current = useCallback(() => latest.current, []);
 
-  return { state, notice, choose, unchoose, withdraw, reject, restore, reset };
+  return { state, notice, choose, unchoose, withdraw, reject, restore, reset, say, current };
 }

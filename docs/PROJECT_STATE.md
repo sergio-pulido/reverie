@@ -581,6 +581,60 @@ project (it was applied by hand, so no tracking table records it). Each run of
   buttons with Enter or Space (it failed the same way on existing buttons), so the "Try again"
   button was checked by click; Down from the last row does reach it.
 
+## 2026-09-19 — Discover holds a conversation (Nebius)
+
+- A field above the chips takes the viewer's own words ("Tell me what you’re in the mood for…").
+  Each message is one engine turn: `POST /api/discover/turn` asks Nebius to **interpret** it into a
+  `Decision` (genre evidence with quotes, a runtime limit, an era, one acknowledgement, at most one
+  clarifying question), turns that into a `TurnInput` and passes it through `applyTurn`, which
+  refuses any quote that is not literally in the message. The browser applies the same turn through
+  the same engine, then the unchanged path runs: state → SQL filters → shortlist → candidates. The
+  model never sees the catalogue in that call.
+- Once the viewer has talked to it, `POST /api/discover/rank` sends the eligible shortlist (id,
+  title, year, runtime, genres, score, a 280-character synopsis) and the model **ranks** it. Its
+  ranking must pass `acceptFullRanking` on the server and again in the browser, so it can only
+  reorder films the database returned. Its utility replaces the scorer; the scorer's position term
+  is no longer part of the model's order. The top three are picks with a one-line reason, shown in
+  the spotlight and in the card's accessible name. The grid says which ranking it shows: "Ranked by
+  the assistant", "Ranking with the assistant…" (no picks marked) or "Ranked by genre match" with
+  the reason.
+- One clarifying question at most per turn, only when nothing concrete has been said; a turn that
+  states anything outright drops the question. Answering it narrows: an outright genre retires the
+  genres guessed from a mood. "Actually nothing scary" refuses and excludes horror, as the chip does.
+- Failure never breaks Discover: provider disabled, timeout, bad JSON or failed grounding after one
+  retry answers `unavailable` with a reason. The conversation then says "The assistant is
+  unavailable: … Use the chips to refine; results are ranked by genre match.", the scorer ranks, and
+  nothing is labelled as the model's. Chips, the rail, "not this one", film pages and the endless
+  grid are unchanged.
+- Bounds: 700/1,200 output tokens, 12 s/15 s per attempt inside 20 s/25 s, one retry and none after a
+  provider timeout, the engine's 12-turn cap checked before any call, 20/30 requests per minute and
+  6 concurrent calls per instance, a Supabase-verified viewer, abort on client disconnect. Every
+  call is server-side; the key never reaches the browser. `completeJson` gained optional
+  `timeoutMs`, `temperature` and `signal`; `NebiusError` carries a `kind`.
+- Code: `src/conversation/` (decision, wire contract, transcript), `api/discover/{turn,rank}.ts`,
+  `api/_lib/discover-{assistant,prompts,http}.ts`, `src/discover/{ConversationBar.tsx,
+  useConversation,useAssistantRanking,rankedShortlist,assistantClient}.ts`, `orderByAssistant` in
+  the scorer module and `acceptFullRanking` in the engine (`acceptRanking` is now its top three).
+  `useCatalogue` reports which query and filters its state was loaded for.
+- Verified: `pnpm test` (400/400, including `tests/conversationDecision.test.ts`,
+  `tests/discoverAssistant.test.ts`, `tests/discoverEndpoints.test.ts`,
+  `tests/conversationFallback.test.ts`), `pnpm typecheck`, `pnpm build`. `pnpm verify:conversation`
+  against the live project and Nebius (`Qwen/Qwen3-30B-A3B-Instruct-2507`) passed three times:
+  "something light for a Friday night" → one question ("Would you like a comedy, a family film, or
+  something under 90 minutes?") and 13,204 matching titles ranked by the assistant; "A comedy,
+  please" → no question, 9,942, all comedies; "actually nothing scary" → horror excluded, 9,304;
+  "A scary film under two hours" from a fresh session → no question, 3,902. Interpret took 0.8–5.4 s
+  and ranking 4.5–11 s per call, depending on provider load. The same three turns were checked in a
+  browser at 1920×1080 against the live project. With `REVERIE_LIVE_ENABLED=false` the panel stated
+  the fallback, a chip still narrowed to 9,942 titles labelled "Ranked by genre match", and no rank
+  call was made. Nothing overflows at 375px.
+- **Known gaps:** ranking latency is the slow part of a turn and sits within 4 s of its per-attempt
+  timeout under load. The rate limit and concurrency cap are per instance. The React wiring
+  (the panel's focus hand-offs, `useConversation` and `useAssistantRanking` and their races) is
+  checked in the browser, not by automated tests (the repository has no component test harness);
+  their decisions are pure functions that are tested, and the browser tool again could not submit with Enter, so the Ask button was clicked. A
+  chip shows as pressed when the assistant inferred the same genre.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

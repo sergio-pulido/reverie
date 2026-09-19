@@ -15,7 +15,8 @@
     "test": "node --import tsx --test \"tests/*.test.ts\"",
     "verify:realtime": "node --env-file-if-exists=.env.local scripts/verify-realtime.mjs",
     "probe:vonage": "node --env-file-if-exists=.env.local --import tsx scripts/probe-vonage.mts",
-    "verify:shortlist": "node --env-file-if-exists=.env.local scripts/verify-shortlist.mjs"
+    "verify:shortlist": "node --env-file-if-exists=.env.local scripts/verify-shortlist.mjs",
+    "verify:conversation": "node --env-file-if-exists=.env.local --import tsx scripts/verify-conversation.mts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.116.0",

@@ -377,3 +377,46 @@ Verified by applying the whole migration set in sorted order to a clean Postgres
 functions compile and the table ends with all seven columns) and by applying it to the existing
 local stack (which converges to the same shape). `pnpm verify:realtime` remains 34/34, including
 the clock RPCs now running against the combined table.
+
+## 2026-09-19 — Discover talks through the engine; the model never sees the catalogue
+
+Discover's conversation makes two model calls per turn, and neither can put a film on screen that
+the database did not return. The first (**interpret**) sees the viewer's message and a few lines
+summarising the preference state, never catalogue data. It returns a `Decision`
+(`src/conversation/decision.ts`): genre evidence as `genre.<slug>` with a quote and
+explicit/inferred, a runtime limit and an era as three fixed slots, one acknowledgement and at most
+one question. The decision becomes an ordinary engine turn and must pass `applyTurn`, which
+refuses a quote that is not a literal substring of the message. That rule was not relaxed: when
+the model first failed it, the prompt was fixed (emit only what the new message changes, with three
+worked examples) and the retry now repeats the exact refusal. The second call (**rank**) sees only
+the eligible shortlist and may only reorder it; its ranking must pass `acceptFullRanking`, which
+refuses any id not supplied or ruled out, on the server and again in the browser.
+
+The translation mirrors the chips so a sentence and a chip mean the same thing: an outright refusal
+also excludes the genre, and wanting a refused genre lifts the refusal. Three rules are
+deterministic rather than left to the model, and each is written down in `decisionToTurn`: an
+inference never replaces what the viewer said outright (it is left out, and the engine would refuse
+it anyway); asking for a genre outright retires the genres earlier guessed from a mood, so "a
+comedy" after "something light" narrows comedy/family/romance to comedy; and the question is dropped
+when the turn states anything outright, because a clear request must be answered, not questioned.
+
+When the model ranks, its utility replaces the scorer's; nothing is blended. The scorer's 10%
+position term stays for the deterministic fallback only, because an arbitrary term in the model's
+order would make it unexplainable. The model reads every candidate but scores only its best twelve.
+Asking it to score all 48 made the reply long enough that one of the first live runs timed out at 20
+seconds. Titles it did not score follow, unmarked, in shortlist order. The top three carry a
+one-line reason, shown in the spotlight and in each pick's accessible name.
+
+Honesty rules for the UI: the grid is labelled "Ranked by the assistant" only when the model's
+ranking was made for exactly this shortlist and state and was accepted in the browser. While it is
+in flight the label reads "Ranking with the assistant…" and nothing is marked a top pick. When it
+fails, the label reads "Ranked by genre match" and gives the reason. A shortlist is ranked only once
+it has been loaded for the current filters, so the previous shortlist is never paid for again under
+the new state. The assistant ranks only after the viewer has actually talked to it; chips alone use
+the scorer.
+
+Cost bounds: a token ceiling and a per-attempt timeout inside an overall deadline per call, at most
+one retry (never after a provider timeout), the engine's 12-turn session cap enforced before any
+call, per-instance rate limits and a concurrency cap of 6, a signed-in viewer verified by Supabase
+Auth, and an abort when the client disconnects. Temperature is 0.2.
+

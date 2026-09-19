@@ -1,12 +1,13 @@
 import { isEligible } from "../preferences/eligibility";
-import { acceptRanking } from "../preferences/ranking";
-import type { PreferenceState, RankingEntry } from "../preferences/schema";
+import { acceptFullRanking, acceptRanking } from "../preferences/ranking";
+import { SHORTLIST_SIZE, type PreferenceState, type RankingEntry } from "../preferences/schema";
 import type { CatalogueCandidate } from "./candidates";
 
 /**
  * How much of a title's utility comes from the viewer's genres versus its place in the
  * shortlist. The shortlist arrives ordered by genre overlap, search relevance and popularity,
- * so position is a sensible tie-breaker, but genre affinity dominates.
+ * so position is a sensible tie-breaker, but genre affinity dominates. This applies only to the
+ * deterministic scorer: a model's ranking replaces it whole (see `orderByAssistant`).
  */
 export const AFFINITY_WEIGHT = 0.9;
 export const POSITION_WEIGHT = 1 - AFFINITY_WEIGHT;
@@ -77,4 +78,22 @@ export function rankShortlist(candidates: readonly CatalogueCandidate[], state: 
     .sort((a, b) => b.utility - a.utility || a.position - b.position)
     .flatMap(({ candidateId }) => byId.get(candidateId) ?? []);
   return { picks, ordered: [...picks, ...rest] };
+}
+
+/**
+ * Orders the shortlist by a model's ranking alone. The ranking is untrusted and crosses the
+ * same boundary as the scorer's, so it can only reorder candidates this shortlist holds and the
+ * state allows; one bad id refuses it whole. No position term is blended in: the order on screen
+ * is the model's order, and eligible titles it did not rank follow, unmarked, in shortlist order.
+ */
+export function orderByAssistant(
+  candidates: readonly CatalogueCandidate[],
+  state: PreferenceState,
+  stateVersion: number,
+  ranking: unknown,
+): RankedShortlist {
+  const ranked = acceptFullRanking(candidates, state, stateVersion, ranking);
+  const rankedIds = new Set(ranked.map(({ id }) => id));
+  const unranked = candidates.filter((candidate) => !rankedIds.has(candidate.id) && isEligible(candidate, state));
+  return { picks: ranked.slice(0, SHORTLIST_SIZE), ordered: [...ranked, ...unranked] };
 }

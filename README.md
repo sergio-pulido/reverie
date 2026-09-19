@@ -83,7 +83,7 @@ The deployed application uses React, TypeScript and Vite on **Vercel**, with **S
 | Creative reasoning | Nebius | Planned structured story and catalogue reasoning |
 | Speech | SLNG | Planned transcription and optional speech responses |
 | Generated media | fal.ai | Planned image/video generation and visual transformations |
-| Live media | Vonage Video API | Planned opt-in camera/screen sessions and media controls |
+| Live media | Vonage Video API | Implemented opt-in camera/microphone/screen with a consent register; no video-capable credential supplied yet |
 | Real-title discovery | Titan catalogue | Planned licensed, genuine film/series records |
 | Invites | `qrcode.react` | Host invite panel: link, QR, code, expiry, rotation and revocation |
 
@@ -127,7 +127,13 @@ The HackBarna demo will start with a host-led story, then reveal a QR code so au
 
 ## Status
 
-Implemented: landing page, create/join/studio routes, the TV-first `/discover` route with keyboard traversal and search, the privileged `GET /api/catalogue` adapter, local preview, Supabase-backed room creation, invite-code entitlement, display names, the waiting lobby, host admission and removal, append-only chat and proposals synchronized through Supabase Realtime with presence and reconnect snapshots, plus local and Vercel health handlers. Voting, scene acceptance and generation, and live media remain unimplemented; scene acceptance is deliberately blocked on a versioned transactional contract. No catalogue contract has been supplied, so Discover reports an unconfigured catalogue rather than showing titles. No Supabase project has been migrated from this repository, so the collaborative behaviour is implemented and unit-tested but not yet verified against a live database — run `pnpm verify:realtime` against a configured project to produce that evidence. Hosted deployment also remains pending.
+Implemented: landing page, create/join/studio routes, the TV-first `/discover` route with keyboard traversal and search, the privileged `GET /api/catalogue` adapter, local preview, Supabase-backed room creation, invite-code entitlement, display names, the waiting lobby, host admission and removal, append-only chat and proposals synchronized through Supabase Realtime with presence and reconnect snapshots, plus local and Vercel health handlers. Opt-in live media (camera, microphone, screen) is implemented behind `POST /api/live/token`
+with a consent register that records owner, purpose, expiry and a server-issued asset
+reference, and withdrawing consent stops the track; nothing is recorded, exported or
+transformed. The Vonage credentials in this repository are account-level, not a video-capable
+application, so a session has never been opened from here and the route reports
+`live_not_configured` — see `docs/PROJECT_STATE.md` for the dated probe receipts. Voting,
+scene acceptance and generation remain unimplemented; scene acceptance is deliberately blocked on a versioned transactional contract. No catalogue contract has been supplied, so Discover reports an unconfigured catalogue rather than showing titles. No Supabase project has been migrated from this repository, so the collaborative behaviour is implemented and unit-tested but not yet verified against a live database — run `pnpm verify:realtime` against a configured project to produce that evidence. Hosted deployment also remains pending.
 
 ## Contributing
 

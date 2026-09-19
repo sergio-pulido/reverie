@@ -1,5 +1,48 @@
 # Decisions
 
+## 2026-09-19 — A live token is minted from membership, never requested
+
+The browser asks for a live token with a jam id and its Supabase access token, and nothing
+else; an extra `role` field is rejected rather than ignored. The function resolves identity
+through Supabase Auth, reads the caller's own `jam_members` row with that same token — so it
+is bound by the same RLS as the browser and needs no service-role key — and maps the result
+to a Vonage role. A participant cannot hold a moderator token by asking for one, and cannot
+hold any token while waiting or after removal. The token lasts ten minutes because rejoining
+is cheap and a long-lived credential in a browser is not.
+
+## 2026-09-19 — Consent is a row, and withdrawing it stops the track
+
+A live contribution is permitted only while a `jam_live_consents` row for that owner and that
+track kind is unwithdrawn and unexpired. The row records the declared creative purpose and a
+server-issued `live:<uuid>` asset reference, so anything downstream cites the reference rather
+than the raw feed. A database trigger issues that reference and clamps the lifetime, because a
+reference the browser chose would not be server-issued and an expiry the browser chose would
+not be a limit. Withdrawal is a `security definer` function that can stamp only the caller's
+own row: there is no update or delete policy, so a consent record cannot be rewritten into
+something its owner did not agree to. Expiry and withdrawal are the same answer to every
+consumer, which is why nothing downstream has to know which one happened.
+
+## 2026-09-19 — Live media records nothing by default
+
+Sessions are created with `archiveMode=manual` and the slice contains no archive, broadcast,
+RTMP, caption or transformation call at all. Recording, export and creative transformation are
+separate permissions with their own consent fields and budgets; none of them may be reachable
+as a side effect of a participant turning on a camera. fal.ai is not wired to a live feed here.
+
+## 2026-09-19 — The Vonage credentials in this repository cannot open a video session
+
+Two bounded probes on 2026-09-19 settled which credential shape exists. `POST
+https://api.opentok.com/session/create` with an HS256 project JWT returned 403, and `GET
+https://api.nexmo.com/v2/applications` with the same key and secret returned 200 listing zero
+applications: these are valid Vonage *account* credentials, the configured
+`VONAGE_APPLICATION_ID` is not reachable from that account, and no private key is supplied.
+The adapter supports both documented shapes — an application id with an RS256 private key
+against `video.api.vonage.com`, and a numeric legacy project key with an HS256 secret against
+`api.opentok.com` — and accepts neither an account key nor a half-configured pair. Until a
+video-capable application is supplied, `/api/live/token` answers `live_not_configured` and the
+studio says live media is off. A working stage is not claimed on the strength of code that
+compiles.
+
 ## 2026-09-19 — Script timing is a per-jam format with the 4-minute defaults
 
 The total runtime and portion length band are per-jam parameters (`format`: total 10–900 seconds, portions 4–60 seconds, at most 48 portions) instead of global constants; omitting them keeps the established 4-minute, 10–20 second behaviour. The low floor exists for tiny test jams, and the scriptwriter's completion token budget scales with the expected portion count instead of paying a flat worst case. Hard bounds (±2 seconds) and the total tolerance (~6% of runtime) are derived from the chosen format, so the writer prompt, draft rescaling, and validation stay a single consistent system at any length. Stored scripts validate against a format-agnostic structural schema; strict timing is enforced at generation time against the jam's own format.

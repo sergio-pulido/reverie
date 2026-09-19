@@ -124,6 +124,54 @@
 - Create still generates a script and then persists the room; a room that fails to persist
   now says so instead of letting the script screen imply a shareable room exists.
 
+## 2026-09-19 — Opt-in live media on the Vonage Video API
+
+- Camera, microphone and screen are implemented as opt-in live contributions. `POST
+  /api/live/token` validates the caller's Supabase session, reads that caller's own
+  `jam_members` row under RLS, refuses anyone who is not `active` or whose jam is
+  `completed`/`closed`, derives the Vonage role from the membership (`host → moderator`,
+  member → `publisher`), and returns a 10-minute token. A `role` in the request body is
+  rejected, not ignored; the function holds no service-role key and the browser never sees a
+  Vonage secret.
+- `supabase/migrations/20260919200000_jam_live_media.sql` adds `jam_live_sessions` (one
+  provider session per jam, written only by `ensure_jam_live_session`) and
+  `jam_live_consents`, the register recording owner, track kind, declared purpose, a
+  server-issued `live:<uuid>` asset reference, and an expiry. A trigger issues the reference
+  and clamps the lifetime, so neither is the browser's to choose. There is no update or
+  delete policy: `withdraw_live_consent` is the only retirement path and can stamp only the
+  caller's own row.
+- Withdrawal stops use, not just the record. The owner's client unpublishes and calls
+  `stop()` on the underlying tracks at once, and the row change reaches the room through
+  Postgres Changes. Expiry behaves identically with no call at all, re-evaluated on a timer.
+- Joining the stage publishes nothing. A track starts only while its own consent is
+  effective, a refused browser permission is a stated outcome rather than a silent retry, and
+  leaving, unmounting the studio or ending a screen share from the browser's own bar destroys
+  the publisher and stops its tracks.
+- Nothing is recorded. Sessions are created with `archiveMode=manual`, and no archive,
+  broadcast, RTMP, caption or fal.ai transformation call exists in this slice. Those are
+  separate permissions and are not enabled as a side effect of joining.
+- **The provider cycle is not verified, and the credentials in this repository cannot verify
+  it.** Two bounded probes were run on 2026-09-19. `POST https://api.opentok.com/session/create`
+  with an HS256 project JWT returned 403: the supplied `VONAGE_API_KEY` is an 8-character
+  account key, not a numeric video project key. `GET https://api.nexmo.com/v2/applications`
+  with those same account credentials returned 200 with zero applications, so the configured
+  `VONAGE_APPLICATION_ID` is not reachable from this account and no `VONAGE_PRIVATE_KEY`
+  exists. The adapter therefore refuses both credential shapes and `/api/live/token` answers
+  `live_not_configured`. Supply a video-capable application (id plus private key) and run
+  `pnpm probe:vonage` to produce the session/token receipt.
+- Verified locally: `pnpm typecheck`, `pnpm test` (142 passing, 24 of them covering this
+  slice: role derivation, consent effectiveness and expiry, purpose bounds, device-permission
+  classification, credential-mode selection, HS256 and RS256 token signatures verified
+  against the secret and a generated key pair, lifetime clamping, `archiveMode=manual` on the
+  wire, typed upstream failures that carry no upstream detail, and the route's method,
+  origin, body, authentication and membership refusals), `pnpm build`, and `scripts/smoke.mjs`
+  against a local production preview. The route was exercised over HTTP: `GET` → 405,
+  cross-origin → 403, and the unconfigured POST → `live_not_configured`.
+- **Not verified:** no browser has connected to a Vonage session from this repository, so the
+  client publish/subscribe path, reconnection and the consent-to-track loop are implemented
+  and unit-tested at their pure boundaries but unproven end to end. That needs both a
+  video-capable Vonage application and a migrated Supabase project.
+
 ## Foundation verification
 
 Passed: `pnpm install --frozen-lockfile`, `pnpm typecheck`, `pnpm build`, `git diff --check`; `PORT=4328 pnpm start` with `SMOKE_BASE_URL=http://127.0.0.1:4328 node scripts/smoke.mjs` verified health, three SPA deep links and unknown-API 404. No lint script exists. These are local checks, not a hosted deployment or live database test.
@@ -202,4 +250,6 @@ of them and needs only `SUPABASE_URL` and `SUPABASE_ANON_KEY` against a migrated
    re-probe `/api/catalogue` against it; Discover renders real titles as soon as it validates.
 3. Versioned transactional scene contract: atomic voting, `expectedStateVersion`, idempotent
    `requestId`, and serialized scene acceptance. Generation only after that contract exists.
-4. Vonage opt-in live-media controls and consent metadata; provider adapters after documented probes.
+4. Supply a video-capable Vonage application (`VONAGE_APPLICATION_ID` plus
+   `VONAGE_PRIVATE_KEY`), run `pnpm probe:vonage` for the session/token receipt, then verify
+   the live stage in two browsers against a migrated Supabase project.

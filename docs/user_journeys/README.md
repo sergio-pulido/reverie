@@ -1,42 +1,40 @@
 # User-journey runbooks
 
 These runbooks are the test scripts we hand to an AI agent that controls a real Chrome
-browser through an MCP server. Each file describes one journey a person can take through
-Reverie and states, step by step, what the agent must do and what it must observe. The aim
-is to prove that the behaviour we claim in `README.md`, `docs/PROJECT_STATE.md` and
+browser through an MCP server. Each file describes one end-to-end journey a person can take
+through Reverie and states, step by step, what the agent must do and what it must observe.
+The aim is to prove that the behaviour we claim in `README.md`, `docs/PROJECT_STATE.md` and
 `docs/ARCHITECTURE.md` actually happens in a browser — not only in unit tests.
 
 They deliberately test observable product behaviour, not implementation details. A journey
 passes only when the agent can see the expected result, usually as visible text, a focus
-move, a connection badge, or a network response.
+move, a connection badge, a network response, or a playable clip.
 
 ## Read this first
 
 1. Pick the environment in [Environments](#environments) and start the app.
 2. Read [Agent operating rules](#agent-operating-rules) and
    [Locating elements](#locating-elements). They apply to every journey.
-3. Run the journeys in order. Later journeys assume rooms created by earlier ones, but each
-   file declares its own preconditions so it can also be run alone.
+3. Run the journeys in order. UJ-02 creates the jam that UJ-03 uses, but each file declares
+   its own preconditions so it can also be run alone.
 4. Record evidence and report pass/fail using the [report template](#report-template).
 
 ## What these runbooks cover
 
-| ID | Journey | Surfaces | Needs Supabase | Needs a live provider |
+| ID | Journey | Surfaces | Needs Supabase | Needs live providers |
 | --- | --- | --- | --- | --- |
-| [UJ-01](01-home-and-navigation.md) | Home and navigation | `/`, header, footer | no | no |
-| [UJ-02](02-discover-catalogue.md) | TV-first Discover | `/discover`, `/api/catalogue` | no | no |
-| [UJ-03](03-create-jam-from-scratch.md) | Create a Jam from scratch | `/jams/new`, `POST /api/jams` | yes | yes (Nebius) |
-| [UJ-04](04-create-jam-from-existing-movie.md) | Create a Jam from an existing movie | `/jams/new`, `POST /api/jams` | yes | yes (Nebius) |
-| [UJ-05](05-script-and-playback-session.md) | Script review and per-user playback session | script screen, `/api/sessions` | yes | yes (Nebius) |
-| [UJ-06](06-join-lobby-and-admission.md) | Join with an invite, waiting lobby, admission | `/join`, `/jams/<slug>` | yes | yes (Nebius) |
-| [UJ-07](07-studio-realtime-collaboration.md) | Studio chat, proposals, presence | `/jams/<slug>` | yes | yes (Nebius) |
-| [UJ-08](08-membership-control-and-denied-access.md) | Removal, refusal, and denied access | `/jams/<slug>`, `/join` | yes | yes (Nebius) |
-| [UJ-09](09-local-preview-and-unconfigured-states.md) | Local preview and unconfigured states | `/`, `/join`, `/discover` | no | no |
+| [UJ-01](01-discover-and-navigation.md) | Discover and navigation | `/`, `/discover`, `/join`, `/api/catalogue` | no | no |
+| [UJ-02](02-jam-lifecycle-create-script-video.md) | Jam lifecycle: create, script, video | `/jams/new`, script screen, `/api/jams`, `/api/sessions`, playback routes | yes | yes (Nebius + fal) |
+| [UJ-03](03-live-room-collaboration.md) | Live room: join, collaborate, moderate | `/join`, `/jams/<slug>`, Supabase RPCs and Realtime | yes | yes for the UI create path (or a fixture) |
 
-`Needs a live provider` means the create step calls a paid model. Where a provider is not
-configured the runbook has an explicit expected failure path, and
+`Needs live providers` means the journey calls a paid model. Where a provider is not
+configured each runbook has an explicit expected failure path, and
 [Appendix A](#appendix-a--seed-a-room-without-a-provider-call) documents how to obtain a
 room without spending on generation.
+
+**No playback UI exists yet.** Portion playback and video generation are a server API
+(`docs/API_CONTRACTS.md`), so UJ-02 drives them with `evaluate_script` from the app origin.
+Test them as API behaviour, and report the missing UI as a known gap rather than a failure.
 
 ## Environments
 
@@ -57,8 +55,8 @@ docker compose up --build --wait
 ```
 
 - `.env.compose` holds public, local-only values and is committed. Do not change it.
-- `.env.local` is loaded by the app service. For the create journeys it needs
-  `REVERIE_LIVE_ENABLED=true` and `NEBIUS_API_KEY=...`.
+- `.env.local` is loaded by the app service. For UJ-02 it needs `REVERIE_LIVE_ENABLED=true`
+  and `NEBIUS_API_KEY=...` (for the script) plus `FAL_KEY=...` (for the video).
 - This stack is development-only. It is not Vercel parity, and in-memory script/session/
   playback state resets when the app container restarts.
 - **Checkout note:** `compose.yaml`, `Dockerfile` and `docker/` are part of the current
@@ -69,7 +67,7 @@ docker compose up --build --wait
 
 ```bash
 pnpm install --frozen-lockfile
-# .env.local: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, plus provider keys for create
+# .env.local: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, plus provider keys for UJ-02
 pnpm dev
 # http://127.0.0.1:4317
 ```
@@ -79,17 +77,17 @@ see `docs/SUPABASE_SETUP.md`. Without a hosted project, use environment A.
 
 ### C. `pnpm dev` without Supabase (limited)
 
-Only UJ-01, UJ-02 and UJ-09 can run. Room creation, joining and collaboration are not
-available; the app must say so rather than simulate them.
+Only UJ-01 runs fully. UJ-02 can run its create, script and video steps but not the persisted
+room assertion, and UJ-03 is unavailable. The app must say so rather than simulate a room.
 
 ## Required configuration
 
 | Variable | Where | Needed for |
 | --- | --- | --- |
 | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` | browser/build | rooms, join, collaboration |
-| `REVERIE_LIVE_ENABLED=true` | server | any script generation |
-| `NEBIUS_API_KEY` | server | script generation (UJ-03/04 to succeed) |
-| `FAL_KEY` | server | portion video generation (not covered here) |
+| `REVERIE_LIVE_ENABLED=true` | server | any script or video generation |
+| `NEBIUS_API_KEY` | server | script generation |
+| `FAL_KEY` | server | portion video generation |
 | `TITAN_CATALOGUE_URL`, `TITAN_API_KEY` | server | real Discover titles (not supplied today) |
 
 Never print, copy, commit or put a secret in a URL, a page field, or the report. If you
@@ -126,11 +124,12 @@ the tools act on the selected page.
 - **Do not weaken security to make a step pass.** Do not edit RLS, disable Auth, insert
   membership rows directly, or expose a service key. The journeys exist to catch exactly
   that class of shortcut.
-- **Bound paid calls.** Use the smallest allowed script format, do not retry a failed
-  generation more than twice, and note every provider call you triggered in the report.
+- **Bound paid calls.** Use the smallest allowed script format, generate only the clips the
+  step requires, do not retry a failed generation more than twice, and note every provider
+  call you triggered in the report.
 - **Stay same-origin.** Only drive the app origin and its documented API routes. Do not
   fetch provider URLs the UI never exposes.
-- **Preserve focus semantics.** Keyboard journeys (UJ-02) assert focus location; do not
+- **Preserve focus semantics.** The keyboard steps in UJ-01 assert focus location; do not
   "fix" a step with a mouse click when it specifies a key.
 
 ## Locating elements
@@ -182,28 +181,29 @@ Use stable, obvious values so screenshots are easy to compare:
 | Guest names | `Guest Alpha`, `Guest Beta` |
 | Message | `UJ message <timestamp>` |
 | Proposal | `UJ proposal <timestamp>` |
-| Smallest format | Total length `0.2` min, shortest portion `4` s, longest portion `4` s |
+| Smallest format | Total length `0.2` min, shortest portion `4` s, longest portion `4` s (3 portions) |
 
-The smallest format is intentional: it completes in seconds and bounds provider cost. Do not
-use the default 4-minute format for smoke runs.
+The smallest format is intentional: the script completes in seconds and bounds provider cost
+to three short clips. Do not use the default 4-minute format for smoke runs.
 
 ## Reset and teardown
 
 - Close every page you opened (`close_page`).
 - If you created rooms, note their slugs and invite codes in the report so they can be
   removed. The local stack can be reset with `docker compose down -v` (destroys local data).
-- Do not leave a jam in `live` state with a pending paid generation.
+- Do not leave a jam with a pending paid generation.
 
 ## Appendix A — Seed a room without a provider call
 
-Use this only when you need a room for UJ-06/07/08 but cannot or must not call a provider.
-It is test scaffolding, not product behaviour, and it must be reported as such.
+Use this only when you need a room for UJ-03 but cannot or must not call a provider to create
+one through the UI. It is test scaffolding, not product behaviour, and it must be reported as
+such.
 
 The room has to be owned by the browser's own anonymous session, otherwise the browser is
 not the host and the lobby tools are absent. The reliable way is a two-step fixture:
 
-1. In the browser's isolated host context, open the app origin and sign in anonymously, then
-   insert the room with that session's access token. A minimal page-context fixture:
+1. In the browser's isolated host context, open the app origin, sign in anonymously, then
+   insert the room with that session's access token:
 
    ```js
    // evaluate_script in the host context, after loading the app origin once so the
@@ -243,7 +243,7 @@ not the host and the lobby tools are absent. The reliable way is a two-step fixt
 
 Caveats: the `sb-<ref>-auth-token` key and session shape follow `supabase-js` v2; change them
 if that version changes. For a hosted project replace the host with your project ref. This
-fixture never substitutes for UJ-03 when you are actually verifying script generation.
+fixture never substitutes for UJ-02 when you are actually verifying generation.
 
 ## Report template
 
@@ -251,19 +251,20 @@ fixture never substitutes for UJ-03 when you are actually verifying script gener
 # UJ run — <date> — <environment A|B|C>
 
 - App origin: <url>
-- Configuration present: Supabase <set|missing>, live providers <set|missing>
+- Configuration present: Supabase <set|missing>, Nebius <set|missing>, fal <set|missing>
 - Commit/tree: <sha or branch>
 - Pages/contexts: host=<pageId/context>, guest=<...>, outsider=<...>
 
 | Journey | Steps | Result | Evidence | Notes |
 | --- | --- | --- | --- | --- |
-| UJ-01 | 7/7 | PASS | uj-01-*.png | |
+| UJ-01 | 8/8 | PASS | uj-01-*.png | |
 
 ## Blocked or failed steps
 - UJ-0N step M — expected X, saw Y. Evidence: <file>. Suspected cause: <...>.
 
 ## Providers invoked
 - POST /api/jams (Nebius) — 1 call, 201, <latency>.
+- playback start + N advances (fal) — <N> clips, <latency>, <total bytes>.
 
 ## Rooms created
 - <slug> / code <code> — <removed? on>

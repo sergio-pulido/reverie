@@ -50,13 +50,61 @@
 - README, architecture, stack, contracts, contributor guidance and setup guides now consistently use Supabase as room authority and Realtime transport.
 - Hosted Vercel deployment, Supabase project configuration/migration execution and live provider probes remain unverified. Existing join UI and Studio contributions are still placeholders/local state.
 
+## 2026-09-19 — Invite entitlement, lobby and host admission added
+
+- Every jam carries a server-generated 8-character `invite_code`. The invite, not the room
+  URL, is the entitlement; knowing a slug grants nothing.
+- `request_jam_admission` and `set_jam_member_status` are constrained `security definer`
+  functions. The browser has no insert, update or delete policy on `jam_members`, so a
+  participant cannot admit themselves, promote themselves to host or re-enter after removal.
+- An invite-only jam places a guest in `waiting`; a public jam admits on arrival. The host
+  admits and removes from a lobby panel.
+- A waiting participant reads only their own membership row, an active member reads only the
+  active roster, and only the host can see who is queued for admission. That is a policy on
+  `jam_members`, not a choice about which panel the client renders.
+- Every message these functions raise is marked, and the client shows only marked messages.
+  A native Postgres error naming a table or constraint is replaced by fixed safe text.
+
+## 2026-09-19 — Studio connected to Supabase Realtime
+
+- `jam_messages` and `jam_proposals` are append-only tables readable and writable only by an
+  active member. `author_id` defaults to `auth.uid()` and the insert policy pins it there, so
+  author identity always comes from Auth.
+- Durable updates arrive through Postgres Changes; Presence reports who is connected;
+  Broadcast is not used as authority. Realtime channel `jam:<id>` is private and authorized
+  through `realtime.messages` RLS against active membership.
+- Every successful subscribe reloads the authorized snapshot, so a reconnect closes its gap
+  with durable state instead of replaying events. Rows are deduplicated by id and ordered by
+  `(created_at, id)` so two clients converge.
+- Connection state (`connecting · live · reconnecting · offline · denied`), subscription
+  cleanup and visible typed errors are implemented. A configured Supabase project that fails
+  reports the failure; it never degrades into local state.
+- Scene acceptance and generation are deliberately absent: changing a proposal status needs
+  the versioned transactional contract, and no update policy exists for one.
+
 ## Foundation verification
 
 Passed: `pnpm install --frozen-lockfile`, `pnpm typecheck`, `pnpm build`, `git diff --check`; `PORT=4328 pnpm start` with `SMOKE_BASE_URL=http://127.0.0.1:4328 node scripts/smoke.mjs` verified health, three SPA deep links and unknown-API 404. No lint script exists. These are local checks, not a hosted deployment or live database test.
 
+## Lobby and Realtime verification
+
+Passed locally: `pnpm typecheck`, `pnpm build`, `pnpm test` (37 unit tests over the
+provider-free core plus error mapping: invite-code and display-name normalization,
+merge/dedup ordering, contribution rules, schema rejection, and refusal to forward a native
+Postgres message to a participant), and the smoke run above on port 4331.
+
+**Not verified:** no Supabase project credentials exist in this repository, so neither
+migration has been applied to a database and `scripts/verify-realtime.mjs` has not been
+run. Two-session collaboration, RLS enforcement, Realtime delivery, reconnect recovery and
+removal are therefore specified and implemented but unproven. Run
+`SUPABASE_URL=... SUPABASE_ANON_KEY=... pnpm verify:realtime` against a migrated project to
+produce that evidence.
+
 ## Next milestones
 
-1. Supabase invite entitlement, display names, waiting lobby and host admission/removal with RLS tests.
-2. Persist proposals/chat and synchronize Studio using Supabase Realtime; add presence and atomic voting/scene transitions.
+1. Apply both migrations to a Supabase project and run `pnpm verify:realtime` to turn the
+   lobby and Realtime work from implemented into verified.
+2. Versioned transactional scene contract: atomic voting, `expectedStateVersion`, idempotent
+   `requestId`, and serialized scene acceptance. Generation only after that contract exists.
 3. Separate Titan Discover UI grounded only in verified catalogue records.
 4. Vonage opt-in live-media controls and consent metadata; provider adapters after documented probes.

@@ -1,19 +1,16 @@
+import { jamSchema, type Jam } from "../core/jam";
+import { JamError, toJamError } from "./errors";
+import { ensureUserId } from "./session";
 import { hasSupabaseConfiguration, supabase } from "./supabase";
 
-export type JamVisibility = "public" | "invite_only";
+export type JamVisibility = Jam["visibility"];
 export type JamPersistence = "remote" | "preview";
-
-export type Jam = {
-  id: string;
-  slug: string;
-  title: string;
-  premise: string;
-  visibility: JamVisibility;
-  status: "draft" | "lobby" | "live" | "paused" | "completed" | "closed";
-};
+export type { Jam };
 
 type CreateJamInput = Pick<Jam, "title" | "premise" | "visibility">;
 type CreatedJam = { jam: Jam; persistence: JamPersistence };
+
+const JAM_COLUMNS = "id, slug, title, premise, visibility, status, host_id, invite_code";
 
 function createSlug(title: string) {
   const base = title.toLowerCase().trim()
@@ -23,40 +20,24 @@ function createSlug(title: string) {
   return `${base}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
-async function currentUserId() {
-  if (!supabase) throw new Error("Supabase is not configured.");
-  const { data: sessionData } = await supabase.auth.getSession();
-  if (sessionData.session?.user) return sessionData.session.user.id;
-
-  const { data, error } = await supabase.auth.signInAnonymously();
-  if (error || !data.user) throw new Error(error?.message ?? "Anonymous sign-in could not start.");
-  return data.user.id;
-}
-
 export async function createJam(input: CreateJamInput): Promise<CreatedJam> {
   const slug = createSlug(input.title);
   if (!hasSupabaseConfiguration()) {
-    return { persistence: "preview", jam: { id: `preview-${slug}`, slug, title: input.title, premise: input.premise, visibility: input.visibility, status: "draft" } };
+    return {
+      persistence: "preview",
+      jam: { id: `preview-${slug}`, slug, title: input.title, premise: input.premise, visibility: input.visibility, status: "draft" },
+    };
   }
 
-  const hostId = await currentUserId();
+  const hostId = await ensureUserId("Creating a jam");
   const { data, error } = await supabase!
     .from("jams")
     .insert({ slug, title: input.title, premise: input.premise, visibility: input.visibility, host_id: hostId })
-    .select("id, slug, title, premise, visibility, status")
+    .select(JAM_COLUMNS)
     .single();
 
-  if (error || !data) throw new Error(error?.message ?? "The Jam room could not be created.");
-  return { jam: data as Jam, persistence: "remote" };
-}
-
-export async function getJam(slug: string): Promise<Jam | null> {
-  if (!supabase) return null;
-  const { data, error } = await supabase
-    .from("jams")
-    .select("id, slug, title, premise, visibility, status")
-    .eq("slug", slug)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  return data as Jam | null;
+  if (error) throw toJamError(error, "The Jam room could not be created.");
+  const parsed = jamSchema.safeParse(data);
+  if (!parsed.success) throw new JamError("unavailable", "The Jam room returned an unexpected record.", true);
+  return { jam: parsed.data, persistence: "remote" };
 }

@@ -101,3 +101,15 @@ footer { max-width: 1410px; margin: 0 auto; padding: 24px 48px; border-top: 1px 
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 @media (max-width: 950px) { .setup-layout, .studio-grid { grid-template-columns: 1fr; gap: 35px; } .setup-layout { padding: 48px 24px 66px; } .studio-header, .studio-grid { padding-left: 24px; padding-right: 24px; } .studio-header { align-items: start; flex-direction: column; } }
 @media (max-width: 600px) { .contribution-form { grid-template-columns: 1fr; } .studio-actions, .studio-actions .button { width: 100%; } .queue-card { align-items: start; flex-direction: column; } }
+
+/* Live room: connection state, roster and presence. */
+.connection { padding: 2px 7px; border: 1px solid #526080; border-radius: 3px; color: #c9d4ff; }
+.connection-live { border-color: #5f8f6d; color: #b7e7c4; }
+.connection-reconnecting, .connection-connecting { border-color: #8a7c4a; color: #f0dfa8; }
+.connection-offline, .connection-denied { border-color: #8a4f56; color: #f3bcc1; }
+.roster { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.roster li { display: flex; align-items: center; gap: 10px; color: #edf0fb; font-size: 14px; }
+.roster li .button { margin-left: auto; padding: 5px 10px; font-size: 12px; }
+.roster-dot { flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%; background: #4a5573; }
+.roster-dot.online { background: #9fe6b2; box-shadow: 0 0 12px #6fd08c; }
+.contribution-form textarea:disabled, .contribution-form button:disabled { opacity: .5; cursor: not-allowed; }

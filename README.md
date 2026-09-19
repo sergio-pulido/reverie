@@ -127,7 +127,7 @@ The HackBarna demo will start with a host-led story, then reveal a QR code so au
 
 ## Status
 
-Implemented: landing page, create/join/studio routes, local preview, Supabase-backed room creation and host membership migration, plus local and Vercel health handlers. Admission, shared chat/proposals, presence, voting, Discover catalogue data and live media remain unimplemented. Hosted deployment and live Supabase verification are still pending.
+Implemented: landing page, create/join/studio routes, local preview, Supabase-backed room creation, invite-code entitlement, display names, the waiting lobby, host admission and removal, append-only chat and proposals synchronized through Supabase Realtime with presence and reconnect snapshots, plus local and Vercel health handlers. Voting, scene acceptance and generation, Discover catalogue data and live media remain unimplemented; scene acceptance is deliberately blocked on a versioned transactional contract. No Supabase project has been migrated from this repository, so the collaborative behaviour is implemented and unit-tested but not yet verified against a live database — run `pnpm verify:realtime` against a configured project to produce that evidence. Hosted deployment also remains pending.
 
 ## Contributing
 

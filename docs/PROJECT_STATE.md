@@ -348,6 +348,9 @@ remain unproven until `scripts/verify-realtime.mjs` completes against the migrat
 - It states the one mental model behind them — one authoritative script per jam, many playback
   seats — and repeats the standing gap: a session records and exposes playback parameters only;
   translated or re-ambiented rendering, and per-session generated media, are not implemented.
+- It also records the intended (not implemented) direction: **Open as markdown** becomes the
+  door to an editable script **version**, and the screenplay is revised through a **chat** on
+  this screen, appended as versions rather than overwriting the shared script.
 - Documentation only; no code or runtime behaviour changed.
 
 ## Next milestones

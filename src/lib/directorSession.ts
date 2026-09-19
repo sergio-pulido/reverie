@@ -24,8 +24,18 @@ export class DirectorSessionError extends Error {
 
 export interface OpenedDirectorSession {
   sessionId: string;
+  /**
+   * This viewer's own id on the shared stream, issued by the server.
+   *
+   * A shared stream needs to know how many people are watching, not merely that
+   * someone is: without it, one viewer's keepalive holds the stream open for a
+   * room that has emptied, and the last viewer leaving does not end it.
+   */
+  viewerId: string;
   /** True when this joined a stream that was already running for this configuration. */
   attached: boolean;
+  /** False when this server is not delivering the stream live. */
+  liveDelivery: boolean;
   maxSessionSeconds: number;
   /** False when the server has no object storage: the recording is lost on restart. */
   recordingDurable: boolean;
@@ -96,16 +106,36 @@ export function sendDirection(
   });
 }
 
-export function endDirectorSession(jamId: string, sessionId: string): Promise<void> {
+/**
+ * Stops watching.
+ *
+ * With a viewer id this leaves the shared stream, which ends it only if nobody
+ * else is watching — one person closing a tab must not stop the film for the
+ * room. Without one it ends the session outright, which is what a host's own
+ * stop means.
+ */
+export function endDirectorSession(
+  jamId: string,
+  sessionId: string,
+  viewerId?: string,
+): Promise<void> {
   return call<void>(`/api/jams/${jamId}/director/session/${sessionId}/end`, {
     method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(viewerId ? { viewerId } : {}),
   });
 }
 
 /** Best-effort keepalive; a missed renewal only risks the session being reclaimed. */
-export function renewDirectorSession(jamId: string, sessionId: string): void {
+export function renewDirectorSession(
+  jamId: string,
+  sessionId: string,
+  viewerId?: string,
+): void {
   void fetch(`/api/jams/${jamId}/director/session/${sessionId}/renew`, {
     method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(viewerId ? { viewerId } : {}),
   }).catch(() => undefined);
 }
 
@@ -176,4 +206,15 @@ function waitForIceGathering(connection: RTCPeerConnection): Promise<void> {
     const timer = setTimeout(finish, 5_000);
     connection.addEventListener("icegatheringstatechange", onChange);
   });
+}
+
+/**
+ * The live playlist for a session.
+ *
+ * Everyone watching the same configuration reads this same address, which is
+ * the point: the stream is generated once and delivered to the room over plain
+ * HTTP, so another viewer costs a cache hit rather than a second paid session.
+ */
+export function directorPlaylistSrc(jamId: string, sessionId: string): string {
+  return `/api/jams/${jamId}/director/session/${sessionId}/playlist.m3u8`;
 }

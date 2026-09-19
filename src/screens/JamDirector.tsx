@@ -7,7 +7,9 @@ import {
 import type { DirectorAuditEntry } from "../core/directorAudit";
 import type { DirectorBeatWindow } from "../core/directorBeats";
 import type { SessionSettings } from "../core/session";
+import { attachHlsStream } from "../lib/hlsPlayback";
 import {
+  directorPlaylistSrc,
   directorRecordingSrc,
   DirectorSessionError,
   endDirectorSession,
@@ -50,12 +52,32 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
   const detach = useRef<(() => void) | null>(null);
   const [beats, setBeats] = useState<DirectorBeatWindow | null>(null);
   const [attached, setAttached] = useState(false);
+  const [viewerId, setViewerId] = useState<string | null>(null);
+  const [liveDelivery, setLiveDelivery] = useState(false);
+  const [playbackFailure, setPlaybackFailure] = useState<string | null>(null);
   const live = sessionId !== null;
-  const active = useRef<string | null>(null);
+  const active = useRef<{ sessionId: string; viewerId: string | null } | null>(null);
+  const screen = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
-    active.current = sessionId;
-  }, [sessionId]);
+    active.current = sessionId ? { sessionId, viewerId } : null;
+  }, [sessionId, viewerId]);
+
+  /**
+   * Plays the shared stream.
+   *
+   * The playlist is the same address for everyone watching this configuration,
+   * so a second viewer costs a cache hit rather than a second paid session.
+   */
+  useEffect(() => {
+    const video = screen.current;
+    if (!video || !sessionId || !liveDelivery) return;
+    setPlaybackFailure(null);
+    const attachment = attachHlsStream(video, directorPlaylistSrc(jamId, sessionId), {
+      onFailure: setPlaybackFailure,
+    });
+    return () => attachment.detach();
+  }, [jamId, liveDelivery, sessionId]);
 
   // Polling is the surface until Realtime events land, matching the player.
   useEffect(() => {
@@ -74,19 +96,24 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
     };
     void tick();
     const poll = setInterval(() => void tick(), POLL_MS);
-    const renew = setInterval(() => renewDirectorSession(jamId, sessionId), RENEW_MS);
+    const renew = setInterval(
+      () => renewDirectorSession(jamId, sessionId, viewerId ?? undefined),
+      RENEW_MS,
+    );
     return () => {
       cancelled = true;
       clearInterval(poll);
       clearInterval(renew);
     };
-  }, [jamId, sessionId]);
+  }, [jamId, sessionId, viewerId]);
 
   // Watch it as it is generated rather than waiting for the recording. The
   // browser peers with our server, which is already holding the provider
   // connection, so nothing here talks to fal.
   useEffect(() => {
-    if (!sessionId) return;
+    // The server says which delivery it offers; the relay is the default and
+    // HLS displaces it only where it is switched on.
+    if (!sessionId || liveDelivery) return;
     let cancelled = false;
     void watchDirectorStream(jamId, sessionId, (stream) => {
       if (video.current) video.current.srcObject = stream;
@@ -105,13 +132,19 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
       detach.current = null;
       if (video.current) video.current.srcObject = null;
     };
-  }, [jamId, sessionId]);
+  }, [jamId, liveDelivery, sessionId]);
 
   // A stream left open keeps billing, so it is closed when this unmounts.
+  // A stream left open keeps billing, so this viewer leaves it when this
+  // unmounts — which ends it only if nobody else is still watching.
   useEffect(
     () => () => {
       const open = active.current;
-      if (open) void endDirectorSession(jamId, open).catch(() => undefined);
+      if (open) {
+        void endDirectorSession(jamId, open.sessionId, open.viewerId ?? undefined).catch(
+          () => undefined,
+        );
+      }
     },
     [jamId],
   );
@@ -123,6 +156,8 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
     try {
       const opened = await startDirectorSession(jamId, configuration);
       setSessionId(opened.sessionId);
+      setViewerId(opened.viewerId ?? null);
+      setLiveDelivery(opened.liveDelivery ?? false);
       setState(opened.state);
       setBeats(opened.beats);
       setAttached(opened.attached);
@@ -142,15 +177,16 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
     if (!sessionId) return;
     setBusy(true);
     try {
-      await endDirectorSession(jamId, sessionId);
+      await endDirectorSession(jamId, sessionId, viewerId ?? undefined);
       setRecording(directorRecordingSrc(jamId, sessionId));
     } catch {
       // Ending is idempotent server-side; nothing useful to say here.
     } finally {
       setSessionId(null);
+      setViewerId(null);
       setBusy(false);
     }
-  }, [jamId, sessionId]);
+  }, [jamId, sessionId, viewerId]);
 
   const send = useCallback(async () => {
     const body = direction.trim();
@@ -180,21 +216,37 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
     </div>
 
     <div className="player-frame">
+      {recording ? (
+        <video src={recording} controls playsInline data-testid="jam-director-recording" />
+      ) : null}
+      {!recording && live && liveDelivery ? (
+        <video
+          ref={screen}
+          autoPlay
+          muted
+          playsInline
+          controls
+          data-testid="jam-director-live"
+        />
+      ) : null}
+      {/*
+        * The relay's element is kept mounted rather than conditionally
+        * rendered, because its srcObject is set by an effect that would
+        * otherwise race the element into existence.
+        */}
       <video
         ref={video}
         autoPlay
         playsInline
         muted
-        hidden={!live}
-        data-testid="jam-director-live"
+        hidden={!live || liveDelivery}
+        data-testid="jam-director-relay"
       />
-      {!live && recording && (
-        <video src={recording} controls playsInline data-testid="jam-director-recording" />
-      )}
       {!live && !recording && (
         <p className="player-placeholder">{placeholder(state, live, canDrive)}</p>
       )}
     </div>
+    {playbackFailure ? <Notice tone="alert">{playbackFailure}</Notice> : null}
 
     <p className="form-note" aria-live="polite">{statusLine(state, live, canDrive)}</p>
     {live && beats && <BeatWindow beats={beats} attached={attached} />}

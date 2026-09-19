@@ -67,6 +67,9 @@ export const catalogueTitleSchema = z.object({
   availability: z.array(catalogueAvailabilitySchema).max(12).default([]),
 });
 
+/** An OpenSubtitles language code: ISO 639 with an optional region, e.g. "en", "pt-BR". */
+export const subtitleLanguageCode = z.string().regex(/^[a-z]{2,3}(-[A-Za-z]{2,4})?$/);
+
 /**
  * The full record behind a film's own page. It extends the grid title with the fields only that
  * page shows. Every one is optional: a record that does not state a value simply lacks the key.
@@ -82,6 +85,25 @@ export const catalogueTitleDetailSchema = catalogueTitleSchema.extend({
   spokenLanguages: z.array(z.string().trim().min(1).max(80)).max(40).default([]),
   keywords: z.array(z.string().trim().min(1).max(80)).max(60).default([]),
   imdbId: z.string().regex(/^tt\d{5,10}$/).optional(),
+  /**
+   * Subtitle availability, as metadata only. Absent: never checked. Present with no languages:
+   * checked, none found. Never carries subtitle text.
+   */
+  subtitles: z
+    .object({
+      languages: z.array(subtitleLanguageCode).max(200),
+      count: z.number().int().min(0),
+      checkedAt: z.string().datetime({ offset: true }),
+    })
+    .refine(({ languages, count }) => (languages.length === 0) === (count === 0))
+    .optional(),
+  /** Absent: unknown, which is its own state and never read as "no". */
+  audioDescription: z
+    .object({
+      available: z.boolean(),
+      source: z.string().trim().min(1).max(240),
+    })
+    .optional(),
 });
 
 /** A provider id as it appears in a film's URL: a positive integer, no sign, no leading zero. */

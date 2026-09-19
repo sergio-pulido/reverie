@@ -6,6 +6,7 @@ import {
   filmHeadline,
   formatReleaseDate,
   formatRuntime,
+  formatSubtitles,
   imdbUrl,
   type FilmRecord,
 } from "../src/discover/filmFacts";
@@ -87,4 +88,33 @@ test("the film page renders facts only through these helpers and keeps the TMDB 
   assert.match(page, /\{film && <TmdbAttribution /, "whenever a film is shown");
   assert.match(attribution, /discover-attribution/);
   assert.match(page, /film-actions/, "the page has a place for actions");
+});
+
+const checkedAt = "2026-09-19T19:00:00.000Z";
+
+test("subtitles found are a fact: a few are named, many are counted", () => {
+  const many: FilmRecord = { ...bare, subtitles: { languages: ["ar", "de", "en", "es", "fr", "it", "ja", "ko", "nl", "pl", "pt-BR", "ru", "sv", "tr"], count: 300, checkedAt } };
+  assert.deepEqual(filmFacts(many), [{ label: "Subtitles", value: "14 languages" }]);
+  const few: FilmRecord = { ...bare, subtitles: { languages: ["ea", "en", "fr"], count: 5, checkedAt } };
+  assert.deepEqual(filmFacts(few), [{ label: "Subtitles", value: "Spanish (Latin America), English and French" }]);
+  const one: FilmRecord = { ...bare, subtitles: { languages: ["en"], count: 1, checkedAt } };
+  assert.deepEqual(formatSubtitles(one.subtitles), "English");
+});
+
+test("audio description shows only as a sourced yes", () => {
+  const yes: FilmRecord = { ...bare, audioDescription: { available: true, source: "Audio Description Project directory (adp.acb.org)" } };
+  assert.deepEqual(filmFacts(yes), [{ label: "Audio description", value: "Available" }]);
+});
+
+test("unknown and not-checked render as nothing, never as no", () => {
+  const unchecked: FilmRecord = { ...bare };
+  const checkedNone: FilmRecord = { ...bare, subtitles: { languages: [], count: 0, checkedAt } };
+  const sourcedNo: FilmRecord = { ...bare, audioDescription: { available: false, source: "a source" } };
+  for (const film of [unchecked, checkedNone, sourcedNo]) {
+    assert.deepEqual(filmFacts(film), []);
+  }
+  for (const { value } of filmFacts({ ...full, subtitles: { languages: ["en"], count: 1, checkedAt }, audioDescription: { available: true, source: "s" } })) {
+    assert.equal(PLACEHOLDERS.test(value), false, value);
+    assert.equal(/^no\b|none/i.test(value), false, value);
+  }
 });

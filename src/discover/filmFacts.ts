@@ -64,8 +64,34 @@ export function filmFacts(film: FilmRecord): FilmFact[] {
     ["Audience score", formatScore(film) && [formatScore(film), formatVotes(film.voteCount)].filter(Boolean).join(" · ")],
     ["Original language", languageName(film.originalLanguage)],
     ["Spoken languages", film.spokenLanguages && film.spokenLanguages.length > 0 ? film.spokenLanguages.join(", ") : undefined],
+    ["Subtitles", formatSubtitles(film.subtitles)],
+    // Only a sourced yes is shown. Unknown is not "no", and no source this app reads says no.
+    ["Audio description", film.audioDescription?.available === true ? "Available" : undefined],
   ];
   return facts.filter((fact): fact is [string, string] => typeof fact[1] === "string" && fact[1].length > 0).map(([label, value]) => ({ label, value }));
+}
+
+/** Codes OpenSubtitles uses that are not ISO 639, named the way OpenSubtitles names them. */
+const SUBTITLE_LANGUAGE_NAMES: Record<string, string> = {
+  ea: "Spanish (Latin America)",
+  ze: "Chinese bilingual",
+  me: "Montenegrin",
+};
+
+/** Up to this many subtitle languages are named; more are counted. */
+const SUBTITLE_LANGUAGES_NAMED_MAX = 3;
+
+/**
+ * "English, French and Spanish" or "14 languages". Never checked, and checked with nothing
+ * found, both yield no line: a subtitle index that lacks a film is weak evidence that no
+ * subtitles exist, so the page says only what was found.
+ */
+export function formatSubtitles(subtitles: FilmRecord["subtitles"]) {
+  const languages = subtitles?.languages ?? [];
+  if (languages.length === 0) return undefined;
+  if (languages.length > SUBTITLE_LANGUAGES_NAMED_MAX) return `${languages.length} languages`;
+  const names = languages.map((code) => SUBTITLE_LANGUAGE_NAMES[code] ?? languageName(code) ?? code);
+  return names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
 export function imdbUrl(imdbId: string | undefined) {

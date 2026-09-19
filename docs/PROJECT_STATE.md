@@ -931,6 +931,66 @@ project (it was applied by hand, so no tracking table records it). Each run of
   fake microphone only. The streaming path cannot run on Vercel. The 0.94 s capture on a cold
   browser launch is attributed to the fake device, not proven.
 
+## 2026-09-19 — Subtitle and audio-description availability (slice 11)
+
+Metadata only: no subtitle file or text is fetched, stored, shown or given to a model.
+
+- **Schema.** `supabase/migrations/20260919234000_catalogue_title_accessibility.sql` adds the
+  companion table `catalogue_title_accessibility` (`subtitle_languages text[]`, `subtitle_count`,
+  `subtitle_checked_at`, `subtitle_source`, `has_audio_description boolean`,
+  `audio_description_source`, `audio_description_checked_at`) and extends `get_catalogue_title`
+  with a left join. Null = never checked / unknown, `'{}'` = checked and none found. Check
+  constraints keep each answer whole and sourced. Read-only to `authenticated`. **Not applied yet:
+  Sergio applies it.**
+- **Film page.** The facts list gains "Subtitles" ("14 languages", or up to three named) and
+  "Audio description: Available". Not checked, checked-none, and a sourced no all render nothing.
+- **Backfill.** `pnpm backfill:accessibility subtitles | audio-description | sql`
+  (`apps/backfill/`). Offline, resumable through JSONL ledgers in the ignored `.backfill/`, and it
+  logs each skip with its reason. It holds no write credential: `sql` emits one upsert file for the
+  database owner to apply. A test fails if `api/`, `src/` or `apps/server/` imports it.
+
+### What was checked, and what the sources actually returned
+
+- **Catalogue join key.** Read as an anonymous viewer: 27,839 titles, 27,796 with a usable
+  `imdb_id`, 43 without. Those 43 can never be checked and keep no row.
+- **OpenSubtitles.** The docs (opensubtitles.stoplight.io: Getting started, Best practices, Search
+  for subtitles, Search for features, API subscription prices, Subtitle exports) say: an
+  `Api-Key` and a named `User-Agent` on every request. 5 requests per second per IP, 40 per 10
+  seconds on `/features`. Search is unlimited, and only `/download` has a quota (5 per IP per
+  24 h without a user; free search results are cached 24 h). The client builds no URL except
+  `/features?imdb_id=N`, paced 400 ms apart. Unauthenticated probes returned `401 No API KEY in
+  request` for `/features`, and `403 You cannot consume this service` for an uncached
+  `/subtitles`. The Matrix `/subtitles` answer arrived only as a Cloudflare cache hit: 839
+  subtitles, 17 pages. That is why `/features` (one request, with per-language
+  `subtitles_counts`) is used instead. The opensubtitles.com terms page sits behind a bot check
+  and was **not read**. **No OpenSubtitles backfill has run: there is no `OPENSUBTITLES_API_KEY`.**
+  The `/features` parsing follows the documented response and is unit-tested. It has not been seen
+  against a live authenticated response yet.
+- **Audio Description Project.** There is no API or export. `adp.acb.org/adp-search` is a public
+  HTML table (robots.txt does not exclude it), 50 rows a page, with an IMDb link and providers per
+  row. The full "Movies Only" crawl ran on 2026-09-19: 202 of 202 pages, 8,156 distinct IMDb ids,
+  one page every 3 s. Joined to the catalogue, that gives **4,304 sourced yeses of 27,839 films**,
+  59 of the 100 most popular. Spot checks: Inception, The Matrix, Birdman, War of the Worlds and
+  Zombieland are listed (Apple TV Store, Prime Video, HBO Max, and others). Parasite and Spirited
+  Away are not listed, so they stay unknown. The source never yields a no, so nothing is written as
+  `false`.
+- **Verified against a throwaway local Postgres 17** (stub roles plus the real catalogue ids, not
+  the hosted project): the migration applies and reapplies. The generated file (4,304 upserts)
+  applies and reapplies idempotently. `get_catalogue_title` returns the film's own row with the
+  three states distinct. Half-answers, bad codes, contradictory counts, an unsourced AD value,
+  writes by `authenticated`, and calls by `anon` are all refused. This check caught a real bug
+  before hand-off: an unqualified `title_id` parameter was shadowed by the joined column and
+  returned an arbitrary film. It is now `get_catalogue_title.title_id`, with a test.
+- `pnpm test`, `pnpm typecheck` and `pnpm build` pass.
+
+Still to do for "done": (1) apply the migration; (2) apply
+`.backfill/accessibility/accessibility-upserts.sql` as the database owner (psql, or the SQL
+editor); (3) create an OpenSubtitles API consumer, set `OPENSUBTITLES_API_KEY`, run
+`pnpm backfill:accessibility subtitles --limit 50`, check the ledger, then run it in full (about
+3 h at 2.5 req/s) and re-emit and apply the SQL; (4) open a sample of film pages to see the
+facts. The ADP directory is newest-first, so re-crawl it by deleting `adp-pages.jsonl`. Pages
+shift while it grows.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

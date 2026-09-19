@@ -3,6 +3,8 @@ dist/
 .env.local
 .DS_Store
 coverage/
+# Offline backfill ledgers and generated SQL (apps/backfill).
+.backfill/
 secret/
 .vercel/
 .env

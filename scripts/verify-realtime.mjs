@@ -324,6 +324,16 @@ await check("repeated wrong codes are throttled before a private room can be enu
   assert.ok(throttledAt !== null, "an unlimited number of invite guesses was allowed");
   console.log(`      throttled after ${throttledAt} failed lookups`);
 
+  // The throttle is keyed on auth.uid() and identities here are anonymous, so a fresh
+  // session resets it. This asserts that limit rather than hiding it: the barrier against
+  // enumeration is the code's entropy plus Supabase Auth's anonymous sign-in limits.
+  const reborn = await newSession("prober-reborn");
+  const afterReset = await reborn.client.rpc("request_jam_admission", { p_invite_code: "ZZZZZZZZ", p_display_name: "Prober" });
+  assert.ok(afterReset.error, "a guessed code was accepted");
+  assert.equal(/too many invite attempts/.test(afterReset.error.message), false,
+    "unexpected: the throttle survived a new anonymous identity, so this note is stale");
+  await reborn.client.auth.signOut();
+
   // The throttle must not leak into the real invite either.
   const blocked = await prober.client.rpc("request_jam_admission", { p_invite_code: jam.invite_code, p_display_name: "Prober" });
   assert.ok(blocked.error, "a throttled session still exchanged a valid invite");

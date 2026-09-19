@@ -157,11 +157,17 @@ A refused invite reports exactly what an unknown code reports. If "this invite e
 ## 2026-09-19 — Failed invite lookups are throttled, not only made improbable
 
 Eight characters of a 31-symbol alphabet is roughly 39 bits, which is not guessable from a
-browser. That is an argument about cost, not about permission. `jam_admission_attempts`
+browser. That is an argument about cost, not about permission, so `jam_admission_attempts`
 counts failed lookups per authenticated user over a rolling 10-minute window and refuses
-after ten, so enumeration of private rooms is refused rather than merely expensive. The
-table has RLS enabled and no policies at all: the only things that reach it are the
-`security definer` functions.
+after ten. The table has RLS enabled and no policies at all, and neither helper is granted
+to `authenticated`, so nobody can read it or drive another user's count up into a lockout.
+
+Its limit is worth writing down rather than discovering later. The counter is keyed on
+`auth.uid()`, and this product signs people in anonymously, so a determined attacker mints a
+new identity and starts a new window. The throttle ends casual scripted probing from one
+session; the entropy of the code is still the real barrier, and Supabase Auth's own limits
+on anonymous sign-in are the backstop that has to be configured before a public audience.
+Claiming the throttle alone makes enumeration impossible would be false.
 
 ## 2026-09-19 — A waiting participant polls, because it cannot subscribe
 

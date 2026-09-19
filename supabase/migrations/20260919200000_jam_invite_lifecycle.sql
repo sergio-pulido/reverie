@@ -14,6 +14,11 @@ alter table public.jams
 -- A table-level grant cannot be partially revoked, so the table grant is dropped and
 -- re-issued per column, excluding the three invite columns. The security definer
 -- functions below run as owner and are unaffected.
+--
+-- MAINTENANCE: a later `grant select on public.jams to authenticated` — the table-level
+-- form, without a column list — silently re-exposes the invite to every member. Column
+-- privileges are additive on top of the revoke, so nothing here would fail loudly.
+-- scripts/verify-realtime.mjs asserts the column is unreadable; keep that check.
 
 do $$
 declare
@@ -52,7 +57,14 @@ as $$
 $$;
 
 -- 4. Throttle on failed invite lookups -----------------------------------------
--- RLS is on and there is no policy: only the security definer functions below reach it.
+-- RLS is on and there is no policy: only the security definer functions below reach it,
+-- and neither is granted to authenticated, so no caller can inflate another user's count.
+--
+-- Scope, stated honestly: this is keyed on auth.uid(), and the product uses anonymous
+-- sign-in, so an attacker can mint a fresh identity to reset the window. It raises the
+-- cost of scripted probing from one session; it is not the barrier. The barrier is the
+-- code's ~39 bits plus Supabase Auth's own limits on anonymous sign-in, which must be
+-- configured before a public audience (see docs/SUPABASE_SETUP.md).
 
 create table if not exists public.jam_admission_attempts (
   user_id uuid primary key references auth.users(id) on delete cascade,
@@ -140,8 +152,11 @@ begin
     raise exception 'jam: invite not found' using errcode = 'P0002';
   end if;
 
-  -- A revoked or lapsed invite reports the same thing an unknown code does. A probe
-  -- cannot learn that a private room exists by watching the message change.
+  -- A revoked or lapsed invite reports the same thing an unknown code does, and counts
+  -- against the throttle, so a probe cannot learn that a private room exists at a code by
+  -- watching the message change. The 'no longer open' branch below is deliberately
+  -- distinguishable, but it is only reachable by someone already holding a live invite for
+  -- that room, so it tells them nothing they were not already entitled to know.
   if v_jam.host_id <> v_uid
      and public.jam_invite_state(v_jam.invite_expires_at, v_jam.invite_revoked_at) <> 'active' then
     perform public.record_failed_admission(v_uid);

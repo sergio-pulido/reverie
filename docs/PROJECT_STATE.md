@@ -159,9 +159,11 @@ produce that evidence.
   `authenticated`, for `select` and `update` alike. An admitted member can read the room
   but not its entitlement, and a host cannot hand-write a predictable code. RLS could not
   express this: it answers which rows, not which columns of a row.
-- A revoked or expired invite is refused with the same message an unknown code gets, and
-  `jam_admission_attempts` throttles failed lookups to ten per user per ten minutes, so
-  enumerating private rooms is refused rather than merely expensive.
+- A revoked or expired invite is refused with the same message an unknown code gets and
+  counts against a throttle: `jam_admission_attempts` allows ten failed lookups per user per
+  ten minutes. Because identities are anonymous, that throttle ends scripted probing from one
+  session rather than making enumeration impossible; the code's ~39 bits and Supabase Auth's
+  anonymous sign-in limits remain the real barrier, and the latter is still unconfigured.
 - The host has an invite panel: the link, a QR of that same URL rendered with
   `qrcode.react`, the code in large type to read aloud, the current lifecycle state, and
   rotate/revoke controls. The panel never decides access; it renders what the database says.

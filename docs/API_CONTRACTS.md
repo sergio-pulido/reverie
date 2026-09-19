@@ -32,8 +32,11 @@ refreshed and the status is left alone, so a second submit never resets a pendin
 or re-admits a removed participant.
 
 `state` is `active`, `expired` or `revoked`. A revoked or expired invite is refused with the
-same `P0002` message an unknown code gets, so a probe cannot tell a lapsed invite from a
-code that never existed. `p_expires_in_minutes` is `null` for an invite that does not expire.
+same `P0002` message an unknown code gets, and counts against the throttle, so a probe cannot
+tell a lapsed invite from a code that never existed. The `completed`/`closed` refusal is
+distinguishable on purpose; it is reachable only by a caller already holding a live invite
+for that room. The throttle is keyed on `auth.uid()` and identities are anonymous, so it
+bounds probing from one session rather than making enumeration impossible. `p_expires_in_minutes` is `null` for an invite that does not expire.
 
 ### Implemented table access
 

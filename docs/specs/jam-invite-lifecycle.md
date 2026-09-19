@@ -48,10 +48,15 @@ functions above, which run as owner.
 ### Failed invite lookups are throttled per user
 
 `public.jam_admission_attempts` counts failed lookups per authenticated user in a rolling
-10-minute window and refuses after 10. Eight characters of a 31-symbol alphabet is about
-39 bits, which is not guessable in a browser, but the throttle removes online enumeration
-of private rooms as a strategy rather than relying on entropy alone. The table has RLS on
-and **no policies**: only the `security definer` functions reach it.
+10-minute window and refuses after 10. The table has RLS on and **no policies**, and
+neither helper function is granted to `authenticated`, so no caller can query it or inflate
+someone else's count into a lockout.
+
+What it is worth, stated honestly: the key is `auth.uid()`, and this product signs people in
+anonymously, so an attacker can mint a fresh identity and reset the window. The throttle
+raises the cost of scripted probing from a single session; it is not the barrier. The
+barrier is the code's ~39 bits of entropy, backed by Supabase Auth's own limits on anonymous
+sign-in, which must be configured before a public audience.
 
 ### A waiting participant polls their own membership row
 

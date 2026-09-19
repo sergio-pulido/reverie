@@ -22,6 +22,7 @@ if (!url || !anonKey) {
 }
 
 const REALTIME_TIMEOUT_MS = 12_000;
+const SUBSCRIBE_TIMEOUT_MS = 10_000;
 const results = [];
 
 function check(name, run) {
@@ -56,28 +57,69 @@ async function newSession(label) {
   return { label, client, userId: data.user.id };
 }
 
-function waitForMessage(session, jamId, predicate) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
+/**
+ * Subscribe to INSERTs on one jam-scoped table.
+ *
+ * Returns `ready`, which settles only when the server has acknowledged the subscription
+ * (status SUBSCRIBED), and `delivered`, which settles on the first matching row. Callers
+ * must await `ready` before writing the row they expect to receive: a fixed sleep is a race,
+ * and losing it makes the write land before the channel exists, so the row is never
+ * delivered and the test fails for a reason that has nothing to do with the product.
+ */
+function subscribeForInsert(session, jamId, table, predicate) {
+  let settle;
+  let fail;
+  const ready = new Promise((resolve, reject) => { settle = resolve; fail = reject; });
+
+  let channel;
+  let settled = false;
+  const finish = (fn, value) => { if (settled) return; settled = true; fn(value); };
+
+  const delivered = new Promise((resolve, reject) => {
+    const deliveryTimer = setTimeout(() => {
       void session.client.removeChannel(channel);
-      reject(new Error("no realtime delivery within the timeout"));
+      finish(reject, new Error(`no realtime delivery of ${table} within ${REALTIME_TIMEOUT_MS}ms`));
     }, REALTIME_TIMEOUT_MS);
 
-    const channel = session.client
-      .channel(`jam:${jamId}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "jam_messages", filter: `jam_id=eq.${jamId}` }, ({ new: row }) => {
+    const subscribeTimer = setTimeout(() => {
+      fail(new Error(`channel for ${table} never reached SUBSCRIBED within ${SUBSCRIBE_TIMEOUT_MS}ms`));
+    }, SUBSCRIBE_TIMEOUT_MS);
+
+    channel = session.client
+      // A unique topic per subscription: two checks reusing one topic on the same client
+      // would otherwise share a channel and one would silently observe the other's filter.
+      .channel(`jam:${jamId}:${table}:${Math.random().toString(36).slice(2)}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table, filter: `jam_id=eq.${jamId}` }, ({ new: row }) => {
         if (!predicate(row)) return;
-        clearTimeout(timer);
+        clearTimeout(deliveryTimer);
+        clearTimeout(subscribeTimer);
         void session.client.removeChannel(channel);
-        resolve(row);
+        finish(resolve, row);
       })
       .subscribe((status, error) => {
+        if (status === "SUBSCRIBED") {
+          clearTimeout(subscribeTimer);
+          settle();
+          return;
+        }
+        // CLOSED is not a failure signal here: this client emits it routinely around
+        // subscription and teardown, including on runs where the row is delivered fine.
+        // Only a real channel fault counts; a channel that never subscribes is caught by
+        // SUBSCRIBE_TIMEOUT_MS and a row that never arrives by REALTIME_TIMEOUT_MS.
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-          clearTimeout(timer);
-          reject(new Error(`channel ${status}: ${error?.message ?? "no detail"}`));
+          if (settled) return;
+          clearTimeout(deliveryTimer);
+          clearTimeout(subscribeTimer);
+          const failure = new Error(`channel ${status} for ${table}: ${error?.message ?? "no detail"}`);
+          fail(failure);
+          finish(reject, failure);
         }
       });
   });
+
+  // Nothing awaits `ready` on the failure path before `delivered` rejects; keep Node quiet.
+  ready.catch(() => {});
+  return { ready, delivered };
 }
 
 const host = await newSession("host");
@@ -178,8 +220,8 @@ await check("the host admits the guest", async () => {
 
 await check("an admitted guest receives the host's message over Realtime", async () => {
   const body = `host line ${Date.now()}`;
-  const delivered = waitForMessage(guest, jam.id, (row) => row.body === body);
-  await new Promise((resolve) => setTimeout(resolve, 1_000));
+  const { ready, delivered } = subscribeForInsert(guest, jam.id, "jam_messages", (row) => row.body === body);
+  await ready;
   const { error } = await host.client.from("jam_messages").insert({ jam_id: jam.id, body });
   assert.equal(error, null, error?.message);
   const row = await delivered;
@@ -200,19 +242,8 @@ await check("only the host can see who is waiting in the lobby", async () => {
 
 await check("a proposal from the guest reaches the host over Realtime", async () => {
   const body = `guest proposal ${Date.now()}`;
-  const delivered = new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("no realtime delivery within the timeout")), REALTIME_TIMEOUT_MS);
-    const channel = host.client
-      .channel(`jam:${jam.id}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "jam_proposals", filter: `jam_id=eq.${jam.id}` }, ({ new: row }) => {
-        if (row.body !== body) return;
-        clearTimeout(timer);
-        void host.client.removeChannel(channel);
-        resolve(row);
-      })
-      .subscribe();
-  });
-  await new Promise((resolve) => setTimeout(resolve, 1_000));
+  const { ready, delivered } = subscribeForInsert(host, jam.id, "jam_proposals", (row) => row.body === body);
+  await ready;
   const { error } = await guest.client.from("jam_proposals").insert({ jam_id: jam.id, body });
   assert.equal(error, null, error?.message);
   const row = await delivered;

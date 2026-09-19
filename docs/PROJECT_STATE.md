@@ -257,15 +257,37 @@ remain unproven until `scripts/verify-realtime.mjs` completes against the migrat
   failed invite attempts commit their throttle counter instead of being rolled back with an
   exception.
 
+## 2026-09-19 — Live-project verification: 27/27
+
+- Before the rerun, one anonymous RPC call showed the hosted database still ran the old
+  `request_jam_admission`: `request_jam_admission('ZZZZZZZZ', 'Probe')` returned
+  `data: null` with `P0002 jam: invite not found`. The raised exception rolled back the
+  `record_failed_admission` write in the same transaction, so the throttle never counted.
+- `20260919213000_persist_admission_throttle.sql` was then applied by hand in the Supabase SQL
+  Editor (the repo has no CLI link or service-role key). The same probe now returns
+  `{ status: "error", code: "invite_not_found" }` with no error.
+- `scripts/verify-realtime.mjs` now awaits the channel's `SUBSCRIBED` acknowledgement before
+  writing the row it expects over Realtime, instead of sleeping one second.
+
+### Verification
+
+Passed against the hosted project: `pnpm verify:realtime` 27/27, including the throttle, which
+trips after 11 failed lookups (limit: ten failures per user per ten minutes). Also passed:
+`pnpm probe:vonage` (session create, publisher token, token bound to the session), `pnpm test`
+(143/143), `pnpm typecheck`, `pnpm build`.
+
+**Not verified:** the live stage in two real browsers; the throttle across the window reset
+(the check proves the lockout, not the ten-minute expiry); migration history on the hosted
+project (it was applied by hand, so no tracking table records it). Each run of
+`verify-realtime` leaves a `verify-room-*` jam behind, and it has to be deleted by hand.
+
 ## Next milestones
 
-1. Apply every migration in `supabase/migrations` to a Supabase project and run
-   `pnpm verify:realtime` to turn the lobby, invite lifecycle and Realtime work from
-   implemented into verified. This is the single blocking gap in the collaboration slice.
+1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.
+   Next, adopt a Supabase CLI link so future migrations get applied and tracked, not pasted.
 2. Supply an authorized catalogue contract (`TITAN_CATALOGUE_URL` plus a credential) and
    re-probe `/api/catalogue` against it; Discover renders real titles as soon as it validates.
 3. Versioned transactional scene contract: atomic voting, `expectedStateVersion`, idempotent
    `requestId`, and serialized scene acceptance. Generation only after that contract exists.
-4. Supply a video-capable Vonage application (`VONAGE_APPLICATION_ID` plus
-   `VONAGE_PRIVATE_KEY`), run `pnpm probe:vonage` for the session/token receipt, then verify
-   the live stage in two browsers against a migrated Supabase project.
+4. `pnpm probe:vonage` passes with the application credentials; next, verify the live stage in
+   two browsers against the migrated Supabase project.

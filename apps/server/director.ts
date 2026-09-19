@@ -10,6 +10,13 @@ import {
   resolveDirectorRecordingStore,
   type DirectorRecordingStore,
 } from "./directorRecordings";
+import {
+  resolveDirectorIndexStore,
+  type DirectorIndexStore,
+} from "./directorIndex";
+import { DirectorArchiveSink, type ArchiveContainer } from "./directorArchive";
+import { DirectorPieceRecorder } from "./directorPieces";
+import type { DirectorSegmentSink } from "./directorSegmentSink";
 import { DirectorStream, type DirectorPeer } from "./directorStream";
 import { attachViewer, type ViewerPeer } from "./directorViewers";
 import {
@@ -101,13 +108,30 @@ export class DirectorStreamRegistry {
     }
     return boundary;
   }
+
+  hasOpenStreamForJam(jamId: string): boolean {
+    for (const stream of this.bySession.values()) {
+      if (stream.jamId === jamId) return true;
+    }
+    return false;
+  }
 }
 
 export interface DirectorRouterOptions {
   config?: DirectorConfig | null;
   limits?: DirectorSessionLimits;
   recordings?: DirectorRecordingStore;
+  index?: DirectorIndexStore;
   registry?: DirectorStreamRegistry;
+  /**
+   * Sinks that receive a session's pieces as they are muxed. Per session,
+   * because a sink needs to know which jam and session it is storing. When
+   * omitted, a recording server archives every session; a server not
+   * configured to record stores nothing and says so.
+   */
+  createSegmentSinks?: (session: { jamId: string; sessionId: string }) => DirectorSegmentSink[];
+  /** Seconds of film per stored piece; the muxer rounds up to a keyframe. */
+  targetPieceSeconds?: number;
   startSession?: typeof startDirectorSession;
   /** Injected in tests so routes do not open real peer connections. */
   createPeer?: () => DirectorPeer;
@@ -124,6 +148,7 @@ export function createDirectorRouter(
   const limits = options.limits ?? resolveDirectorLimits(process.env);
   const ledger = new DirectorSessionLedger(limits, options.now);
   const recordings = options.recordings ?? resolveDirectorRecordingStore();
+  const index = options.index ?? resolveDirectorIndexStore();
   const streams = options.registry ?? new DirectorStreamRegistry();
   /** Viewer peers, closed when the server tears down a session. */
   /**
@@ -131,12 +156,56 @@ export function createDirectorRouter(
    * down another session's audience.
    */
   const viewers = new Map<string, Set<ViewerPeer>>();
+  /** The piece recorder per session, stopped with the session. */
+  const recorders = new Map<string, DirectorPieceRecorder>();
+
+  /**
+   * The archive is the default sink for the WebM muxer. H.264 is refused by
+   * that muxer until the fMP4 implementation is selected upstream, so bytes
+   * emitted here are always WebM and must never be labelled as MP4.
+   */
+  function defaultSinks(session: { jamId: string; sessionId: string }): DirectorSegmentSink[] {
+    let sink: DirectorArchiveSink | null = null;
+    const forContainer = (_codec: string): DirectorArchiveSink => {
+      const container: ArchiveContainer = "webm";
+      sink ??= new DirectorArchiveSink({ ...session, recordings, index, container });
+      return sink;
+    };
+    return [
+      {
+        init: (bytes, codec) => forContainer(codec).init(bytes, codec),
+        segment: (i, bytes, start, duration) =>
+          sink?.segment(i, bytes, start, duration),
+        finish: () => sink?.finish(),
+      },
+    ];
+  }
 
   /**
    * Ends a session and everything hanging off it.
    *
    * Shared by the teardown route and by the last viewer leaving, so a session
    * stops the same way whichever reason it stops for.
+   */
+  /**
+   * Tears a session down and ends the room it belonged to.
+   *
+   * The lifecycle transition lives in the teardown rather than in the end
+   * route, because a session also stops when its last viewer leaves. A room
+   * stopped that way would otherwise read `playing` for ever with nothing
+   * streaming.
+   *
+   * INVARIANT, if this function is ever split: the transition must sit on the
+   * path that EVERY stop reaches, not on the one the end route happens to
+   * call. A ledger that reclaims abandoned sessions on its own, for instance,
+   * would bypass a settle-and-teardown wrapper and reach only the inner
+   * teardown — and a room whose viewers all went silent would be left reading
+   * `playing`. Resolve the jam from the stream or the ledger, not from any
+   * map the teardown itself clears, or the reclaim path will have nothing
+   * left to resolve it from.
+   *
+   * Only a room that actually held this stream is ended, so a teardown for an
+   * unknown session id cannot end a room that is still playing.
    */
   async function endSession(sessionId: string): Promise<void> {
     const stream = streams.get(sessionId);
@@ -145,6 +214,18 @@ export function createDirectorRouter(
     for (const viewer of viewers.get(sessionId) ?? []) viewer.close();
     viewers.delete(sessionId);
     await stream?.stop();
+    const recorder = recorders.get(sessionId);
+    recorders.delete(sessionId);
+    // Bounded inside: the tail of the film is worth a moment, the route that
+    // settles the paid session is worth more.
+    await recorder?.stop().catch(() => undefined);
+    if (!stream) return;
+    await index.closeSession(sessionId).catch(() => undefined);
+    // A room may have one paid stream per configuration. It ends when its last
+    // stream ends, not when any one language/configuration stops.
+    if (!streams.hasOpenStreamForJam(stream.jamId)) {
+      await store.advanceLifecycle(stream.jamId, "stop").catch(() => undefined);
+    }
   }
   let resolved = false;
   let config: DirectorConfig | null = options.config ?? null;
@@ -166,6 +247,20 @@ export function createDirectorRouter(
       sendError(response, 404, "not_found", "This jam does not exist on this server.", false);
       return;
     }
+    // A finished room does not stream again: its recording is the artifact, and
+    // a second session would leave two different films behind one room URL.
+    // Checked before the ledger is charged, so a refused start costs nothing.
+    if (jam.lifecycle === "ended") {
+      sendError(
+        response,
+        409,
+        "jam_ended",
+        "This jam has ended. Its recording is what remains of it.",
+        false,
+      );
+      return;
+    }
+
     const active = requireConfig();
     if (!active) {
       sendError(
@@ -198,7 +293,9 @@ export function createDirectorRouter(
           sessionId: existing.sessionId,
           attached: true,
           maxSessionSeconds: limits.maxSessionSeconds,
-          recordingDurable: recordings.durable,
+          recordingDurable: recordings.durable && index.durable,
+          // Attaching does not move the room; it reports where it already is.
+          lifecycle: jam.lifecycle,
           state: open.snapshot,
           beats: open.beats,
         });
@@ -215,14 +312,35 @@ export function createDirectorRouter(
       return;
     }
 
+    // The reproduction record opens with the session, not at the end of it:
+    // the audit rows reference it, and a session that dies mid-stream must
+    // still have somewhere for what it managed to record.
+    const revision = await store.getCurrentScriptRevision(jam.id).catch(() => null);
+    try {
+      await index.openSession({
+        id: session.sessionId,
+        jamId: jam.id,
+        configurationKey: configurationKey(configuration),
+        scriptRevision: revision?.revision ?? null,
+      });
+    } catch {
+      // A stream that cannot be indexed is still a stream the room asked for.
+      // It runs, and the API reports the archive as not durable.
+    }
+
     const stream = new DirectorStream({
       jamId: jam.id,
       sessionId: session.sessionId,
       config: active,
       script: jam.script,
-      sink: recordings,
       startSession: options.startSession,
       createPeer: options.createPeer,
+      // Fire-and-forget: a durable audit write that fails or hangs must not
+      // stall the stream it is describing, and the in-memory trail the live
+      // session reads is unaffected either way.
+      onAudit: (entry) => {
+        void index.recordAudit(session.sessionId, entry).catch(() => undefined);
+      },
     });
     try {
       await stream.open();
@@ -237,11 +355,31 @@ export function createDirectorRouter(
       throw error;
     }
     streams.set(session.sessionId, stream);
+    // Storage is opt-in (REVERIE_DIRECTOR_RECORD) and runs off this thread: the
+    // recorder's only work here is to hand packets to its worker. A server
+    // that does not record still directs, audits and relays.
+    if (active.record) {
+      const sinks = (options.createSegmentSinks ?? defaultSinks)({
+        jamId: jam.id,
+        sessionId: session.sessionId,
+      });
+      const recorder = new DirectorPieceRecorder({
+        sinks,
+        targetPieceSeconds: options.targetPieceSeconds,
+      });
+      recorders.set(session.sessionId, recorder);
+      stream.onTrackAvailable((track) => recorder.addTrack(track));
+    }
+    // The room is now playing. Recorded after the handshake succeeded, so a
+    // stream fal refused leaves the room live rather than stuck in a state it
+    // never reached.
+    const started = await store.advanceLifecycle(jam.id, "start");
     response.status(201).json({
       sessionId: session.sessionId,
       attached: false,
       maxSessionSeconds: limits.maxSessionSeconds,
-      recordingDurable: recordings.durable,
+      recordingDurable: recordings.durable && index.durable,
+      lifecycle: started.lifecycle,
       state: stream.snapshot,
       beats: stream.beats,
     });
@@ -256,7 +394,7 @@ export function createDirectorRouter(
    */
   router.post("/api/jams/:id/director/session/:sessionId/direct", (request, response) => {
     const stream = streams.get(request.params.sessionId);
-    if (!stream) {
+    if (!stream || stream.jamId !== request.params.id) {
       sendError(response, 404, "not_found", "That director session is not open.", false);
       return;
     }
@@ -303,7 +441,7 @@ export function createDirectorRouter(
   /** State and audit trail for an open session. */
   router.get("/api/jams/:id/director/session/:sessionId", (request, response) => {
     const stream = streams.get(request.params.sessionId);
-    if (!stream) {
+    if (!stream || stream.jamId !== request.params.id) {
       sendError(response, 404, "not_found", "That director session is not open.", false);
       return;
     }
@@ -325,7 +463,29 @@ export function createDirectorRouter(
    */
   router.post("/api/jams/:id/director/session/:sessionId/watch", async (request, response) => {
     const stream = streams.get(request.params.sessionId);
+    if (stream && stream.jamId !== request.params.id) {
+      sendError(response, 404, "not_found", "That director session is not open.", false);
+      return;
+    }
     if (!stream) {
+      // A room that has ended is not a missing one. The room exists and so
+      // does its recording; only the live stream is gone, and saying so with
+      // a pointer is more useful than "no such thing". Any route that serves
+      // a LIVE stream answers an ended room this way.
+      const jam = await store.getJam(request.params.id);
+      if (jam?.lifecycle === "ended") {
+        response.status(409).json({
+          error: {
+            code: "jam_ended",
+            safeMessage: "This jam has ended. Its recording is what remains of it.",
+            retryable: false,
+          },
+          // The collection, not a resolved session: which session was last is
+          // a read the archive already does.
+          archive: `/api/jams/${request.params.id}/director/archive`,
+        });
+        return;
+      }
       sendError(response, 404, "not_found", "That director session is not open.", false);
       return;
     }
@@ -371,7 +531,12 @@ export function createDirectorRouter(
   });
 
   router.post("/api/jams/:id/director/session/:sessionId/renew", (request, response) => {
-    if (!ledger.renew(request.params.sessionId)) {
+    const stream = streams.get(request.params.sessionId);
+    if (
+      !stream ||
+      stream.jamId !== request.params.id ||
+      !ledger.renew(request.params.sessionId)
+    ) {
       sendError(response, 404, "not_found", "That director session is not open.", false);
       return;
     }
@@ -379,10 +544,30 @@ export function createDirectorRouter(
   });
 
   router.post("/api/jams/:id/director/session/:sessionId/end", async (request, response) => {
+    const open = streams.get(request.params.sessionId);
+    if (open && open.jamId !== request.params.id) {
+      sendError(response, 404, "not_found", "That director session is not open.", false);
+      return;
+    }
+    if (!open) {
+      try {
+        const archived = await index.getSession(request.params.sessionId);
+        if (archived && archived.jamId !== request.params.id) {
+          sendError(response, 404, "not_found", "That director session is not open.", false);
+          return;
+        }
+      } catch {
+        sendError(response, 503, "media_unavailable", "The director archive could not be read.", true);
+        return;
+      }
+    }
     // Idempotent: a client tearing down twice is not an error, and what
     // matters is that the reservation is released and the recording stored.
     await endSession(request.params.sessionId);
-    response.status(204).end();
+    // Reports where the room ended up rather than transitioning again: the
+    // teardown already did it, and ending twice must not be an error.
+    const jam = await store.getJam(request.params.id);
+    response.status(200).json({ lifecycle: jam?.lifecycle ?? "ended" });
   });
 
   /** The stored recording of a session, served by this server only. */

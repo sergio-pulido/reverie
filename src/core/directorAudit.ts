@@ -50,15 +50,33 @@ export interface DirectorAuditEntry {
 /** Bounded so one long session cannot grow without limit in memory. */
 export const MAX_AUDIT_ENTRIES_PER_SESSION = 500;
 
+/**
+ * Notified as each entry is recorded, so the trail can outlive the process.
+ *
+ * Deliberately fire-and-forget from the log's point of view: the in-memory
+ * trail is the one the live session reads, and a durable write that fails or
+ * hangs must not stall the stream it is describing.
+ */
+export type DirectorAuditListener = (entry: DirectorAuditEntry) => void;
+
 export class DirectorAuditLog {
   private readonly entries: DirectorAuditEntry[] = [];
   private dropped = 0;
 
-  constructor(private readonly now: () => Date = () => new Date()) {}
+  constructor(
+    private readonly now: () => Date = () => new Date(),
+    private readonly onRecord?: DirectorAuditListener,
+  ) {}
 
   record(entry: Omit<DirectorAuditEntry, "at">): DirectorAuditEntry {
     const stored: DirectorAuditEntry = { ...entry, at: this.now().toISOString() };
     this.entries.push(stored);
+    try {
+      this.onRecord?.(stored);
+    } catch {
+      // A listener that throws loses this entry durably, not the session. The
+      // bounded in-memory trail below is unaffected either way.
+    }
     if (this.entries.length > MAX_AUDIT_ENTRIES_PER_SESSION) {
       // The oldest go first, and the count of what was dropped is kept: a
       // truncated log that does not say it was truncated is a misleading one.

@@ -21,6 +21,7 @@ before(async () => {
     source: { kind: "from-scratch", prompt: "A lighthouse keeper finds a door." },
     format: DEFAULT_SCRIPT_FORMAT,
     script: buildScript(15),
+    lifecycle: "live" as const,
   };
   await jams.createJam(jam);
 

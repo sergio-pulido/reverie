@@ -66,7 +66,16 @@ function readLocation(): Location {
   return { screen: screenFromPath(pathname), slug: jamSlugFromPath(pathname), film: filmFromPath(pathname), from: entryFrom(), inviteCode: inviteCodeFromLocation() };
 }
 
-export function App() {
+export type AppProps = {
+  /** Leaves the authenticated shell for the public document. Injectable for component tests. */
+  leaveForLanding?: () => void;
+};
+
+function replaceWithLanding() {
+  window.location.replace(LANDING_PATH);
+}
+
+export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
   const [location, setLocation] = useState<Location>(readLocation);
   const { screen, slug, film, from, inviteCode } = location;
   const [searchRequest, setSearchRequest] = useState<SearchRequest | null>(null);
@@ -197,10 +206,10 @@ export function App() {
        */
       async logOut() {
         await viewerSource.signOut();
-        navigate("landing", LANDING_PATH);
+        leaveForLanding();
       },
     };
-  }, [screen, filmOpen, filmOrigin, from, viewerSource]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [screen, filmOpen, filmOrigin, from, viewerSource, leaveForLanding]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function applyJam(jam: JamRoom, mode: JamPersistence) {
     setRoomTitle(jam.title);

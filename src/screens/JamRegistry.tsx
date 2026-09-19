@@ -1,16 +1,16 @@
 import { useEffect, useState } from "react";
-import { Footer, Header, Notice } from "../chrome";
+import { Footer, Notice } from "../chrome";
 import type { JamRoom } from "../core/room";
 import { safeMessageOf } from "../lib/errors";
 import { listJams, type JamPersistence } from "../lib/jams";
+import { TopBar } from "../shell/TopBar";
 
 type Props = {
-  onBack: () => void;
   onNew: () => void;
   onOpen: (jam: JamRoom, persistence: JamPersistence) => void;
 };
 
-export function JamRegistry({ onBack, onNew, onOpen }: Props) {
+export function JamRegistry({ onNew, onOpen }: Props) {
   const [jams, setJams] = useState<JamRoom[]>([]);
   const [persistence, setPersistence] = useState<JamPersistence>("preview");
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
@@ -33,10 +33,9 @@ export function JamRegistry({ onBack, onNew, onOpen }: Props) {
     return () => { active = false; };
   }, []);
 
-  return <main className="site-shell registry-shell"><Header onHome={onBack} />
+  return <main className="site-shell registry-shell"><TopBar current="jam" />
     <section className="registry-layout">
       <header className="registry-head">
-        <button className="back-link" onClick={onBack}>← Back to Reverie</button>
         <p className="eyebrow">MOVIE JAMS</p>
         <h1>Your stories, <em>still running.</em></h1>
         <p className="intro">Open a jam already in progress, or register a new room with its own script.</p>

@@ -48,6 +48,8 @@ export function useGridNavigation(itemCount: number, handlers: GridHandlers) {
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
+      // A key the app has already taken (a held OK's repeats) opens nothing.
+      if (event.defaultPrevented) return;
       const intent = gridMove(event.key, { index: activeIndex, columns, count: itemCount });
       if (!intent) return;
       const run = runIntent(intent, handlers, focusItem);

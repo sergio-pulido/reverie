@@ -1,6 +1,7 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { authorName, type ConnectionState, type JamMember } from "../core/room";
-import { Footer, Header, LiveScene, Notice } from "../chrome";
+import { Footer, LiveScene, Notice } from "../chrome";
+import { TopBar } from "../shell/TopBar";
 import { InvitePanel } from "./InvitePanel";
 import { PlaybackBar } from "./PlaybackBar";
 import { useAccessStatus } from "./useAccessStatus";
@@ -17,9 +18,14 @@ const CONNECTION_LABEL: Record<ConnectionState, string> = {
   denied: "ACCESS ENDED",
 };
 
-export function Studio({ slug, onExit }: { slug: string; onExit: () => void }) {
+/**
+ * The live room. "Leave the room" is a room action, not a way back: it ends this participant's
+ * presence, and unmounting the room stops any live camera, microphone or screen tracks.
+ */
+export function Studio({ slug, onLeave }: { slug: string; onLeave: () => void }) {
   const { state, actions, actionError, contributionAllowed } = useJamRoom(slug);
   const [showInvite, setShowInvite] = useState(false);
+  const inviteToggle = useRef<HTMLButtonElement | null>(null);
   // Hooks run before the early returns below. The clock only polls for an active member.
   const playback = usePlaybackClock(
     state.snapshot?.jam.id ?? null,
@@ -27,13 +33,13 @@ export function Studio({ slug, onExit }: { slug: string; onExit: () => void }) {
   );
 
   if (state.phase === "loading") {
-    return <Shell onExit={onExit}><section className="studio-header"><div><p className="eyebrow">MOVIE JAM</p><h1>Opening the room…</h1></div></section></Shell>;
+    return <Shell><section className="studio-header"><div><p className="eyebrow">MOVIE JAM</p><h1>Opening the room…</h1></div></section></Shell>;
   }
   if (state.phase === "error" || !state.snapshot) {
-    return <Shell onExit={onExit}>
+    return <Shell>
       <section className="studio-header">
         <div><p className="eyebrow">MOVIE JAM</p><h1>This room is not open to you.</h1><p>{state.error}</p></div>
-        <div className="studio-actions"><button className="button button-quiet" onClick={onExit}>Back to Reverie</button><button className="button button-primary" onClick={actions.refresh}>Try again <span>↻</span></button></div>
+        <div className="studio-actions"><button className="button button-primary" onClick={actions.refresh}>Try again <span>↻</span></button></div>
       </section>
     </Shell>;
   }
@@ -43,7 +49,7 @@ export function Studio({ slug, onExit }: { slug: string; onExit: () => void }) {
   const waitingMembers = members.filter((member) => member.status === "waiting");
   const activeMembers = members.filter((member) => member.status === "active");
 
-  return <Shell onExit={onExit}>
+  return <Shell>
     <section className="studio-header">
       <div>
         <p className="eyebrow">MOVIE JAM / <ConnectionBadge state={state.connection} /></p>
@@ -51,8 +57,8 @@ export function Studio({ slug, onExit }: { slug: string; onExit: () => void }) {
         <p>{jam.visibility === "public" ? "Public room" : "Invite-only room"} · {activeMembers.length} in the room</p>
       </div>
       <div className="studio-actions">
-        <button className="button button-quiet" onClick={onExit}>Leave</button>
-        {isHost && <button className="button button-primary" onClick={() => setShowInvite((open) => !open)}>
+        <button className="button button-quiet" onClick={onLeave}>Leave the room</button>
+        {isHost && <button className="button button-primary" ref={inviteToggle} onClick={() => setShowInvite((open) => !open)}>
           {showInvite ? "Hide invite" : "Invite people"} <span>↗</span>
         </button>}
       </div>
@@ -60,7 +66,10 @@ export function Studio({ slug, onExit }: { slug: string; onExit: () => void }) {
 
     {state.error && <Notice>{state.error}</Notice>}
     {actionError && <Notice>{actionError}</Notice>}
-    {isHost && showInvite && <InvitePanel jamId={jam.id} onClose={() => setShowInvite(false)} />}
+    {isHost && showInvite && <InvitePanel jamId={jam.id} onClose={() => {
+      setShowInvite(false);
+      inviteToggle.current?.focus();
+    }} />}
 
     {self?.status !== "active"
       ? <WaitingLobby jamId={jam.id} onAdmitted={actions.refresh} />
@@ -100,8 +109,8 @@ export function Studio({ slug, onExit }: { slug: string; onExit: () => void }) {
   </Shell>;
 }
 
-function Shell({ children, onExit }: { children: ReactNode; onExit: () => void }) {
-  return <main className="site-shell studio-shell"><Header onHome={onExit} />{children}<Footer /></main>;
+function Shell({ children }: { children: ReactNode }) {
+  return <main className="site-shell studio-shell"><TopBar current="jam" />{children}<Footer /></main>;
 }
 
 function ConnectionBadge({ state }: { state: ConnectionState }) {

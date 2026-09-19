@@ -1,6 +1,10 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type KeyboardEvent } from "react";
 import type { CatalogueTitle } from "../catalogue/contract";
+import type { Destination } from "../lib/routes";
+import { TopBar } from "../shell/TopBar";
+import { focusTopBar } from "../shell/topBarFocus";
 import { filmFacts, filmHeadline, imdbUrl, type FilmRecord } from "./filmFacts";
+import { TmdbAttribution } from "./TmdbAttribution";
 import { useFilm } from "./useFilm";
 
 type FilmPageProps = {
@@ -8,13 +12,13 @@ type FilmPageProps = {
   providerId: string | null;
   /** The grid's copy of this film, shown at once while the full record loads. */
   seed?: CatalogueTitle;
+  /** Where the film was opened from. The bar shows it as current, and choosing it closes the page. */
+  origin: Destination;
   attributionFallback: string;
-  onBack: () => void;
-  onReject: (id: string) => void;
+  /** "Not this one", when the page was opened from the grid it would leave. */
+  onReject?: (id: string) => void;
 };
 
-/** Keys that leave the page: a keyboard's Escape and a remote's Back. */
-const BACK_KEYS = new Set(["Escape", "GoBack", "Backspace"]);
 const NEXT_KEYS = new Set(["ArrowRight", "ArrowDown"]);
 const PREVIOUS_KEYS = new Set(["ArrowLeft", "ArrowUp"]);
 
@@ -23,16 +27,21 @@ const PREVIOUS_KEYS = new Set(["ArrowLeft", "ArrowUp"]);
  * it: the grid's copy appears at once, and the full record fills in when its single row arrives.
  *
  * It is drawn as a full-screen layer over the grid rather than in its place, so the grid keeps
- * its scroll position, its loaded pages and its focus target while the page is open.
+ * its scroll position, its loaded pages and its focus target while the page is open. The layer
+ * carries its own top bar; the grid's, underneath, is inert with the rest of the grid.
+ *
+ * There is no on-screen way back: the remote has one. The page opens with focus on the top bar's
+ * current item, where OK or Back returns to where the film was opened and Down enters the page.
+ * Back from inside the page returns to the bar first, as it does on every screen. Opening on the
+ * bar also keeps a second press of OK from landing on "Not this one".
  */
-export function FilmPage({ providerId, seed, attributionFallback, onBack, onReject }: FilmPageProps) {
+export function FilmPage({ providerId, seed, origin, attributionFallback, onReject }: FilmPageProps) {
   const { state, retry } = useFilm(providerId);
-  const backRef = useRef<HTMLButtonElement | null>(null);
   const pageRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     pageRef.current?.scrollTo({ top: 0 });
-    backRef.current?.focus({ preventScroll: true });
+    focusTopBar({ scroll: false });
   }, [providerId]);
 
   /** The grid stays put underneath; the page scrolls on its own. */
@@ -41,32 +50,15 @@ export function FilmPage({ providerId, seed, attributionFallback, onBack, onReje
     return () => document.documentElement.classList.remove("film-page-open");
   }, []);
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (BACK_KEYS.has(event.key)) {
-        event.preventDefault();
-        onBack();
-        return;
-      }
-      moveFocus(event, pageRef.current);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onBack]);
-
   const film: FilmRecord | undefined = state.phase === "ready" ? { ...seed, ...state.film } : seed;
   const attribution = state.phase === "ready" ? state.attribution ?? attributionFallback : attributionFallback;
 
   return (
-    <main className="discover-shell film-page" ref={pageRef} aria-busy={state.phase === "loading"}>
+    <main className="discover-shell film-page" data-scroll-layer="" ref={pageRef} aria-busy={state.phase === "loading"} onKeyDown={moveFocus}>
       {film?.backdropUrl && <img key={film.backdropUrl} className="film-backdrop" src={film.backdropUrl} alt="" aria-hidden="true" />}
-      <header className="discover-bar">
-        <button className="film-back" ref={backRef} onClick={onBack}>
-          <span aria-hidden="true">←</span> All films
-        </button>
-      </header>
+      <TopBar current={origin} />
 
-      {film ? <FilmBody film={film} complete={state.phase === "ready"} onReject={onReject} /> : <FilmStatus state={state} onBack={onBack} onRetry={retry} />}
+      {film ? <FilmBody film={film} complete={state.phase === "ready"} onReject={onReject} /> : <FilmStatus state={state} onRetry={retry} />}
       {film && state.phase === "error" && (
         <p className="film-inline-error" role="alert">
           {state.safeMessage}{" "}
@@ -78,17 +70,12 @@ export function FilmPage({ providerId, seed, attributionFallback, onBack, onReje
         </p>
       )}
 
-      {film && (
-        <p className="discover-attribution">
-          <span className="discover-attribution-mark" aria-hidden="true">TMDB</span>
-          {attribution}
-        </p>
-      )}
+      {film && <TmdbAttribution text={attribution} />}
     </main>
   );
 }
 
-function FilmBody({ film, complete, onReject }: { film: FilmRecord; complete: boolean; onReject: (id: string) => void }) {
+function FilmBody({ film, complete, onReject }: { film: FilmRecord; complete: boolean; onReject?: (id: string) => void }) {
   const headline = filmHeadline(film);
   const facts = filmFacts(film);
   const imdb = imdbUrl(film.imdbId);
@@ -113,11 +100,13 @@ function FilmBody({ film, complete, onReject }: { film: FilmRecord; complete: bo
           )}
           {film.synopsis && <p className="film-synopsis">{film.synopsis}</p>}
           {/* Actions for this film live here, and only actions that do something. */}
-          <div className="film-actions" role="group" aria-label="What to do with this film">
-            <button className="film-action" onClick={() => onReject(film.id)}>
-              Not this one
-            </button>
-          </div>
+          {onReject && (
+            <div className="film-actions" role="group" aria-label="What to do with this film">
+              <button className="film-action" onClick={() => onReject(film.id)}>
+                Not this one
+              </button>
+            </div>
+          )}
         </div>
       </section>
 
@@ -157,7 +146,7 @@ function FilmBody({ film, complete, onReject }: { film: FilmRecord; complete: bo
   );
 }
 
-function FilmStatus({ state, onBack, onRetry }: { state: ReturnType<typeof useFilm>["state"]; onBack: () => void; onRetry: () => void }) {
+function FilmStatus({ state, onRetry }: { state: ReturnType<typeof useFilm>["state"]; onRetry: () => void }) {
   if (state.phase === "loading") {
     return (
       <section className="discover-state" aria-live="polite">
@@ -171,9 +160,6 @@ function FilmStatus({ state, onBack, onRetry }: { state: ReturnType<typeof useFi
       <section className="discover-state" role="status">
         <p className="discover-state-title">This film isn’t here</p>
         <p>The link may be mistyped.</p>
-        <button className="discover-retry" onClick={onBack}>
-          Browse films
-        </button>
       </section>
     );
   }
@@ -197,12 +183,22 @@ function FilmStatus({ state, onBack, onRetry }: { state: ReturnType<typeof useFi
   );
 }
 
-/** Arrows walk the page's controls in reading order, so a remote reaches every one. */
-function moveFocus(event: KeyboardEvent, page: HTMLElement | null) {
+/**
+ * Arrows walk the page's controls in reading order, so a remote reaches every one. Up from the
+ * first returns to the top bar. Keys the bar has already handled are left alone.
+ */
+function moveFocus(event: KeyboardEvent<HTMLElement>) {
   const forward = NEXT_KEYS.has(event.key);
-  if (!page || (!forward && !PREVIOUS_KEYS.has(event.key))) return;
-  const controls = Array.from(page.querySelectorAll<HTMLElement>("button:not(:disabled), a[href]"));
+  if (event.defaultPrevented || (!forward && !PREVIOUS_KEYS.has(event.key))) return;
+  const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled), a[href]")).filter(
+    (control) => !control.closest("[data-top-bar]"),
+  );
   const current = controls.indexOf(document.activeElement as HTMLElement);
+  if (current === 0 && !forward) {
+    event.preventDefault();
+    focusTopBar();
+    return;
+  }
   const next = controls[current < 0 ? 0 : current + (forward ? 1 : -1)];
   if (!next) return;
   event.preventDefault();

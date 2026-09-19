@@ -1,9 +1,10 @@
 import { FormEvent, useState } from "react";
-import { Footer, Header } from "./chrome";
+import { Footer } from "./chrome";
 import type { Jam } from "./core/jam";
 import type { JamSession } from "./core/session";
 import { totalDurationSeconds } from "./core/script";
 import { formatClock } from "./core/scriptMarkdown";
+import { TopBar } from "./shell/TopBar";
 
 const LANGUAGES = [
   ["en", "English"],
@@ -20,18 +21,16 @@ type ScriptScreenProps = {
   jam: Jam;
   roomTitle: string;
   onStudio: () => void;
-  onBack: () => void;
 };
 
-export function ScriptScreen({ jam, roomTitle, onStudio, onBack }: ScriptScreenProps) {
+export function ScriptScreen({ jam, roomTitle, onStudio }: ScriptScreenProps) {
   const total = totalDurationSeconds(jam.script);
   const portions = jam.script.scenes.reduce((sum, scene) => sum + scene.portions.length, 0);
   let elapsed = 0;
 
-  return <main className="site-shell setup-shell"><Header onHome={onBack} />
+  return <main className="site-shell setup-shell"><TopBar current="jam" />
     <section className="script-layout" aria-label="Generated jam script">
       <header className="script-head">
-        <button className="back-link" onClick={onBack}>← Back to setup</button>
         <p className="eyebrow">{roomTitle} · SCRIPT · {formatClock(total)} · {jam.script.scenes.length} SCENES · {portions} PORTIONS</p>
         <h1>{jam.script.title}</h1>
         <p className="intro">{jam.script.logline}</p>

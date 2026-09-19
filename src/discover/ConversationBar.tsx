@@ -7,7 +7,7 @@ type ConversationBarProps = {
   pending: boolean;
   inputRef: React.RefObject<HTMLInputElement | null>;
   onSend: (message: string) => void;
-  /** Up or Escape from the input. */
+  /** Up from the input. */
   onExitUp: () => void;
   /** Down from the input. */
   onExitDown: () => void;
@@ -49,11 +49,15 @@ export function ConversationBar({ conversation, pending, inputRef, onSend, onExi
                 event.preventDefault();
                 onExitDown();
               }
-              if (event.key === "ArrowUp" || (event.key === "Escape" && !draft)) {
+              if (event.key === "ArrowUp") {
                 event.preventDefault();
                 onExitUp();
               }
-              if (event.key === "Escape" && draft) setDraft("");
+              // Escape first clears the draft; on an empty field it is Back, for the app.
+              if (event.key === "Escape" && draft) {
+                event.preventDefault();
+                setDraft("");
+              }
             }}
           />
         </label>

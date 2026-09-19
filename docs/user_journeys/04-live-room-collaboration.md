@@ -172,8 +172,8 @@ promote or re-enter themselves.
 
 - Do: have a fresh guest request admission so they appear in `LOBBY`; click `Refuse`.
 - Expect: one `set_jam_member_status` RPC with `removed`; the row leaves the lobby; the guest's
-  lobby becomes `The host did not admit you.` with `NOT ADMITTED` and a `Back to Reverie`
-  button, and no room access.
+  lobby becomes `The host did not admit you.` with `NOT ADMITTED`, no back button (the top bar
+  and the remote's Back leave), and no room access.
 - Evidence: `uj-03-refused.png`, `uj-03-refused-guest.png`.
 
 ### 15. Remove an active participant

@@ -8,16 +8,8 @@ button, a { font: inherit; }
 button { cursor: pointer; }
 a { color: inherit; text-decoration: none; }
 .site-shell { min-height: 100vh; overflow: hidden; background: radial-gradient(circle at 85% 10%, #33304a 0, transparent 26rem), linear-gradient(120deg, #080b12 0%, #0b101a 55%, #151426 100%); }
-.topbar { height: 94px; display: flex; align-items: center; justify-content: space-between; max-width: 1410px; margin: 0 auto; padding: 0 48px; border-bottom: 1px solid rgba(213, 218, 255, .12); }
-.brand { display: inline-flex; align-items: center; gap: 13px; font-size: 22px; font-weight: 700; letter-spacing: .25em; }
-.brand-mark { color: #cfd7ff; font-size: 34px; line-height: 1; font-weight: 400; }
-.nav-links { display: flex; gap: 34px; color: #b5b8c8; font-size: 14px; }
-.nav-links a { padding: 38px 0 34px; border-bottom: 2px solid transparent; }
-.nav-links .active, .nav-links a:hover { color: #fffdf8; border-color: #d9ddff; }
-.status, .eyebrow, .scene-meta, .scene-caption p, .steps span, footer { letter-spacing: .16em; font-family: "DM Mono", monospace; font-size: 11px; }
-.status { color: #c7c9d6; display: flex; align-items: center; gap: 9px; }
-.status i, .scene-meta i, .notice-dot { width: 7px; height: 7px; display: inline-block; border-radius: 50%; background: #b9c8ff; box-shadow: 0 0 16px #9baeff; }
-.hero { width: min(1410px, 100%); margin: 0 auto; padding: 94px 48px 78px; display: grid; grid-template-columns: minmax(340px, .9fr) minmax(480px, 1.1fr); gap: 72px; align-items: center; }
+.eyebrow, .scene-meta, .scene-caption p, .steps span, footer { letter-spacing: .16em; font-family: "DM Mono", monospace; font-size: 11px; }
+.scene-meta i, .notice-dot { width: 7px; height: 7px; display: inline-block; border-radius: 50%; background: #b9c8ff; box-shadow: 0 0 16px #9baeff; }
 .eyebrow { color: #c4c8dd; margin: 0 0 22px; }
 h1, h2, p { margin-top: 0; }
 h1 { font-family: Fraunces, Georgia, serif; font-size: clamp(58px, 6.2vw, 105px); font-weight: 500; line-height: .94; letter-spacing: -.065em; max-width: 720px; margin-bottom: 30px; }
@@ -50,12 +42,12 @@ h1 em { color: #cbd5ff; font-weight: 500; }
 .scene-caption { position: absolute; z-index: 3; left: 26px; right: 26px; bottom: 24px; }
 .scene-caption p { color: #c9ceee; margin-bottom: 10px; }
 .scene-caption h2 { max-width: 480px; font-family: Fraunces, Georgia, serif; font-size: clamp(25px, 2.4vw, 38px); font-weight: 500; line-height: 1.05; letter-spacing: -.035em; margin-bottom: 0; }
-.steps { max-width: 1410px; margin: 0 auto; padding: 28px 48px 88px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.steps { width: 100%; max-width: 1410px; margin: 0 auto; padding: 28px 48px 88px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 .steps article { padding: 26px; border-top: 1px solid #474d61; background: linear-gradient(135deg, rgba(25, 31, 48, .8), rgba(13, 17, 28, .4)); }
 .steps span { color: #bbc6fa; }
 .steps h2 { margin: 29px 0 12px; font-size: 20px; font-weight: 600; }
 .steps p { color: #b4b8c7; line-height: 1.5; margin-bottom: 0; }
-footer { max-width: 1410px; margin: 0 auto; padding: 24px 48px; border-top: 1px solid rgba(213, 218, 255, .12); display: flex; justify-content: space-between; color: #8e94a8; }
+footer { width: 100%; max-width: 1410px; margin: 0 auto; padding: 24px 48px; border-top: 1px solid rgba(213, 218, 255, .12); display: flex; justify-content: space-between; color: #8e94a8; }
 .jam-kind { display: flex; gap: 10px; margin-bottom: 21px; }
 .jam-kind button { flex: 1; padding: 12px 14px; border-radius: 6px; border: 1px solid #48506a; background: transparent; color: #c2c4d0; font-size: 14px; font-weight: 600; }
 .jam-kind button.active { background: #f6f4ee; border-color: #f6f4ee; color: #10131d; }
@@ -82,12 +74,8 @@ footer { max-width: 1410px; margin: 0 auto; padding: 24px 48px; border-top: 1px 
 .session-form input:focus, .session-form select:focus { border-color: #bbc9ff; box-shadow: 0 0 0 3px rgba(165, 183, 255, .14); }
 .session-form .button:disabled { opacity: .55; cursor: wait; transform: none; }
 .session-saved { margin: 14px 0 0; color: #b8e6c2; font-size: 13px; }
-@media (max-width: 850px) { .topbar { height: 75px; padding: 0 24px; } .nav-links, .status { display: none; } .hero { padding: 62px 24px 50px; grid-template-columns: 1fr; gap: 45px; } .scene-card { min-height: 420px; } .steps { padding: 16px 24px 50px; grid-template-columns: 1fr; } footer { padding: 24px; gap: 13px; flex-direction: column; } }
+@media (max-width: 850px) { .scene-card { min-height: 420px; } .steps { padding: 16px 24px 50px; grid-template-columns: 1fr; } footer { padding: 24px; gap: 13px; flex-direction: column; } }
 
-.brand-button, .nav-links button { color: inherit; background: transparent; border: 0; }
-.brand-button { padding: 0; }
-.nav-links button { padding: 38px 0 34px; border-bottom: 2px solid transparent; }
-.nav-links button.active, .nav-links button:hover { color: #fffdf8; border-color: #d9ddff; }
 .setup-shell, .studio-shell { display: flex; min-height: 100vh; flex-direction: column; }
 .registry-shell { display: flex; min-height: 100vh; flex-direction: column; }
 .registry-layout { width: min(1180px, 100%); margin: auto; padding: 70px 48px 88px; display: grid; grid-template-columns: .8fr 1.2fr; gap: 72px; align-items: start; }
@@ -101,8 +89,12 @@ footer { max-width: 1410px; margin: 0 auto; padding: 24px 48px; border-top: 1px 
 .registry-card .button { flex: 0 0 auto; }
 .registry-empty { padding: 34px; border: 1px dashed #465476; color: #aeb5c6; }
 .setup-layout, .join-layout { width: min(1180px, 100%); margin: auto; padding: 70px 48px 88px; display: grid; grid-template-columns: .9fr 1.1fr; gap: 100px; align-items: center; }
-.back-link { margin: 0 0 58px; border: 0; padding: 0; color: #c6cbdb; background: transparent; font-size: 14px; }
-.back-link:hover { color: #fff; }
+/* The create screen explains a Jam beside its form: the illustration sits under the intro on a
+   wide screen and after the form on a narrow one, so it never pushes the form down. */
+.setup-layout-explained { grid-template-areas: "intro form" "scene form"; align-items: start; row-gap: 40px; }
+.setup-layout-explained .setup-intro { grid-area: intro; }
+.setup-layout-explained .room-form { grid-area: form; }
+.setup-layout-explained .setup-scene { grid-area: scene; }
 .room-form, .join-card { padding: 34px; border: 1px solid #3e4969; background: rgba(16, 24, 43, .86); box-shadow: 0 25px 70px rgba(0, 0, 0, .25); }
 .room-form label, .join-card label { display: grid; gap: 9px; color: #c8ccdb; font-size: 13px; font-weight: 600; margin-bottom: 21px; }
 .room-form input, .room-form textarea, .room-form select, .join-card input, .contribution-form textarea { width: 100%; padding: 14px 15px; border: 1px solid #465476; border-radius: 5px; color: #f3f3f6; background: #151e32; outline: 0; font: inherit; }
@@ -136,7 +128,7 @@ footer { max-width: 1410px; margin: 0 auto; padding: 24px 48px; border-top: 1px 
 .queue-card { display: flex; justify-content: space-between; gap: 30px; padding: 24px 26px; align-items: end; }
 .queue-card p:not(.eyebrow) { max-width: 270px; margin: 0; color: #aeb5c6; font-size: 14px; line-height: 1.5; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-@media (max-width: 950px) { .setup-layout, .studio-grid, .registry-layout { grid-template-columns: 1fr; gap: 35px; } .setup-layout, .registry-layout { padding: 48px 24px 66px; } .registry-head { position: static; } .studio-header, .studio-grid { padding-left: 24px; padding-right: 24px; } .studio-header { align-items: start; flex-direction: column; } }
+@media (max-width: 950px) { .setup-layout, .studio-grid, .registry-layout { grid-template-columns: 1fr; gap: 35px; } .setup-layout-explained { grid-template-areas: "intro" "form" "scene"; } .setup-layout, .registry-layout { padding: 48px 24px 66px; } .registry-head { position: static; } .studio-header, .studio-grid { padding-left: 24px; padding-right: 24px; } .studio-header { align-items: start; flex-direction: column; } }
 @media (max-width: 600px) { .contribution-form { grid-template-columns: 1fr; } .studio-actions, .studio-actions .button, .registry-card .button { width: 100%; } .queue-card, .registry-card { align-items: start; flex-direction: column; } }
 
 /* Live room: connection state, roster and presence. */

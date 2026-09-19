@@ -43,4 +43,23 @@ export function filmPath(providerId: string) {
   return `/discover/${providerId}`;
 }
 
+export const HOME_PATH = "/";
 export const DISCOVER_PATH = "/discover";
+export const JAMS_PATH = "/jams";
+export const NEW_JAM_PATH = "/jams/new";
+export const JOIN_PATH = "/join";
+
+/** The places the top bar leads to. Every screen belongs to exactly one. */
+export type Destination = "home" | "discover" | "jam";
+
+export function destinationOf(screen: Screen): Destination {
+  if (screen === "home") return "home";
+  if (screen === "discover") return "discover";
+  return "jam";
+}
+
+export const DESTINATION_PATH: Readonly<Record<Destination, string>> = {
+  home: HOME_PATH,
+  discover: DISCOVER_PATH,
+  jam: JAMS_PATH,
+};

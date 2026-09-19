@@ -3,12 +3,12 @@ import type { AdmissionResult } from "../core/room";
 import { safeMessageOf } from "../lib/errors";
 import { requestAdmission } from "../lib/membership";
 import { hasSupabaseConfiguration } from "../lib/supabase";
-import { Footer, Header, Notice } from "../chrome";
+import { Footer, Notice } from "../chrome";
+import { TopBar } from "../shell/TopBar";
 import { useAccessStatus } from "./useAccessStatus";
 
 type JoinRoomProps = {
   initialCode: string;
-  onBack: () => void;
   onAdmitted: (result: AdmissionResult) => void;
 };
 
@@ -20,7 +20,7 @@ type JoinRoomProps = {
  * status alone, so a second submit never resets a pending admission or re-admits someone
  * the host removed.
  */
-export function JoinRoom({ initialCode, onBack, onAdmitted }: JoinRoomProps) {
+export function JoinRoom({ initialCode, onAdmitted }: JoinRoomProps) {
   const configured = hasSupabaseConfiguration();
   const [code, setCode] = useState(initialCode);
   const [displayName, setDisplayName] = useState("");
@@ -59,10 +59,9 @@ export function JoinRoom({ initialCode, onBack, onAdmitted }: JoinRoomProps) {
   const refused = access.status === "removed";
 
   return <main className="site-shell setup-shell">
-    <Header onHome={onBack} />
+    <TopBar current="jam" />
     <section className="join-layout">
       <div className="join-card">
-        <button className="back-link" onClick={onBack}>← Back to Reverie</button>
         <p className="eyebrow">JOIN A MOVIE JAM</p>
         <h1>Take a seat in the <em>room.</em></h1>
 
@@ -74,10 +73,7 @@ export function JoinRoom({ initialCode, onBack, onAdmitted }: JoinRoomProps) {
                   : <>You are in the lobby for <strong>{waiting.title}</strong>. The host admits directors one at a time.</>}
               </p>
               {refused
-                ? <>
-                    <Notice>This session cannot enter this jam. Ask the host directly if that was not intended.</Notice>
-                    <button className="button button-quiet form-submit" onClick={onBack}>Back to Reverie</button>
-                  </>
+                ? <Notice>This session cannot enter this jam. Ask the host directly if that was not intended.</Notice>
                 : <>
                     <Notice tone="status">
                       {access.checking ? "Checking with the host…" : "Waiting for the host. This page checks every few seconds."}

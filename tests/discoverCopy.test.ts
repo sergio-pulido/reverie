@@ -3,10 +3,11 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const screen = readFileSync(new URL("../src/discover/DiscoverScreen.tsx", import.meta.url), "utf8");
+const attribution = readFileSync(new URL("../src/discover/TmdbAttribution.tsx", import.meta.url), "utf8");
 
-/** The visible text of the Discover header: the bar and the intro above the search. */
+/** The visible text of the Discover header: the shared top bar, then the intro above the search. */
 function headerText() {
-  const start = screen.indexOf('<header className="discover-bar">');
+  const start = screen.indexOf('<TopBar current="discover" />');
   const end = screen.indexOf('<input', start);
   assert.ok(start > 0 && end > start, "the header is where it is expected");
   return screen
@@ -33,5 +34,6 @@ test("Discover has no page control: the grid grows instead", () => {
 });
 
 test("the TMDB attribution is still shown whenever films are", () => {
-  assert.match(screen, /className="discover-attribution"/);
+  assert.match(screen, /response && items\.length > 0 && <TmdbAttribution /);
+  assert.match(attribution, /className="discover-attribution"/);
 });

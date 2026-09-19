@@ -235,8 +235,19 @@ test("the endpoint answers 401 without a bearer token and forwards the viewer's 
   });
 });
 
-test("Discover renders nothing that implies where a title can be watched", () => {
-  const screen = readFileSync(new URL("../src/discover/DiscoverScreen.tsx", import.meta.url), "utf8");
-  assert.equal(/\.availability\b/.test(screen), false, "availability is never rendered");
-  assert.equal(/where to watch/i.test(screen), false);
+test("nothing that draws a title implies where it can be watched", () => {
+  const renderers = [
+    "../src/discover/DiscoverScreen.tsx",
+    "../src/discover/Artwork.tsx",
+    "../src/discover/FilmPage.tsx",
+    "../src/home/HomeScreen.tsx",
+    "../src/home/HomeHero.tsx",
+    "../src/home/Shelf.tsx",
+    "../src/home/JamSpotlight.tsx",
+  ];
+  for (const file of renderers) {
+    const source = readFileSync(new URL(file, import.meta.url), "utf8");
+    assert.equal(/\.availability\b/.test(source), false, `${file} never renders availability`);
+    assert.equal(/where to watch/i.test(source), false, file);
+  }
 });

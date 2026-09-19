@@ -25,26 +25,42 @@ half-rendered grid or a fake room.
 
 ### 1. Load the home screen
 
-- Do: `navigate_page` to `/`. Take a snapshot.
+- Do: `resize_page` to `1920x1080`; `navigate_page` to `/`. Take a snapshot.
 - Expect:
-  - The brand reads `REVERIE`.
-  - Primary navigation has a `Discover` link and a `Movie Jam` control.
-  - Heading `Make the next scene together.`
-  - Controls `Start a Movie Jam`, `Join with an invite`, and a link `Find something to watch`.
-  - A section `How Movie Jam works` with `Invite the room`, `Direct the turn`,
-    `See it evolve`.
-  - Footer text containing `REVERIE / MOVIE JAM` and `Made for HackBarna 2026`.
-- Evidence: `uj-01-home.png`.
+  - A top bar (`Primary` navigation) with the brand `REVERIE`, links `Home` (current),
+    `Discover` and `Movie Jam`, and a `Search` link. No text field in it.
+  - With a configured catalogue: a hero naming one film with its facts, synopsis and
+    `About this film`; shelves titled `Science fiction` and `Comedies` with posters; the last
+    poster in a shelf cut by the right edge; the `MOVIE JAM` spotlight (`Make the next scene
+    together.`, `Start a Movie Jam`, `Join with an invite`, `Still from <title>`) after the
+    second shelf; the TMDB attribution bar.
+  - Without one: the hero reads `No films to show yet` with the safe message, no shelves are
+    drawn, and the spotlight's actions still work.
+  - Network: exactly two `/api/catalogue` requests, each `pageSize=12` with `includeGenres`.
+- Evidence: `uj-01-home.png`, the network list filtered to `/api/catalogue`.
 
-### 2. Start a Movie Jam opens the registry
+### 2. The home with a remote
 
-- Do: click `Start a Movie Jam`.
+- Do: press Down to reach the first shelf, Right twice, Down twice, then Escape.
+- Expect: Left/Right stay in a shelf; Down moves to the next row, landing on its first poster on
+  a first visit; the spotlight is its own row; a third `/api/catalogue` request appears only as
+  focus nears the third shelf; Escape scrolls to the top and focuses `Home` in the bar.
+- Do: press Up from the hero.
+- Expect: focus moves into the bar.
+- Evidence: `uj-01-home-remote.png`, network list.
+
+### 3. Start a Movie Jam from the spotlight
+
+- Do: click `Start a Movie Jam` in the spotlight.
+- Expect: URL `/jams/new`; heading `Set the first scene.`; the illustration beside the form and
+  a `How Movie Jam works` section with `Invite the room`, `Direct the turn`, `See it evolve`.
+- Do: click `Movie Jam` in the top bar.
 - Expect: URL `/jams`; heading `Your stories, still running.`; a `Start a new jam` button; a
   list region that resolves from `Loading your jams…` to either jam cards or the empty state
   `No running jams yet.`
-- Evidence: `uj-01-registry.png`.
+- Evidence: `uj-01-create-explained.png`, `uj-01-registry.png`.
 
-### 3. Registry states
+### 3b. Registry states
 
 - Expect, depending on environment:
   - Environment C: a status notice `Supabase is not configured. These are browser-only
@@ -63,33 +79,34 @@ half-rendered grid or a fake room.
 - Do: on `/jams`, click `Start a new jam`.
 - Expect: URL `/jams/new`; heading `Set the first scene.`; `Jam title`; a `Story source`
   radiogroup with `From scratch` and `Import a script`; the `Script length` group; a
-  `Who can join?` select; a `Write the script` button. No room or script is shown yet.
-- Do: click `← Back to your jams`.
-- Expect: URL `/jams` again.
+  `Who can join?` select; a `Write the script` button. No room or script is shown yet, and no
+  back link: the top bar and the remote's Back are the way back.
+- Do: press Escape, then Escape again.
+- Expect: the first focuses `Movie Jam` in the bar; the second returns to URL `/jams`.
 - Evidence: `uj-01-create.png`.
 
 ### 5. Join screen
 
-- Do: from `/`, click `Join with an invite`.
+- Do: from `/`, click `Join with an invite` in the spotlight.
 - Expect: URL `/join`; heading `Take a seat in the room.`; fields `Invite code` and
   `Your display name`; a `Join the room` button (disabled when the build has no Supabase).
 - Evidence: `uj-01-join.png`.
 
 ### 6. Browser back/forward
 
-- Do: from `/`, click `Start a Movie Jam`; then `navigate_page type=back`; then
+- Do: from `/`, click `Movie Jam` in the top bar; then `navigate_page type=back`; then
   `type=forward`.
 - Expect: back returns to `/`; forward returns to `/jams`. No blank screen or error.
 - Evidence: one screenshot after each navigation.
 
 ### 7. Open Discover and return
 
-- Do: from `/` click `Find something to watch`.
-- Expect: URL `/discover`; the header label `DISCOVER`; heading `What are we watching tonight?`;
-  one supporting line; a search field. The header mentions neither the data source nor what
-  the product does not do.
-- Do: click the `Movie Jam` control in the Discover header.
-- Expect: URL `/` and the hero visible again.
+- Do: from `/` click `Search` in the top bar.
+- Expect: URL `/discover`; `Discover` is the current destination; heading `What are we watching
+  tonight?`; one supporting line; the search field focused. The header mentions neither the data
+  source nor what the product does not do.
+- Do: press Escape twice.
+- Expect: the first focuses `Discover` in the bar; the second returns to URL `/` and the hero.
 - Evidence: `uj-01-discover.png`, `uj-01-discover-exit.png`.
 
 ## B. Discover states
@@ -150,7 +167,9 @@ Read the `/api/catalogue` response and branch:
 - Do: focus the search field, press `ArrowDown`, then `ArrowRight`, `ArrowLeft`,
   `ArrowDown`, `ArrowUp`.
 - Expect: focus moves to the first card, then between cards by the live column count, and
-  never leaves the grid. `ArrowUp` from the first row returns focus to the search field.
+  never leaves the grid. `ArrowUp` from the first row moves to the chips above it.
+- Do: from a card several rows down, press `Escape`.
+- Expect: the page scrolls to the top and `Discover` in the top bar has focus.
 - Do: press `Home` then `End`.
 - Expect: focus moves to the row's first then last card.
 - Evidence: `uj-01-keyboard.png` after each move (focus ring visible).
@@ -162,8 +181,10 @@ Read the `/api/catalogue` response and branch:
   poster, title, and only the fields the record holds (tagline, year, running time, score with
   votes, genres, synopsis, release date, languages, keywords, IMDb). Nothing reads "unknown",
   "0" or "—". A `What to do with this film` group holds `Not this one`. The TMDB attribution bar
-  is visible. Focus is on `All films`; arrows walk the page's controls.
-- Do: press `Escape`.
+  is visible. There is no back button: the page has its own top bar, and focus is on its
+  `Discover` item. `ArrowDown` enters the page and arrows walk its controls; `ArrowUp` from the
+  first control, or `Escape` inside the page, returns to the bar.
+- Do: with focus on the bar, press `Escape` (or `Enter` on `Discover`).
 - Expect: URL `/discover`, the grid exactly where it was, and focus on the film that was opened.
 - Do: `navigate_page type=forward`, then `type=back`.
 - Expect: forward reopens the same film page; back returns to the grid with focus on that film.

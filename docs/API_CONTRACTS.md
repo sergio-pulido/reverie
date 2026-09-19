@@ -115,6 +115,17 @@ code — both go through the host-only functions above, which run as owner.
 | `GET /api/jams/:id/playback` | Read playback state: current/locked portion indices, per-portion media status |
 | `GET /api/jams/:id/portions/:index/video` | Stream a generated portion clip (HTTP Range, `video/mp4`); server-hosted, never a provider URL |
 
+The **shared playback clock** is a separate, room-wide position that every viewer derives from one server anchor, so two participants can compare where the room is. It is implemented as Supabase RPCs, not the Express routes above:
+
+| RPC | Contract |
+| --- | --- |
+| `get_jam_playback(p_jam_id)` | Any active member or the host. Returns `{ jamId, status: "idle"｜"playing"｜"paused", elapsedMs, serverNow, stateVersion }`. |
+| `start_jam_playback(p_jam_id)` | Host-only. Sets `status = "playing"` and stamps `started_at = now()`. Pressing play while already playing is a no-op and does not move the anchor. |
+| `pause_jam_playback(p_jam_id)` | Host-only. Freezes `elapsedMs` and clears the anchor. |
+| `reset_jam_playback(p_jam_id)` | Host-only. Returns the clock to `idle` at zero. |
+
+The position is derived, never stored as a mutable counter: `elapsedMs = paused_elapsed_ms + (now() - started_at)` while playing, and `paused_elapsed_ms` otherwise. `serverNow` lets a browser correct for clock skew — it anchors to `elapsedMs` and advances with its own monotonic clock (`performance.now()`), so no participant's wall clock can move the room. Reads poll every 2.5s as an interim transport; the contract is Realtime events, so the poll interval is a single named constant a later slice replaces. The clock row is created by a trigger on `jams` and backfilled for existing rooms; the table has RLS enabled with no policies, so only the security-definer functions are reachable.
+
 `POST /api/jams` accepts an optional `format` object (`totalSeconds`, `portionMinSeconds`, `portionMaxSeconds`); omitted fields default to a 4-minute script of 10–20 second portions. The jam stores its format and all generation and validation follow it.
 
 The command is a discriminated union on `mode`:

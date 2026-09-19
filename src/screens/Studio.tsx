@@ -2,8 +2,10 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { authorName, type ConnectionState, type JamMember } from "../core/room";
 import { Footer, Header, LiveScene, Notice } from "../chrome";
 import { InvitePanel } from "./InvitePanel";
+import { PlaybackBar } from "./PlaybackBar";
 import { useAccessStatus } from "./useAccessStatus";
 import { useJamRoom } from "./useJamRoom";
+import { usePlaybackClock } from "./usePlaybackClock";
 import { LiveStage } from "../live/LiveStage";
 
 const CONNECTION_LABEL: Record<ConnectionState, string> = {
@@ -18,6 +20,11 @@ const CONNECTION_LABEL: Record<ConnectionState, string> = {
 export function Studio({ slug, onExit }: { slug: string; onExit: () => void }) {
   const { state, actions, actionError, contributionAllowed } = useJamRoom(slug);
   const [showInvite, setShowInvite] = useState(false);
+  // Hooks run before the early returns below. The clock only polls for an active member.
+  const playback = usePlaybackClock(
+    state.snapshot?.jam.id ?? null,
+    state.snapshot?.self?.status === "active",
+  );
 
   if (state.phase === "loading") {
     return <Shell onExit={onExit}><section className="studio-header"><div><p className="eyebrow">MOVIE JAM</p><h1>Opening the room…</h1></div></section></Shell>;
@@ -70,6 +77,7 @@ export function Studio({ slug, onExit }: { slug: string; onExit: () => void }) {
           </aside>
 
           <div className="studio-scene">
+            <PlaybackBar state={playback.state} isHost={isHost} onStart={playback.actions.start} onPause={playback.actions.pause} onReset={playback.actions.reset} />
             <LiveScene compact />
             <div className="queue-card">
               <div><p className="eyebrow">UP NEXT</p><h2>Proposal queue</h2></div>

@@ -273,6 +273,71 @@ await check("an outsider cannot read the conversation or contribute", async () =
   assert.ok(write.error, "an outsider was allowed to write");
 });
 
+// --- Shared playback clock --------------------------------------------------
+// The room's position is a server anchor, so two independent viewers must read the
+// same position and neither a member nor an outsider may move it.
+
+await check("a member reads the shared clock and it starts idle", async () => {
+  const { data, error } = await guest.client.rpc("get_jam_playback", { p_jam_id: jam.id });
+  assert.equal(error, null, error?.message);
+  assert.equal(data.status, "idle");
+  assert.equal(data.elapsedMs, 0);
+});
+
+await check("only the host can start the shared clock", async () => {
+  const asMember = await guest.client.rpc("start_jam_playback", { p_jam_id: jam.id });
+  assert.ok(denied(asMember), "a member started playback");
+  const asHost = await host.client.rpc("start_jam_playback", { p_jam_id: jam.id });
+  assert.equal(asHost.error, null, asHost.error?.message);
+  assert.equal(asHost.data.status, "playing");
+});
+
+await check("two viewers read the same position from the same anchor", async () => {
+  await new Promise((resolve) => setTimeout(resolve, 1_100));
+  const [a, b] = await Promise.all([
+    guest.client.rpc("get_jam_playback", { p_jam_id: jam.id }),
+    host.client.rpc("get_jam_playback", { p_jam_id: jam.id }),
+  ]);
+  assert.equal(a.error, null, a.error?.message);
+  assert.equal(b.error, null, b.error?.message);
+  // Two round-trips land a few milliseconds apart, not seconds: the shared position holds.
+  assert.ok(Math.abs(a.data.elapsedMs - b.data.elapsedMs) < 500,
+    `viewers disagreed by ${Math.abs(a.data.elapsedMs - b.data.elapsedMs)}ms`);
+  assert.ok(a.data.elapsedMs >= 1_000, "the clock did not advance");
+});
+
+await check("pressing play again does not move the anchor", async () => {
+  const before = await host.client.rpc("get_jam_playback", { p_jam_id: jam.id });
+  const again = await host.client.rpc("start_jam_playback", { p_jam_id: jam.id });
+  assert.equal(again.error, null, again.error?.message);
+  assert.equal(again.data.stateVersion, before.data.stateVersion, "a redundant start bumped the version");
+  assert.ok(again.data.elapsedMs >= before.data.elapsedMs, "the anchor moved backwards");
+});
+
+await check("pausing freezes the position for every viewer", async () => {
+  const paused = await host.client.rpc("pause_jam_playback", { p_jam_id: jam.id });
+  assert.equal(paused.error, null, paused.error?.message);
+  assert.equal(paused.data.status, "paused");
+  const frozen = paused.data.elapsedMs;
+  await new Promise((resolve) => setTimeout(resolve, 700));
+  const later = await guest.client.rpc("get_jam_playback", { p_jam_id: jam.id });
+  assert.equal(later.data.elapsedMs, frozen, "a paused clock kept advancing");
+});
+
+await check("resetting returns the room to zero", async () => {
+  const reset = await host.client.rpc("reset_jam_playback", { p_jam_id: jam.id });
+  assert.equal(reset.error, null, reset.error?.message);
+  assert.equal(reset.data.status, "idle");
+  assert.equal(reset.data.elapsedMs, 0);
+});
+
+await check("an outsider cannot read or control the shared clock", async () => {
+  const read = await outsider.client.rpc("get_jam_playback", { p_jam_id: jam.id });
+  assert.ok(denied(read), "an outsider read the room's playback");
+  const control = await outsider.client.rpc("start_jam_playback", { p_jam_id: jam.id });
+  assert.ok(denied(control), "an outsider controlled the room's playback");
+});
+
 await check("the host removes the guest", async () => {
   const { data, error } = await host.client.rpc("set_jam_member_status", { p_jam_id: jam.id, p_member_id: guest.userId, p_status: "removed" });
   assert.equal(error, null, error?.message);

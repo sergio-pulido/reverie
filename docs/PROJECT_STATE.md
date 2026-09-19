@@ -427,6 +427,27 @@ project (it was applied by hand, so no tracking table records it). Each run of
 - **Not covered by automated tests:** the DOM wiring (focus, scrolling, pager hand-off). The test
   suite has no DOM, so `gridMove` is tested directly and the wiring was checked in the browser.
 
+## 2026-09-19 — A shared, server-anchored playback clock
+
+- The Studio now shows a room-wide counter that every participant derives from one server
+  anchor. The host starts, pauses or resets it; the database stamps the anchor with its own
+  `now()`, so two viewers can compare positions and agree. This is the coordination layer a
+  synchronized player needs, without yet deciding what the player renders.
+- Position is derived, never a mutable counter: `elapsedMs = paused_elapsed_ms + (now() -
+  started_at)` while playing, `paused_elapsed_ms` otherwise. The payload carries `serverNow`,
+  so a browser corrects for skew by anchoring to `elapsedMs` and advancing with its own
+  monotonic clock (`performance.now()`) — no participant's wall clock can move the room.
+- New `jam_playback` table (RLS on, no policies) plus `get`/`start`/`pause`/`reset` security
+  definer RPCs. Reads are limited to active members and the host; only the host may control
+  it. A redundant start is a no-op and never moves the anchor.
+- Client: `src/core/playbackClock.ts` (pure derivation), `src/lib/playback.ts` (RPCs),
+  `src/screens/usePlaybackClock.ts` (2.5s poll + local tick), `src/screens/PlaybackBar.tsx`.
+  Polling is the documented interim transport; the contract is Realtime events.
+- Verified live in two browsers on the local stack: both showed `0:05` at the same moment,
+  tracked `0:12 → 0:19` together, and froze together at `0:25` on pause before resetting to
+  `0:00`. `pnpm verify:realtime` now includes 7 clock checks (34/34 passing); `pnpm typecheck`,
+  `pnpm test` (166 passing) and `pnpm build` all pass. What the player shows remains undecided.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

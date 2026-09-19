@@ -283,3 +283,20 @@ of the 1.5M rows is left out: it costs storage and index time and would never be
 - **Separation is unchanged.** Catalogue rows keep their TMDB ids behind the `cat:` namespace and
   their own table and schema. They are never merged with generated Movie Jam artifacts.
 
+## 2026-09-19 — The room's shared position is derived, not stored
+
+A synchronized player needs one thing before it needs a video element: a single position the
+whole room agrees on. Storing a counter and incrementing it would drift the moment two writers
+raced or a tab slept. Instead the database stores only an anchor — `started_at` while playing
+plus the `paused_elapsed_ms` accumulated before it — and every reader derives the position as
+`paused_elapsed_ms + (now() - started_at)`. Pausing freezes the derivation into
+`paused_elapsed_ms` and clears the anchor; a check constraint keeps the two consistent.
+
+The payload includes the server's own `serverNow`. A browser cannot trust its wall clock (it
+may be minutes off) but it can trust the *difference* between two of its own monotonic
+readings, so it anchors to the server's `elapsedMs` and advances with `performance.now()`.
+That is why two viewers show the same counter without any clock synchronization protocol.
+Polling every 2.5s is deliberately an interim transport isolated to one named constant; the
+documented contract is `portion.locked`/`media.*` events over Realtime, and this slice must
+not be built on as if polling were the contract. The clock is room-wide, not per user session:
+the existing `jam_sessions` remain language/ambientation skins over the one shared script.

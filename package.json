@@ -12,7 +12,8 @@
     "build": "pnpm typecheck && vite build",
     "start": "NODE_ENV=production tsx apps/server/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test \"tests/*.test.ts\""
+    "test": "node --import tsx --test \"tests/*.test.ts\"",
+    "verify:realtime": "node scripts/verify-realtime.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.116.0",

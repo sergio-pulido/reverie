@@ -11,7 +11,41 @@ These are Reverie application contracts, not provider API endpoints.
   - `200 { "status": "catalogue_not_configured", "code": "CATALOGUE_NOT_CONFIGURED", "safeMessage", "missing": [...] }` — no authorized catalogue endpoint/credential is configured. The UI states this; it does not invent titles.
   - `4xx/5xx { "status": "error", "code", "safeMessage", "retryable" }` — codes are `INVALID_QUERY`, `METHOD_NOT_ALLOWED`, `CROSS_ORIGIN_BLOCKED`, `RATE_LIMITED`, `CATALOGUE_TIMEOUT`, `CATALOGUE_UNREACHABLE`, `CATALOGUE_UNAUTHORIZED`, `CATALOGUE_RATE_LIMITED`, `CATALOGUE_UPSTREAM_ERROR`, `CATALOGUE_REQUEST_REJECTED`, `CATALOGUE_INVALID_RESPONSE`, `CATALOGUE_RESPONSE_TOO_LARGE`. They never carry the credential, the upstream URL or the upstream body.
   - The upstream contract the adapter expects, and the `TITAN_CATALOGUE_URL` / `TITAN_API_KEY` / `TITAN_CATALOGUE_TIMEOUT_MS` configuration, are specified in `docs/specs/discover-titan-catalogue.md`. No Titan catalogue endpoint is published or supplied today, so this route answers `catalogue_not_configured`.
-- No HTTP room API, join/admission RPC, Realtime subscriber or provider endpoint is implemented yet.
+- No HTTP room API or provider endpoint is implemented. Room membership and collaboration are Supabase RPCs, RLS-protected table access and Realtime subscriptions, described below.
+
+### Implemented Supabase functions
+
+| Function | Caller | Returns | Refuses |
+| --- | --- | --- | --- |
+| `request_jam_admission(p_invite_code, p_display_name)` | any authenticated session | `{ jamId, slug, title, memberStatus }` | no session (`28000`), name outside 1–32 characters (`22023`), unknown code (`P0002`), completed/closed jam (`22023`), previously removed caller (`42501`) |
+| `set_jam_member_status(p_jam_id, p_member_id, p_status)` | host only | `{ jamId, userId, displayName, role, status }` | non-host caller and the host's own row (`42501`), status other than `active`/`removed` (`22023`), unknown member (`P0002`) |
+
+`memberStatus` is `waiting` for an invite-only jam and `active` for a public one. A host calling it against their own jam gets their existing host membership back unchanged. Neither
+function can create or promote a host. The browser has no insert, update or delete policy on
+`jam_members`, so these functions are the only membership mutation path.
+
+### Implemented table access
+
+| Table | Select | Insert |
+| --- | --- | --- |
+| `jams` | host or any waiting/active member | host only, `host_id = auth.uid()` |
+| `jam_members` | own row; the host sees every row; an active member sees only the active roster | none |
+| `jam_messages` | active members | active members, `author_id = auth.uid()` (defaulted, never sent by the browser) |
+| `jam_proposals` | active members | active members, `status = 'queued'` |
+
+No update or delete policy exists on `jam_messages` or `jam_proposals`: both are append-only
+until the versioned scene contract below is implemented.
+
+### Implemented Realtime contracts
+
+- Postgres Changes on `jam_messages` (INSERT), `jam_proposals` (INSERT) and `jam_members`
+  (all events), filtered by `jam_id` and delivered under the policies above.
+- Private channel `jam:<jam id>`, authorized by `realtime.messages` RLS against active
+  membership. Presence entries are `{ userId, displayName, at }` and are display state only.
+- Every successful subscribe reloads the authorized snapshot. There is no event replay,
+  because no persisted event log exists yet.
+- Who is queued for admission is host-only information, enforced by the `jam_members` select
+  policy rather than by which panel the client renders.
 
 ## Planned privileged HTTP interfaces
 
@@ -31,8 +65,8 @@ These are Reverie application contracts, not provider API endpoints.
 | `GET /api/sessions/:id` | Read one session |
 | `PATCH /api/sessions/:id` | Owner-only (Bearer owner token) update of playback settings: `language`, `ambientation` |
 | `GET /api/sessions/:id/script.md` | Read the shared script annotated with the session's playback settings |
-| `POST /api/jams/:id/join` | Request admission using a display name and invite entitlement |
-| `POST /api/jams/:id/members/:memberId/admit` | Host-only lobby admission |
+| ~~`POST /api/jams/:id/join`~~ | Superseded: implemented as the `request_jam_admission` RPC above |
+| ~~`POST /api/jams/:id/members/:memberId/admit`~~ | Superseded: implemented as the `set_jam_member_status` RPC above |
 | `POST /api/jams/:id/scene/accept` | Host or configured vote rule accepts the next turn |
 | `POST /api/jams/:id/forks` | Fork from a declared past scene version |
 | `POST /api/jams/:id/close` | Close a room and release active resources |

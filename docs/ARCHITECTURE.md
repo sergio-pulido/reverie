@@ -33,4 +33,14 @@ Five simultaneous requests should create five candidate turns, not five contradi
 
 ## Current implementation boundary
 
-Only room creation, host membership, route scaffolding and health handlers are implemented. Realtime, admission and provider workflows above are the target architecture. Database writes and constrained RPCs will own durable mutations; Broadcast and Presence are notifications, not authorization or durable story state. Private rooms require both table RLS and private-channel authorization.
+Implemented: room creation, invite entitlement, display names, the waiting lobby, host
+admission and removal, append-only chat and proposals, Postgres Changes, Presence, private
+channel authorization, reconnect snapshots, route scaffolding and health handlers.
+Constrained `security definer` RPCs own every membership mutation; Broadcast and Presence
+are notifications, not authorization or durable story state, and private rooms enforce both
+table RLS and private-channel authorization.
+
+Not implemented: votes, scene transitions, forks, catalogue and every provider workflow.
+Scene acceptance is deliberately absent because it requires the versioned transactional
+command contract in `docs/API_CONTRACTS.md`. No Supabase project has been migrated and no
+provider has been probed from this repository.

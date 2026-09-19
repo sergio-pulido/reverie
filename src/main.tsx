@@ -1,22 +1,18 @@
 import { FormEvent, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Footer, Header } from "./chrome";
+import { Footer, Header, LiveScene, Notice } from "./chrome";
 import type { Jam as GeneratedJam, JamSource } from "./core/jam";
-import { createJam as createJamRoom, getJam as getJamRoom, type Jam as JamRoom, type JamPersistence, type JamVisibility } from "./lib/jams";
+import { safeMessageOf } from "./lib/errors";
+import { createJam as createJamRoom, type JamPersistence, type JamRoom, type JamVisibility } from "./lib/jams";
 import { hasSupabaseConfiguration } from "./lib/supabase";
 import { DiscoverScreen } from "./discover/DiscoverScreen";
 import { ScriptScreen } from "./ScriptScreen";
+import { JoinRoom } from "./screens/JoinRoom";
+import { Studio } from "./screens/Studio";
 import "./styles.css";
 
 type Screen = "home" | "discover" | "create" | "join" | "script" | "studio";
 type SourceKind = "from-scratch" | "from-movie";
-type Contribution = { author: string; text: string; kind: "host" | "director" };
-
-const starterContributions: Contribution[] = [
-  { author: "Reverie", text: "Set a premise, invite the room, then collect the first turn.", kind: "director" },
-  { author: "You", text: "The story begins with a signal arriving from beyond the screen.", kind: "host" },
-];
-
 function screenFromPath(pathname: string): Screen {
   if (pathname === "/discover") return "discover";
   if (pathname === "/jams/new") return "create";
@@ -30,8 +26,14 @@ function jamSlugFromPath(pathname: string) {
   return match?.[1] ?? null;
 }
 
+function inviteCodeFromLocation() {
+  return new URLSearchParams(window.location.search).get("code") ?? "";
+}
+
 function App() {
   const [screen, setScreen] = useState<Screen>(() => screenFromPath(window.location.pathname));
+  const [slug, setSlug] = useState<string | null>(() => jamSlugFromPath(window.location.pathname));
+  const [inviteCode, setInviteCode] = useState(() => inviteCodeFromLocation());
   const [roomTitle, setRoomTitle] = useState("Untitled Movie Jam");
   const [premise, setPremise] = useState("A signal changes what the room thinks is possible.");
   const [visibility, setVisibility] = useState<JamVisibility>("invite_only");
@@ -43,38 +45,26 @@ function App() {
   const [portionMinSeconds, setPortionMinSeconds] = useState(10);
   const [portionMaxSeconds, setPortionMaxSeconds] = useState(20);
   const [generatedJam, setGeneratedJam] = useState<GeneratedJam | null>(null);
-  const [contributions, setContributions] = useState(starterContributions);
-  const [draft, setDraft] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
 
   function navigate(next: Screen, path: string) {
     window.history.pushState({}, "", path);
     setScreen(next);
+    setSlug(jamSlugFromPath(path));
+    setInviteCode(inviteCodeFromLocation());
     setNotice(null);
   }
 
   useEffect(() => {
-    const handlePopState = () => setScreen(screenFromPath(window.location.pathname));
+    const handlePopState = () => {
+      setScreen(screenFromPath(window.location.pathname));
+      setSlug(jamSlugFromPath(window.location.pathname));
+      setInviteCode(inviteCodeFromLocation());
+    };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
-
-  useEffect(() => {
-    const slug = jamSlugFromPath(window.location.pathname);
-    if (screen !== "studio" || !slug || slug.startsWith("preview-")) return;
-
-    let active = true;
-    void getJamRoom(slug)
-      .then((jam) => {
-        if (!active || !jam) return;
-        applyJam(jam, "remote");
-      })
-      .catch((error: unknown) => {
-        if (active) setNotice(error instanceof Error ? error.message : "The Jam room could not be loaded.");
-      });
-    return () => { active = false; };
-  }, [screen]);
 
   function applyJam(jam: JamRoom, mode: JamPersistence) {
     setRoomTitle(jam.title);
@@ -122,28 +112,19 @@ function App() {
         const created = await createJamRoom({ title: roomTitle, premise: roomPremise.slice(0, 280), visibility });
         applyJam(created.jam, created.persistence);
         scriptPath = `/jams/${created.jam.slug}`;
-        roomNote = created.persistence === "remote" ? "Your persistent room is ready." : "Supabase is not configured, so the room is a local preview only.";
+        roomNote = created.persistence === "remote" ? "" : "Supabase is not configured, so the room is a local preview only.";
       } catch (error) {
-        roomNote = error instanceof Error ? error.message : "The Jam room could not be persisted; the script is still yours.";
+        // The script is already written. Say plainly that the room did not persist
+        // rather than letting the script screen imply a shareable room exists.
+        roomNote = safeMessageOf(error, "The Jam room could not be persisted; the script is still yours.");
       }
-      setContributions([
-        { author: "Reverie", text: `Script ready: “${script.script.title}” — ${script.script.logline} ${roomNote}`.trim(), kind: "director" },
-        { author: "You", text: roomPremise, kind: "host" },
-      ]);
       navigate("script", scriptPath);
+      if (roomNote) setNotice(roomNote);
     } catch {
       setNotice("The server could not be reached.");
     } finally {
       setIsCreating(false);
     }
-  }
-
-  function addContribution(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const text = draft.trim();
-    if (!text) return;
-    setContributions((items) => [...items, { author: "You", text, kind: "host" }]);
-    setDraft("");
   }
 
   if (screen === "discover") return <DiscoverScreen onExit={() => navigate("home", "/")} />;
@@ -153,8 +134,16 @@ function App() {
   if (screen === "script" && generatedJam) {
     return <ScriptScreen jam={generatedJam} roomTitle={roomTitle} onStudio={() => setScreen("studio")} onBack={() => navigate("create", "/jams/new")} />;
   }
-  if (screen === "join") return <JoinRoom onBack={() => navigate("home", "/")} notice={notice} onJoin={() => setNotice("Invite lookup arrives with the Supabase membership and lobby milestone.")} />;
-  if (screen === "studio") return <Studio title={roomTitle} visibility={visibility} persistence={persistence} contributions={contributions} draft={draft} onDraft={setDraft} onSubmit={addContribution} onExit={() => navigate("home", "/")} />;
+  if (screen === "join") {
+    return <JoinRoom initialCode={inviteCode} onBack={() => navigate("home", "/")} onAdmitted={(result) => navigate("studio", `/jams/${result.slug}`)} />;
+  }
+  if (screen === "studio") {
+    // A build without Supabase can only show the clearly labelled local preview. A
+    // configured build that fails reports the failure inside Studio instead.
+    return slug && hasSupabaseConfiguration() && !slug.startsWith("preview-")
+      ? <Studio slug={slug} onExit={() => navigate("home", "/")} />
+      : <PreviewStudio slug={slug ?? roomTitle} persistence={persistence} onExit={() => navigate("home", "/")} />;
+  }
   return <Home onCreate={() => navigate("create", "/jams/new")} onJoin={() => navigate("join", "/join")} />;
 }
 
@@ -206,18 +195,14 @@ function CreateRoom({ title, premise, visibility, sourceKind, movieTitle, movieS
   </main>;
 }
 
-function JoinRoom({ onBack, onJoin, notice }: { onBack: () => void; onJoin: () => void; notice: string | null }) {
-  return <main className="site-shell setup-shell"><Header onHome={onBack} /><section className="join-layout"><div className="join-card"><button className="back-link" onClick={onBack}>← Back to Reverie</button><p className="eyebrow">JOIN A MOVIE JAM</p><h1>Take a seat in the <em>room.</em></h1><p className="intro">Enter the invite link or room code shared by the host.</p><label>Invite link or room code<input placeholder="reverie.tv/jam/…" /></label><label>Your display name<input placeholder="Your name" /></label><button className="button button-primary form-submit" onClick={onJoin}>Join the room <span>→</span></button>{notice && <aside className="notice" role="status"><span className="notice-dot" />{notice}<button onClick={onBack} aria-label="Dismiss message">×</button></aside>}</div></section><Footer /></main>;
-}
-
-function Studio({ title, visibility, persistence, contributions, draft, onDraft, onSubmit, onExit }: { title: string; visibility: JamVisibility; persistence: JamPersistence; contributions: Contribution[]; draft: string; onDraft: (value: string) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onExit: () => void }) {
-  const modeLabel = persistence === "remote" ? "PERSISTENT ROOM" : "LOCAL PREVIEW";
-  return <main className="site-shell studio-shell"><Header onHome={onExit} /><section className="studio-header"><div><p className="eyebrow">MOVIE JAM / {modeLabel}</p><h1>{title}</h1><p>{visibility === "public" ? "Public room" : "Invite-only room"} · Scene 01 is waiting for the room.</p></div><div className="studio-actions"><button className="button button-quiet" onClick={onExit}>Exit preview</button><button className="button button-primary" onClick={() => window.alert(persistence === "remote" ? "Share this room URL from the browser address bar. QR and lobby controls are next." : "Configure Supabase before sharing this room. Local previews do not persist.")}>Invite guests <span>↗</span></button></div></section><section className="studio-grid"><aside className="conversation-panel"><div className="panel-heading"><div><p className="eyebrow">STORY CONVERSATION</p><h2>What should happen next?</h2></div><span className="local-badge">{persistence === "remote" ? "ROOM READY" : "LOCAL"}</span></div><div className="contribution-list" aria-live="polite">{contributions.map((item, index) => <article className={`contribution ${item.kind}`} key={`${item.author}-${index}`}><span>{item.author}</span><p>{item.text}</p></article>)}</div><form className="contribution-form" onSubmit={onSubmit}><label className="sr-only" htmlFor="direction">Propose a story direction</label><textarea id="direction" value={draft} onChange={(event) => onDraft(event.target.value)} placeholder="Add a character, twist, shot, or feeling…" maxLength={280} /><button className="button button-primary" type="submit">Propose <span>↗</span></button></form></aside><div className="studio-scene"><LiveScene compact /><div className="queue-card"><div><p className="eyebrow">UP NEXT</p><h2>Proposals join the queue.</h2></div><p>Realtime proposals, membership, voting, and scene transitions are the next room milestone.</p></div></div></section><Footer />
+/** Shown only when Supabase is absent. It never claims to be a shared room. */
+function PreviewStudio({ slug, persistence, onExit }: { slug: string; persistence: JamPersistence; onExit: () => void }) {
+  return <main className="site-shell studio-shell"><Header onHome={onExit} />
+    <section className="studio-header"><div><p className="eyebrow">MOVIE JAM / LOCAL PREVIEW</p><h1>{slug}</h1><p>This preview is not a room. Nothing here is shared, stored, or visible to anyone else.</p></div><div className="studio-actions"><button className="button button-quiet" onClick={onExit}>Back to Reverie</button></div></section>
+    <Notice tone="status">{persistence === "remote" ? "This jam has no shareable room URL yet. Create the room again to get one." : <>Configure <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code> and apply the migrations in <code>supabase/migrations</code> to open a real room.</>}</Notice>
+    <section className="studio-grid"><div className="studio-scene"><LiveScene compact /></div></section>
+    <Footer />
   </main>;
-}
-
-function LiveScene({ compact = false }: { compact?: boolean }) {
-  return <div className={`scene-card ${compact ? "scene-card-compact" : ""}`} aria-label="Illustration of a live film jam"><div className="scene-meta"><span><i /> LIVE DIRECTION</span><span>SCENE 01 / 06</span></div><div className="moon" /><div className="mountains mountain-back" /><div className="mountains mountain-front" /><div className="character character-left"><span /></div><div className="character character-center"><span /></div><div className="character character-right"><span /></div><div className="scene-caption"><p>NOW DIRECTING</p><h2>Three friends follow a signal through the stars.</h2></div></div>;
 }
 
 createRoot(document.getElementById("root")!).render(<App />);

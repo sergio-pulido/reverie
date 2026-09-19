@@ -66,3 +66,65 @@ A credential named `TITAN_API_KEY` exists, but no Titan catalogue endpoint, requ
 
 A single malformed upstream record must not blank the whole page, and a partially trusted record must not be rendered as if complete. The adapter validates each record on its own, drops records that fail, and strips any non-`https` artwork or availability URL rather than rejecting the title around it. The browser re-validates the response it receives, so an unexpected shape becomes an explicit error state instead of a half-rendered title.
 
+## 2026-09-19 — The invite code, not the room URL, is the entitlement
+
+A jam carries a server-generated 8-character code from an alphabet with no I, O or U so it
+can be read aloud in a room. A room URL can be screenshotted, indexed or forwarded; an
+entitlement should be something the host hands out deliberately. Admission exchanges the
+code and a display name for a membership row through a constrained `security definer`
+function, and the browser has no write policy on `jam_members` at all.
+
+## 2026-09-19 — Public jams admit on arrival, invite-only jams wait
+
+A public jam activates a guest as soon as they present the code, because asking a host to
+admit an audience one by one is the wrong default for a live demo. An invite-only jam keeps
+the waiting lobby from `docs/STATE_MACHINE.md`. Removal is host-only in both cases and a
+removed participant cannot re-enter with the same code.
+
+## 2026-09-19 — Membership checks run through security definer helpers
+
+A policy on `jams` that reads `jam_members`, while a policy on `jam_members` reads `jams`,
+recurses. `is_jam_host`, `is_jam_member` and `is_active_jam_member` read with RLS bypassed
+and are the single place membership is decided, for table policies and for the private
+Realtime channel alike.
+
+## 2026-09-19 — Rows are authority, Postgres Changes are notification, Broadcast is neither
+
+Durable collaborative state is rows under RLS. Postgres Changes tell a subscriber that such
+a row exists and are filtered by the same policies. Presence answers only "who is connected
+right now". Broadcast carries no story state and grants nothing, so knowing a channel name
+is never access.
+
+## 2026-09-19 — Reconnect reloads a snapshot instead of replaying events
+
+There is no persisted event log, so a client that misses events cannot be caught up by
+replay without inventing one. Every successful subscribe reloads the authorized snapshot
+and folds it over local rows, deduplicated by id and ordered by `(created_at, id)`. This is
+correct with no extra infrastructure and stays correct when a replay log is added later.
+
+## 2026-09-19 — Chat and proposals are append-only until a versioned scene contract exists
+
+`jam_messages` and `jam_proposals` have insert and select policies and no update or delete
+policy. Changing a proposal status is a scene transition, which `docs/API_CONTRACTS.md`
+requires to carry `expectedStateVersion`, an idempotent `requestId` and a serialized commit.
+Until that transactional contract is implemented, no client can fake one, and no generation
+is wired to a proposal.
+
+## 2026-09-19 — A configured Supabase failure is an error, never local state
+
+The local preview exists only when Supabase is unconfigured, and says so on the screen. When
+Supabase is configured and a call fails, the room shows a typed error and a retry. Silently
+degrading into local React state would present a private draft as a shared room.
+
+## 2026-09-19 — Only a message the schema authored reaches a participant
+
+Every `raise exception` in the Reverie schema marks its message. `toJamError` forwards only
+a marked message and replaces anything else with fixed safe text per SQLSTATE. Without that
+rule a native Postgres error — an RLS violation or a unique-constraint failure — would
+display a table, column or constraint name to whoever triggered it.
+
+## 2026-09-19 — Who is waiting is host-only information
+
+An active member reads the active roster; only the host reads the waiting rows. Enforcing
+this in the `jam_members` select policy rather than in the component that renders the lobby
+means a participant reading the table directly sees the same thing the UI shows them.

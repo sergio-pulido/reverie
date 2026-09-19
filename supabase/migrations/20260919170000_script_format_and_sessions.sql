@@ -5,7 +5,7 @@
 
 alter table public.jams
   add column if not exists total_seconds integer not null default 240
-    check (total_seconds between 60 and 900),
+    check (total_seconds between 10 and 900),
   add column if not exists portion_min_seconds integer not null default 10
     check (portion_min_seconds between 4 and 60),
   add column if not exists portion_max_seconds integer not null default 20

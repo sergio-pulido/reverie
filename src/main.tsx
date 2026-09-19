@@ -101,7 +101,7 @@ function App() {
         body: JSON.stringify({
           source,
           format: {
-            totalSeconds: totalMinutes * 60,
+            totalSeconds: Math.round(totalMinutes * 60),
             portionMinSeconds,
             portionMaxSeconds,
           },
@@ -190,7 +190,7 @@ function CreateRoom({ title, premise, visibility, sourceKind, movieTitle, movieS
         </>
       )}
       <div className="format-row" role="group" aria-label="Script length">
-        <label>Total length<select value={totalMinutes} onChange={(event) => onTotalMinutes(Number(event.target.value))}>{[2, 3, 4, 5, 6, 8, 10].map((minutes) => <option key={minutes} value={minutes}>{minutes} minutes</option>)}</select></label>
+        <label>Total length (min)<input type="number" min={0.2} max={15} step={0.1} value={totalMinutes} onChange={(event) => onTotalMinutes(Number(event.target.value))} required /></label>
         <label>Shortest portion (s)<input type="number" min={4} max={60} value={portionMinSeconds} onChange={(event) => onPortionMinSeconds(Number(event.target.value))} required /></label>
         <label>Longest portion (s)<input type="number" min={4} max={60} value={portionMaxSeconds} onChange={(event) => onPortionMaxSeconds(Number(event.target.value))} required /></label>
       </div>

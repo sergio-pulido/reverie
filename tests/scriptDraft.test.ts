@@ -51,6 +51,28 @@ test("rejects drafts too far from the target to rescale", () => {
   assert.throws(() => finalizeScriptDraft(buildScript(8)), ScriptDraftError); // 128s
 });
 
+test("finalizes a tiny 20-second test jam", () => {
+  const format = { totalSeconds: 20, portionMinSeconds: 5, portionMaxSeconds: 5 };
+  const draft = {
+    title: "Tiny",
+    logline: "A jam small enough to test live.",
+    scenes: [
+      {
+        heading: "All of it",
+        portions: Array.from({ length: 4 }, () => ({
+          durationSeconds: 6,
+          action: "Something quick happens.",
+        })),
+      },
+    ],
+  };
+  const script = finalizeScriptDraft(draft, format);
+  assert.equal(totalDurationSeconds(script), 20);
+  for (const portion of script.scenes[0].portions) {
+    assert.ok(portion.durationSeconds >= 3 && portion.durationSeconds <= 7);
+  }
+});
+
 test("rescales onto a custom format's target", () => {
   const format = {
     totalSeconds: 120,

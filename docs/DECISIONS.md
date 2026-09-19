@@ -2,7 +2,7 @@
 
 ## 2026-09-19 — Script timing is a per-jam format with the 4-minute defaults
 
-The total runtime and portion length band are per-jam parameters (`format`: total 60–900 seconds, portions 4–60 seconds) instead of global constants; omitting them keeps the established 4-minute, 10–20 second behaviour. Hard bounds (±2 seconds) and the total tolerance (~6% of runtime) are derived from the chosen format, so the writer prompt, draft rescaling, and validation stay a single consistent system at any length. Stored scripts validate against a format-agnostic structural schema; strict timing is enforced at generation time against the jam's own format.
+The total runtime and portion length band are per-jam parameters (`format`: total 10–900 seconds, portions 4–60 seconds, at most 48 portions) instead of global constants; omitting them keeps the established 4-minute, 10–20 second behaviour. The low floor exists for tiny test jams, and the scriptwriter's completion token budget scales with the expected portion count instead of paying a flat worst case. Hard bounds (±2 seconds) and the total tolerance (~6% of runtime) are derived from the chosen format, so the writer prompt, draft rescaling, and validation stay a single consistent system at any length. Stored scripts validate against a format-agnostic structural schema; strict timing is enforced at generation time against the jam's own format.
 
 ## 2026-09-19 — A jam session is one user's playback seat, not a copy of the script
 

@@ -7,7 +7,9 @@ export const DEFAULT_TOTAL_SECONDS = 240;
 export const DEFAULT_PORTION_MIN_SECONDS = 10;
 export const DEFAULT_PORTION_MAX_SECONDS = 20;
 
-export const TOTAL_MIN_SECONDS = 60;
+// 10s floor keeps tiny test jams possible (e.g. a 20-second jam of 5-second
+// portions) while still requiring at least two portions of the shortest kind.
+export const TOTAL_MIN_SECONDS = 10;
 export const TOTAL_MAX_SECONDS = 900;
 export const PORTION_ABSOLUTE_MIN_SECONDS = 4;
 export const PORTION_ABSOLUTE_MAX_SECONDS = 60;
@@ -74,9 +76,10 @@ export function hardPortionBounds(format: ScriptFormat): {
   };
 }
 
-// ~6% of the runtime, matching the 15s tolerance the 4-minute default had.
+// ~6% of the runtime, matching the 15s tolerance the 4-minute default had;
+// the floor stays small so tiny test jams are not allowed to drift wildly.
 export function totalToleranceSeconds(format: ScriptFormat): number {
-  return Math.max(5, Math.round(format.totalSeconds / 16));
+  return Math.max(2, Math.round(format.totalSeconds / 16));
 }
 
 function buildPortionSchema(minSeconds: number, maxSeconds: number) {

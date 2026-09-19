@@ -38,7 +38,7 @@ test("rejects an invalid script format", async () => {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       source: { kind: "from-scratch", prompt: "A lighthouse keeper finds a door." },
-      format: { totalSeconds: 30 },
+      format: { totalSeconds: 5 },
     }),
   });
   assert.equal(response.status, 400);

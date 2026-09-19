@@ -57,8 +57,18 @@ test("format rejects a minimum portion above the maximum", () => {
 });
 
 test("format rejects out-of-range totals", () => {
-  assert.equal(scriptFormatSchema.safeParse({ totalSeconds: 30 }).success, false);
+  assert.equal(scriptFormatSchema.safeParse({ totalSeconds: 5 }).success, false);
   assert.equal(scriptFormatSchema.safeParse({ totalSeconds: 3600 }).success, false);
+});
+
+test("format accepts a tiny 20-second test jam of 5-second portions", () => {
+  const format = scriptFormatSchema.parse({
+    totalSeconds: 20,
+    portionMinSeconds: 5,
+    portionMaxSeconds: 5,
+  });
+  assert.equal(format.totalSeconds, 20);
+  assert.equal(scriptFormatSchema.safeParse({ totalSeconds: 8 }).success, false);
 });
 
 test("format rejects combinations needing more than 48 portions", () => {

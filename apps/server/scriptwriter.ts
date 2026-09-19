@@ -8,12 +8,21 @@ import {
 } from "../../src/core/scriptDraft";
 import { completeJson, NebiusError, type NebiusConfig } from "./providers/nebius";
 
-const MAX_COMPLETION_TOKENS = 4000;
 const ATTEMPTS = 2;
 
-export function buildSystemPrompt(format: ScriptFormat): string {
+export function expectedPortions(format: ScriptFormat): number {
   const averagePortion = (format.portionMinSeconds + format.portionMaxSeconds) / 2;
-  const portionTarget = Math.max(2, Math.round(format.totalSeconds / averagePortion));
+  return Math.max(2, Math.round(format.totalSeconds / averagePortion));
+}
+
+// Scale the completion budget with the script's size instead of paying a flat
+// worst case: a tiny test jam needs far fewer tokens than a 48-portion epic.
+export function completionTokenBudget(format: ScriptFormat): number {
+  return Math.min(8000, 800 + expectedPortions(format) * 260);
+}
+
+export function buildSystemPrompt(format: ScriptFormat): string {
+  const portionTarget = expectedPortions(format);
   const portionLow = Math.max(2, portionTarget - 2);
   const portionHigh = portionTarget + 2;
   const sceneLow = Math.max(1, Math.round(portionTarget / 4));
@@ -64,7 +73,7 @@ export async function writeJamScript(
       raw = await completeJson(config, {
         system: buildSystemPrompt(format),
         user,
-        maxTokens: MAX_COMPLETION_TOKENS,
+        maxTokens: completionTokenBudget(format),
       });
     } catch (error) {
       if (error instanceof NebiusError) {

@@ -18,6 +18,7 @@ import { turnsOf } from "./results";
 import { SearchTranscript, turnRow } from "./SearchTranscript";
 import { TurnFilms } from "./TurnFilms";
 import { useHoverPreview } from "./useHoverPreview";
+import { useNarrow } from "./useNarrow";
 import { useRows, type Row } from "./useRows";
 import { useSearch } from "./useSearch";
 import { useViewport } from "./useViewport";
@@ -37,6 +38,16 @@ export const INVITATION = "What do you feel like watching?";
 const NOT_A_REQUEST = "Say a little more: a film’s name, a genre, a mood.";
 
 /**
+ * What the field invites, in three states. A phone's field is a third of a television's, and a
+ * sentence that reads well across a room is cut mid-word there, so it has its own shorter words
+ * rather than the same ones trimmed by the browser.
+ */
+const PLACEHOLDERS = {
+  wide: { resting: "Name a film, or say what you’re in the mood for…", answering: "Answer, or ask for something else…", narrowing: "Narrow it down, or ask for something else…" },
+  phone: { resting: "A film, or a mood…", answering: "Answer, or ask again…", narrowing: "Narrow it down…" },
+} as const;
+
+/**
  * Finding something to watch, as a conversation. It opens on one line, the field and the
  * microphone, and no films: nothing is shown until the viewer has asked for something. Each
  * message then becomes a block: what was said, what came back, and the films that answer it.
@@ -50,6 +61,7 @@ const NOT_A_REQUEST = "Say a little more: a film’s name, a genre, a mood.";
  */
 export function SearchScreen({ film, searchRequest, onOpenFilm, onCloseFilm, onStartJam }: SearchScreenProps) {
   const search = useSearch();
+  const narrow = useNarrow();
   useViewport();
   const { refinement, conversation, pending, waiting } = search;
   const [draft, setDraft] = useState("");
@@ -208,7 +220,8 @@ export function SearchScreen({ film, searchRequest, onOpenFilm, onCloseFilm, onS
 
   const filmsOnScreen = blocks.some((block) => (block.answer?.results.titles.length ?? 0) > 0) || (pendingShown && (heard.titles?.length ?? 0) > 0);
   const openFilmId = film && "id" in film ? film.id : null;
-  const placeholder = !started ? "Name a film, or say what you’re in the mood for…" : answering ? "Answer, or ask for something else…" : "Narrow it down, or ask for something else…";
+  const invitations = PLACEHOLDERS[narrow ? "phone" : "wide"];
+  const placeholder = !started ? invitations.resting : answering ? invitations.answering : invitations.narrowing;
 
   return (
     <>

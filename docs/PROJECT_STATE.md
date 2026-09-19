@@ -339,6 +339,34 @@ remain unproven until `scripts/verify-realtime.mjs` completes against the migrat
   `GET /auth/v1/user` `403` → local sign-out → anonymous signup `200` →
   `POST /rest/v1/jams` `201`. `pnpm typecheck` and `pnpm test` (157 passing).
 
+## 2026-09-19 — Script screen actions specified (RV-12)
+
+- `docs/specs/script-screen-actions.md` records the goal and boundary of the three
+  script-screen actions: **Open the studio** (enter the collaborative room), **Open as
+  markdown** (the shared, unpersonalized screenplay export), and **Start my session** (a
+  personal playback seat on the same script).
+- It states the one mental model behind them — one authoritative script and one collaborative
+  room per jam, where a session is a participant's **seat in that same room** carrying only
+  per-participant overrides — and repeats the standing gap: a session records and exposes
+  playback parameters only; translated or re-ambiented rendering, and per-session generated
+  media, are not implemented.
+- `docs/DECISIONS.md` records that session-as-room-seat model, including the current gap that
+  the owner-token playback session and Supabase `jam_members` membership are still separate
+  records that do not imply one another.
+- It also records the intended (not implemented) direction: **Open as markdown** becomes the
+  door to an editable script **version**, and the screenplay is revised through a **chat** on
+  this screen, appended as versions rather than overwriting the shared script.
+- `docs/specs/configuration-keyed-streams.md` records the intended playback economics: generate
+  **one stream per distinct configuration**, not per participant; cap the number of distinct
+  configurations the server holds; and, when the cap is full, show the active configurations so
+  participants **attach** to an existing one instead of triggering new paid generation.
+- `docs/specs/intended-vs-implemented.md` is the register that separates actual behaviour from
+  intended, with code anchors: the copy-to-version step, chat editing, session/room-membership
+  unification, Supabase-backed session persistence and configuration-keyed streams have **no
+  code** (or no wiring), and the script/session routes are local Express only, not Vercel
+  functions.
+- Documentation only; no code or runtime behaviour changed.
+
 ## 2026-09-19 — Live-project verification: 27/27
 
 - Before the rerun, one anonymous RPC call showed the hosted database still ran the old
@@ -427,6 +455,27 @@ project (it was applied by hand, so no tracking table records it). Each run of
 - **Not covered by automated tests:** the DOM wiring (focus, scrolling, pager hand-off). The test
   suite has no DOM, so `gridMove` is tested directly and the wiring was checked in the browser.
 
+## 2026-09-19 — A shared, server-anchored playback clock
+
+- The Studio now shows a room-wide counter that every participant derives from one server
+  anchor. The host starts, pauses or resets it; the database stamps the anchor with its own
+  `now()`, so two viewers can compare positions and agree. This is the coordination layer a
+  synchronized player needs, without yet deciding what the player renders.
+- Position is derived, never a mutable counter: `elapsedMs = paused_elapsed_ms + (now() -
+  started_at)` while playing, `paused_elapsed_ms` otherwise. The payload carries `serverNow`,
+  so a browser corrects for skew by anchoring to `elapsedMs` and advancing with its own
+  monotonic clock (`performance.now()`) — no participant's wall clock can move the room.
+- New `jam_playback` table (RLS on, no policies) plus `get`/`start`/`pause`/`reset` security
+  definer RPCs. Reads are limited to active members and the host; only the host may control
+  it. A redundant start is a no-op and never moves the anchor.
+- Client: `src/core/playbackClock.ts` (pure derivation), `src/lib/playback.ts` (RPCs),
+  `src/screens/usePlaybackClock.ts` (2.5s poll + local tick), `src/screens/PlaybackBar.tsx`.
+  Polling is the documented interim transport; the contract is Realtime events.
+- Verified live in two browsers on the local stack: both showed `0:05` at the same moment,
+  tracked `0:12 → 0:19` together, and froze together at `0:25` on pause before resetting to
+  `0:00`. `pnpm verify:realtime` now includes 7 clock checks (34/34 passing); `pnpm typecheck`,
+  `pnpm test` (166 passing) and `pnpm build` all pass. What the player shows remains undecided.
+
 ## 2026-09-19 — Discover refines: shortlist, rank, "not this one"
 
 - Discover now narrows as the viewer states what they want. A rail of chips sits between the
@@ -456,7 +505,7 @@ project (it was applied by hand, so no tracking table records it). Each run of
   returns only the mapped columns plus `original_language`, at most 48 rows. A refined Discover
   reads one ranked shortlist of 48 instead of paging; the unrefined browse and search are the
   same call as before.
-- Verified: `pnpm test` (293/293, including row-to-candidate mapping, the scorer, constraint
+- Verified: `pnpm test` (293/293 on this slice, 302/302 after merging the playback clock; including row-to-candidate mapping, the scorer, constraint
   push-down into the RPC body and the migration, chip grounding and rejection), `pnpm typecheck`,
   `pnpm build`. The migration was applied by hand in the SQL Editor; `pnpm verify:shortlist`
   against the live project: 27,839 → 4,055 with "something scary" → 3,902 with "under two hours"

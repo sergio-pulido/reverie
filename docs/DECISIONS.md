@@ -1,5 +1,31 @@
 # Decisions
 
+## 2026-09-19 — Generated streams are keyed by configuration, and a cap makes the room attach
+
+Per-participant overrides select a configuration (today `language` + `ambientation`), and Reverie
+generates **one stream per distinct configuration present in the room**, not one per participant:
+two sessions with the same configuration receive the same stream. To keep paid generation and
+storage from scaling with headcount, the server caps how many distinct configurations are held at
+once. When the cap is full, a participant whose configuration is not active is shown the active
+configurations and **attaches to one** instead of triggering a new generation. The cap is a
+budget control in the same family as the provider model allowlist and the concurrency gate; it
+must never silently fall back to a mock or generate outside the budget. This is intended, not
+implemented: the cap value, eviction policy, configuration-key normalization, and whether
+attaching rewrites session settings remain unspecified. See
+`docs/specs/configuration-keyed-streams.md`.
+
+## 2026-09-19 — A session is a seat in the collaborative room, with per-participant overrides
+
+A jam has one collaborative room and one authoritative script; a `jam_sessions` record is a
+participant's seat **in that same room**, not a separate playback space. The session carries
+only per-participant overrides (`language`, `ambientation`) layered on the common behaviour, so
+everyone still collaborates on the same shared activity. This refines "A jam session is one
+user's playback seat" below: the variation is still stored and never forked into the script, but
+the seat is understood to sit *inside* the shared room rather than beside it. Implementation gap:
+the playback session (owner-token `JamSession`) and room membership (Supabase `jam_members`) are
+currently separate records, and creating a session does not admit the participant. Unifying the
+two is a design task, not shipped behaviour.
+
 ## 2026-09-19 — A draft that misses the runtime is corrected on the next attempt
 
 The scriptwriter no longer sends the same prompt twice and then reports a fit failure. When a draft is outside the rescalable window, its actual total seconds, portion count, and whether it ran long or short are fed back into the next attempt together with the feasible portion band for the jam's target, so the retry is a directed correction. The same applies to a reply that fails the draft shape: the exact JSON shape is restated. Attempts stay bounded at four paid completions because each one costs money and the concurrency gate is the only other spend control; only after that cap does the fit miss become the typed, retryable `generation_failed` that a room can retry. The 0.8×–1.25× rescale window is unchanged — a draft too far off is still never silently stretched.
@@ -282,6 +308,24 @@ of the 1.5M rows is left out: it costs storage and index time and would never be
   that TMDB's terms require wherever its data or images appear.
 - **Separation is unchanged.** Catalogue rows keep their TMDB ids behind the `cat:` namespace and
   their own table and schema. They are never merged with generated Movie Jam artifacts.
+
+## 2026-09-19 — The room's shared position is derived, not stored
+
+A synchronized player needs one thing before it needs a video element: a single position the
+whole room agrees on. Storing a counter and incrementing it would drift the moment two writers
+raced or a tab slept. Instead the database stores only an anchor — `started_at` while playing
+plus the `paused_elapsed_ms` accumulated before it — and every reader derives the position as
+`paused_elapsed_ms + (now() - started_at)`. Pausing freezes the derivation into
+`paused_elapsed_ms` and clears the anchor; a check constraint keeps the two consistent.
+
+The payload includes the server's own `serverNow`. A browser cannot trust its wall clock (it
+may be minutes off) but it can trust the *difference* between two of its own monotonic
+readings, so it anchors to the server's `elapsedMs` and advances with `performance.now()`.
+That is why two viewers show the same counter without any clock synchronization protocol.
+Polling every 2.5s is deliberately an interim transport isolated to one named constant; the
+documented contract is `portion.locked`/`media.*` events over Realtime, and this slice must
+not be built on as if polling were the contract. The clock is room-wide, not per user session:
+the existing `jam_sessions` remain language/ambientation skins over the one shared script.
 
 ## 2026-09-19 — Discover refinement is filtered in SQL and ranked by the engine
 

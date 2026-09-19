@@ -4,11 +4,8 @@ import {
   MAX_FRAME_PIXELS,
   MIN_FRAME_PIXELS,
 } from "../../src/core/likeness";
-import {
-  MediaStorageError,
-  resolveObjectStorageConfig,
-  type ObjectStorageConfig,
-} from "./objectStorage";
+import { MediaStorageError } from "./objectStorage";
+import { resolvePrivateObjectStore, type PrivateObjectStore } from "./privateObjects";
 
 /**
  * Where an approved frame lives, and what counts as one.
@@ -21,9 +18,6 @@ import {
  * caller of this module has already asked it.
  */
 
-const UPLOAD_TIMEOUT_MS = 30_000;
-/** Bounded so a long-running local server cannot grow without limit. */
-const MAX_IN_MEMORY_FRAMES = 16;
 /** A reference is `likeness:<uuid>`; only that shape can address an object. */
 const SAFE_REF = /^likeness:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -114,129 +108,24 @@ export function checkFrame(
   return { ok: true, dimensions };
 }
 
-export interface StoredFrame {
-  bytes: Buffer;
-  contentType: string;
-  storedAt: string;
-}
-
-export interface FrameStore {
-  /** Honest, and reported to the room: without it a frame is lost on restart. */
-  readonly durable: boolean;
-  put(jamId: string, assetRef: string, bytes: Buffer, contentType: string): Promise<void>;
-  get(jamId: string, assetRef: string): Promise<StoredFrame | null>;
-  /** Called when a grant ends. A frame outliving its consent is the thing to avoid. */
-  discard(jamId: string, assetRef: string): Promise<void>;
-}
-
-function objectName(assetRef: string): string {
+/**
+ * The object name behind a reference.
+ *
+ * Only the shape the register's trigger issues can address a frame, so a reference that came
+ * from anywhere else cannot name an object at all.
+ */
+export function frameObjectName(assetRef: string): string {
   if (!SAFE_REF.test(assetRef)) {
     throw new MediaStorageError("That reference cannot address a frame.", false);
   }
   return assetRef.slice("likeness:".length);
 }
 
-export class InMemoryFrameStore implements FrameStore {
-  readonly durable = false;
-  private readonly frames = new Map<string, StoredFrame>();
+/** Frames live under their own prefix in the private bucket, beside nothing else. */
+export const FRAME_PREFIX = "likeness";
+/** Bounded so a long-running local server cannot grow without limit. */
+export const MAX_IN_MEMORY_FRAMES = 16;
 
-  constructor(private readonly clock: () => Date = () => new Date()) {}
-
-  async put(jamId: string, assetRef: string, bytes: Buffer, contentType: string): Promise<void> {
-    const key = `${jamId}/${objectName(assetRef)}`;
-    if (!this.frames.has(key) && this.frames.size >= MAX_IN_MEMORY_FRAMES) {
-      const oldest = this.frames.keys().next().value;
-      if (oldest) this.frames.delete(oldest);
-    }
-    this.frames.set(key, { bytes, contentType, storedAt: this.clock().toISOString() });
-  }
-
-  async get(jamId: string, assetRef: string): Promise<StoredFrame | null> {
-    return this.frames.get(`${jamId}/${objectName(assetRef)}`) ?? null;
-  }
-
-  async discard(jamId: string, assetRef: string): Promise<void> {
-    this.frames.delete(`${jamId}/${objectName(assetRef)}`);
-  }
-}
-
-/**
- * The private bucket, reached with the service-role key this host holds. No signed URL is
- * ever minted: the bytes are read here and served by our own route, so there is no address
- * for a participant's face that outlives the room's authorization checks.
- */
-export class SupabaseFrameStore implements FrameStore {
-  readonly durable = true;
-  private readonly fetchImpl: typeof fetch;
-
-  constructor(
-    private readonly config: ObjectStorageConfig,
-    options: { fetchImpl?: typeof fetch } = {},
-  ) {
-    this.fetchImpl = options.fetchImpl ?? fetch;
-  }
-
-  async put(jamId: string, assetRef: string, bytes: Buffer, contentType: string): Promise<void> {
-    const response = await this.request("POST", this.path(jamId, assetRef), {
-      headers: { "content-type": contentType, "x-upsert": "true" },
-      body: new Uint8Array(bytes),
-    });
-    if (!response.ok) {
-      throw new MediaStorageError("That frame could not be stored.", response.status >= 500);
-    }
-  }
-
-  async get(jamId: string, assetRef: string): Promise<StoredFrame | null> {
-    const response = await this.request("GET", this.path(jamId, assetRef), {});
-    if (response.status === 404) return null;
-    if (!response.ok) {
-      throw new MediaStorageError("That frame could not be read.", response.status >= 500);
-    }
-    return {
-      bytes: Buffer.from(await response.arrayBuffer()),
-      contentType: response.headers.get("content-type") ?? "image/jpeg",
-      storedAt: response.headers.get("last-modified") ?? new Date().toISOString(),
-    };
-  }
-
-  async discard(jamId: string, assetRef: string): Promise<void> {
-    // A frame that is already gone is the state we wanted; only a real failure is raised.
-    const response = await this.request("DELETE", this.path(jamId, assetRef), {});
-    if (!response.ok && response.status !== 404) {
-      throw new MediaStorageError("That frame could not be discarded.", response.status >= 500);
-    }
-  }
-
-  private path(jamId: string, assetRef: string): string {
-    if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(jamId)) {
-      throw new MediaStorageError("That id cannot address a frame.", false);
-    }
-    return `/storage/v1/object/${this.config.bucket}/likeness/${jamId}/${objectName(assetRef)}`;
-  }
-
-  private async request(
-    method: string,
-    path: string,
-    options: { headers?: Record<string, string>; body?: BodyInit },
-  ): Promise<Response> {
-    try {
-      return await this.fetchImpl(`${this.config.url}${path}`, {
-        method,
-        headers: {
-          apikey: this.config.serviceRoleKey,
-          authorization: `Bearer ${this.config.serviceRoleKey}`,
-          ...options.headers,
-        },
-        body: options.body,
-        signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
-      });
-    } catch {
-      throw new MediaStorageError("Frame storage could not be reached.", true);
-    }
-  }
-}
-
-export function resolveFrameStore(env: NodeJS.ProcessEnv = process.env): FrameStore {
-  const config = resolveObjectStorageConfig(env);
-  return config ? new SupabaseFrameStore(config) : new InMemoryFrameStore();
+export function resolveFrameStore(env: NodeJS.ProcessEnv = process.env): PrivateObjectStore {
+  return resolvePrivateObjectStore(FRAME_PREFIX, MAX_IN_MEMORY_FRAMES, env);
 }

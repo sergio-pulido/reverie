@@ -106,6 +106,8 @@ export class DirectorStreamRegistry {
 export interface DirectorRouterOptions {
   config?: DirectorConfig | null;
   limits?: DirectorSessionLimits;
+  /** Supplied so several routers can reserve against one shared fal budget. */
+  ledger?: DirectorSessionLedger;
   recordings?: DirectorRecordingStore;
   registry?: DirectorStreamRegistry;
   startSession?: typeof startDirectorSession;
@@ -122,7 +124,7 @@ export function createDirectorRouter(
 ): Router {
   const router = express.Router();
   const limits = options.limits ?? resolveDirectorLimits(process.env);
-  const ledger = new DirectorSessionLedger(limits, options.now);
+  const ledger = options.ledger ?? new DirectorSessionLedger(limits, options.now);
   const recordings = options.recordings ?? resolveDirectorRecordingStore();
   const streams = options.registry ?? new DirectorStreamRegistry();
   /** Viewer peers, closed when the server tears down a session. */

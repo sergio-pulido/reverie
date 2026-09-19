@@ -103,6 +103,22 @@ export function decideFrameAccess(
 }
 
 /**
+ * Whether this caller may discard the frame behind one consent.
+ *
+ * Deliberately not the same rule as reading it. A withdrawal is exactly when the frame
+ * should stop existing, so a grant that has ended is the normal case here rather than a
+ * refusal — but it is still only ever the owner's own grant.
+ */
+export function decideFrameDiscard(
+  consent: LiveConsent,
+  callerId: string,
+): { allowed: true } | { allowed: false; reason: LikenessRefusal } {
+  if (!isLikenessConsent(consent)) return { allowed: false, reason: "not_a_likeness_consent" };
+  if (consent.owner_id !== callerId) return { allowed: false, reason: "not_yours" };
+  return { allowed: true };
+}
+
+/**
  * What one finished beat used.
  *
  * Recorded when the beat was generated and never rewritten. A beat is a thing that happened:

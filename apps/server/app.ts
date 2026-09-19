@@ -9,6 +9,9 @@ import voiceTranscribe from "../../api/voice/transcribe";
 import { createJamsRouter, InMemoryJamStore, type JamStore } from "./jams";
 import { createDirectorRouter, DirectorStreamRegistry } from "./director";
 import { createSessionsRouter } from "./sessions";
+import { createLikenessRouter } from "./likeness";
+import { resolveFalBudget } from "./falBudget";
+import { resolveDirectorLimits, DirectorSessionLedger } from "./directorSessions";
 
 /**
  * API wiring shared by the real server and tests. Order matters: the JSON
@@ -42,6 +45,9 @@ export function createApiApp(store: JamStore = new InMemoryJamStore()): Express 
   // beat, and the script routes refuse an edit to the same portion. Two
   // answers to one question would be worse than either alone.
   const streams = new DirectorStreamRegistry();
+  // One budget for everything this process buys from fal. The director's ledger and beat
+  // generation reserve against the same total, so the stated budget is the real one.
+  const budget = resolveFalBudget();
   app.use(
     createJamsRouter(store, (jamId) => ({
       minEditablePortionIndex: streams.minEditablePortionIndex(jamId),
@@ -49,7 +55,13 @@ export function createApiApp(store: JamStore = new InMemoryJamStore()): Express 
     })),
   );
   app.use(createSessionsRouter(store));
-  app.use(createDirectorRouter(store, { registry: streams }));
+  app.use(
+    createDirectorRouter(store, {
+      registry: streams,
+      ledger: new DirectorSessionLedger(resolveDirectorLimits(process.env), undefined, budget),
+    }),
+  );
+  app.use(createLikenessRouter(store, { budget }));
   app.use("/api", (_request, response) => {
     response.status(404).json({ code: "NOT_FOUND", safeMessage: "API route not found." });
   });

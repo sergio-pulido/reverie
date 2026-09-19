@@ -71,7 +71,32 @@ until the versioned scene contract below is implemented.
 | `POST /api/jams/:id/forks` | Fork from a declared past scene version |
 | `POST /api/jams/:id/close` | Close a room and release active resources |
 
+| `POST /api/jams/:id/playback/start` | Host-only: lock portion 0, request its video, enter `priming` |
+| `POST /api/jams/:id/playback/advance` | Host-only: move playback to the next portion once its video is ready |
+| `GET /api/jams/:id/playback` | Read playback state: current/locked portion indices, per-portion media status |
+| `GET /api/jams/:id/portions/:index/video` | Stream a generated portion clip (HTTP Range, `video/mp4`); server-hosted, never a provider URL |
+
 `POST /api/jams` accepts an optional `format` object (`totalSeconds`, `portionMinSeconds`, `portionMaxSeconds`); omitted fields default to a 4-minute script of 10–20 second portions. The jam stores its format and all generation and validation follow it.
+
+## Portion playback, locking, and video generation
+
+Portions are addressed by a zero-based global `portionIndex` in flattened scene order (the markdown label `Portion 2.1` is a render of that order, not the address). The structured script (scenes → portions) is the editing source of truth; markdown revisions are deterministic renders of it (coordination ruling, 2026-09-19 — mechanism agreed with jam-storage before either side implements).
+
+**Lock window.** Server-owned playback state on the jam: `playback: { status: "idle" | "priming" | "playing" | "finished", currentPortionIndex, stateVersion }`. Derived rules, never stored per portion:
+
+- `portionIndex <= currentPortionIndex`: immutable (played or playing).
+- `portionIndex == currentPortionIndex + 1` (or `0` while `priming`): **locked** — the generation buffer. Its text is pinned at the script revision current at lock time.
+- `portionIndex >= currentPortionIndex + 2`: freely editable.
+
+Any script edit that changes a portion at or below the locked index is rejected with `portion_locked` (`retryable: false`, includes the locked index and current `stateVersion`). Edits to later portions succeed as normal revisions.
+
+**Advance rule.** `playback.advance` (host-only, `expectedStateVersion`-guarded) moves the cursor forward by exactly one portion, and only when the locked portion's video is `ready`; otherwise it fails with `media_not_ready` (`retryable: true`) and the room holds on the current portion (`media.delayed`). On a successful advance the next portion is locked, its text pinned, and its generation job enqueued — the pipeline stays exactly one portion ahead. Skipping is not expressible in the API.
+
+**Generation jobs.** Locking a portion enqueues one job: `queued → submitted → generating → downloading → ready | failed` (`failed` carries `retryable`). Jobs are keyed by `(jamId, portionIndex, pinnedRevision)` and idempotent. The clip duration target is the portion's `durationSeconds` (within the jam format's hard bounds). Late provider output after `room.closed` or a superseding revert is discarded. Events: `portion.locked`, `media.requested`, `media.ready`, `media.delayed`.
+
+**fal.ai boundary.** Calls go through a typed adapter in `apps/server/providers/fal.ts` behind `REVERIE_LIVE_ENABLED` and `FAL_KEY`, with a server-owned model allowlist (`FAL_MODEL` may only select from it), bounded generation concurrency, and per-jam clip-count and spend caps. The adapter is not claimed live until a dated probe receipt is recorded. Clients never receive fal URLs or request bodies.
+
+**Delivery.** The server downloads each finished clip into its own storage and serves it at `GET /api/jams/:id/portions/:index/video` with Range support. Storage limits: at most `MAX_PORTIONS` (48) clips per jam, a per-clip size cap, and eviction of all clips on jam close or store eviction.
 
 ## Planned Supabase mutation and Realtime contracts
 
@@ -81,7 +106,7 @@ Commands: `chat.send`, `proposal.create`, `vote.cast`, `room.open`, `room.start`
 
 Multimodal commands: `reference.upload.request`, `reference.upload.complete`, `reference.intent.set`, `liveMedia.join`, `liveMedia.leave`, `liveMedia.consent.set`, `broadcast.start`, `broadcast.stop`, and `archive.request`. A reference descriptor includes its owner, source type, declared purpose, lifetime, consent state, and a server-issued asset reference; it never accepts a browser-supplied provider URL.
 
-Events: `room.snapshot`, `member.joined`, `member.waiting`, `member.admitted`, `presence.updated`, `transcript.partial`, `transcript.final`, `reference.ready`, `liveMedia.state`, `proposal.created`, `vote.updated`, `scene.processing`, `story.updated`, `artifact.updated`, `media.requested`, `media.ready`, `media.delayed`, `room.closed`, and `error`.
+Events: `room.snapshot`, `member.joined`, `member.waiting`, `member.admitted`, `presence.updated`, `transcript.partial`, `transcript.final`, `reference.ready`, `liveMedia.state`, `proposal.created`, `vote.updated`, `scene.processing`, `story.updated`, `artifact.updated`, `portion.locked`, `media.requested`, `media.ready`, `media.delayed`, `room.closed`, and `error`.
 
 ## Ordering and errors
 

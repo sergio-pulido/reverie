@@ -219,6 +219,115 @@ describe("the room shows where it is in its life", () => {
     }
   });
 
+  it("entering a room that is playing hands over the film, not a button", async () => {
+    // The whole point of arriving: the room is watching something, so this
+    // screen shows it. Nobody presses anything to be let in, and the control
+    // that would open a second paid take is not pressable.
+    const original = globalThis.fetch;
+    const json = (body: unknown, status = 200) =>
+      new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+    const state = {
+      status: "streaming",
+      appliedPromptVersion: 1,
+      sentPromptVersion: 1,
+      chunksReceived: 6,
+      generatedSeconds: 12,
+      scriptOffsetSeconds: null,
+      endedReason: null,
+      error: null,
+    };
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(typeof input === "string" ? input : input.toString());
+      if (url.endsWith(`/api/jams/${JAM}`)) return json({ jam: { lifecycle: "playing" } });
+      if (url.endsWith(`/api/jams/${JAM}/director/session`) && init?.method === "POST") {
+        // The server's answer to an arrival: the take this room already has,
+        // joined rather than opened. `attached` is what says so.
+        return json({
+          sessionId: "sess-running",
+          viewerId: "viewer-2",
+          attached: true,
+          liveDelivery: true,
+          recordingDurable: true,
+          maxSessionSeconds: 120,
+          lifecycle: "playing",
+          state,
+          beats: null,
+          spend: {
+            budgetUsd: 20,
+            usdPerSecond: 0.08,
+            minBilledSeconds: 60,
+            sessionUsd: 1.6,
+            remainingUsd: 18.4,
+          },
+        });
+      }
+      if (url.endsWith("/director/session/sess-running")) {
+        return json({ state, beats: null, audit: [], spend: null });
+      }
+      return json({});
+    }) as typeof fetch;
+
+    try {
+      await render(<JamDirector jamId={JAM} configuration={DEFAULT_CONFIGURATION} />);
+      await settle();
+
+      assert.ok(
+        document.querySelector('[data-testid="jam-director-live"]'),
+        "the room's stream is on screen without being asked for",
+      );
+      const play = document.querySelector<HTMLButtonElement>('[data-testid="jam-director-play"]');
+      assert.equal(play?.disabled, true, "there is nothing here to press");
+      assert.match(play?.textContent ?? "", /Playing/);
+      assert.equal(badge(), "PLAYING");
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("offers nothing until the room has said whether it is playing", async () => {
+    // The moment between opening the room and the server answering. Play here
+    // would be an offer to open a second paid take of a film this screen may
+    // be about to be handed, so the offer waits for the answer.
+    const original = globalThis.fetch;
+    const json = (body: unknown, status = 200) =>
+      new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+    // A holder rather than a bare variable: TypeScript narrows one assigned
+    // only inside a closure to `never` at the call site.
+    const held: { answer?: (response: Response) => void } = {};
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(typeof input === "string" ? input : input.toString());
+      if (url.endsWith(`/api/jams/${JAM}`)) return json({ jam: { lifecycle: "live" } });
+      if (url.endsWith(`/api/jams/${JAM}/director/session`) && init?.method === "POST") {
+        return new Promise<Response>((resolve) => {
+          held.answer = resolve;
+        });
+      }
+      return json({});
+    }) as typeof fetch;
+
+    try {
+      await render(<JamDirector jamId={JAM} configuration={DEFAULT_CONFIGURATION} />);
+      await settle();
+      const play = document.querySelector<HTMLButtonElement>('[data-testid="jam-director-play"]');
+      assert.equal(play?.disabled, true, "nothing is offered before the room has answered");
+      assert.match(play?.textContent ?? "", /Joining/);
+
+      // The room answers that nothing is running, and Play becomes the offer.
+      held.answer?.(
+        json(
+          { error: { code: "no_stream", safeMessage: "Nobody is streaming.", retryable: true } },
+          404,
+        ),
+      );
+      await settle();
+      const offered = document.querySelector<HTMLButtonElement>('[data-testid="jam-director-play"]');
+      assert.equal(offered?.disabled, false);
+      assert.match(offered?.textContent ?? "", /Play/);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it("says what a take will commit before anybody presses Play", async () => {
     const original = globalThis.fetch;
     globalThis.fetch = (async (input: RequestInfo | URL) => {

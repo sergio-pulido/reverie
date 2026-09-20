@@ -321,4 +321,24 @@ export class DirectorSessionLedger {
     }
     return undefined;
   }
+
+  /**
+   * The take this room is running, whatever configuration opened it.
+   *
+   * A stream key is `<jamId>:<configurationKey>`, and which configuration a
+   * take runs under is the room's history rather than the arriving viewer's
+   * choice: somebody who walks in has no way to know it and, before this,
+   * could not see the film the room was watching. The oldest is the answer
+   * when a room somehow holds more than one, so every arrival joins the same
+   * one rather than being sorted by map order.
+   */
+  findByJam(jamId: string): OpenSession | undefined {
+    this.expireIdle();
+    let running: OpenSession | undefined;
+    for (const session of this.sessions.values()) {
+      if (!session.streamKey.startsWith(`${jamId}:`)) continue;
+      if (!running || session.startedAt < running.startedAt) running = session;
+    }
+    return running;
+  }
 }

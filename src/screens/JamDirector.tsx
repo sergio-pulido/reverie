@@ -79,6 +79,15 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
   const detach = useRef<(() => void) | null>(null);
   const [beats, setBeats] = useState<DirectorBeatWindow | null>(null);
   const [attached, setAttached] = useState(false);
+  /**
+   * Looking for the take this room is already running.
+   *
+   * Entering a room asks the server what it is playing, and until that
+   * answers, whether there is anything to join is unknown. Play is not offered
+   * in that moment: it would offer to open — and pay for — a second take of
+   * the film the room may already be watching.
+   */
+  const [joining, setJoining] = useState(true);
   const [viewerId, setViewerId] = useState<string | null>(null);
   const [liveDelivery, setLiveDelivery] = useState(false);
   const [playbackFailure, setPlaybackFailure] = useState<string | null>(null);
@@ -202,10 +211,10 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
   useEffect(() => {
     if (sessionId) return;
     let cancelled = false;
-    let joining = false;
+    let inFlight = false;
     const join = async () => {
-      if (joining || starting.current) return;
-      joining = true;
+      if (inFlight || starting.current) return;
+      inFlight = true;
       try {
         const opened = await attachDirectorSession(jamId, configuration);
         if (cancelled) {
@@ -220,9 +229,12 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
         }
         adopt(opened);
       } catch {
-        // `no_stream` is the ordinary answer before the host presses start.
+        // `no_stream` is the ordinary answer before somebody presses Play.
       } finally {
-        joining = false;
+        inFlight = false;
+        // Answered, either way: the room has said whether it is playing, so
+        // this screen can stop holding its offer back.
+        if (!cancelled) setJoining(false);
       }
     };
     void join();
@@ -525,7 +537,7 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
       )}
       {!live && !recording && (
         <p className="player-placeholder">
-          {filmNotice ?? placeholder(state, live, lifecycle)}
+          {filmNotice ?? placeholder(state, live, lifecycle, joining)}
         </p>
       )}
     </div>
@@ -545,7 +557,7 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
     {relayFailure ? <Notice tone="status">{relayFailure}</Notice> : null}
 
     <p className="form-note" aria-live="polite" data-testid="jam-director-status">
-      {statusLine(state, live, busy, lifecycle)}
+      {statusLine(state, live, busy, lifecycle, joining)}
     </p>
     {live && beats && <BeatWindow beats={beats} attached={attached} />}
 
@@ -561,15 +573,27 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
       * Play; once it is running the only thing worth pressing — and the one
       * that stops the per-second bill — is Stop, so Stop is what the eye lands
       * on and Play recedes to a disabled label saying what is happening.
+      *
+      * Entering the room is the third case. Until the server has said what
+      * this room is playing there is no offer to make: a room that is already
+      * playing should hand you the film, and a Play pressed in that moment
+      * would have opened a second paid take of it.
       */}
     <div className="hero-actions">
       <button
-        className={live ? "button button-quiet" : "button button-primary"}
+        className={live || joining ? "button button-quiet" : "button button-primary"}
         onClick={() => void start()}
-        disabled={busy || live}
+        disabled={busy || live || joining}
         data-testid="jam-director-play"
       >
-        {busy && !live ? "Starting…" : live ? "Playing" : "Play"} <span>▶</span>
+        {busy && !live
+          ? "Starting…"
+          : live
+            ? "Playing"
+            : joining
+              ? "Joining…"
+              : "Play"}{" "}
+        <span>▶</span>
       </button>
       <button
         className={live ? "button button-primary" : "button button-quiet"}
@@ -692,11 +716,20 @@ function badge(
   return lifecycleLabel(lifecycle).toUpperCase();
 }
 
-function placeholder(state: DirectorState, live: boolean, lifecycle: JamLifecycle): string {
+function placeholder(
+  state: DirectorState,
+  live: boolean,
+  lifecycle: JamLifecycle,
+  joining: boolean,
+): string {
   if (state.status === "failed") return "The stream stopped.";
   if (live) {
     return "The stream is running on the server and forwarded here as it is generated.";
   }
+  // Arriving. Whether this room is playing is a question the server has been
+  // asked and has not answered yet, and "nothing is streaming" is not the
+  // answer to give while it is still open.
+  if (joining) return "Looking for what this room is playing…";
   // A stopped room with nothing to show recorded nothing, which is worth
   // saying: the alternative reads as if the film were still loading.
   if (lifecycle === "ended") return "This take is over. Play to start the next one.";
@@ -716,8 +749,12 @@ function statusLine(
   live: boolean,
   busy: boolean,
   lifecycle: JamLifecycle,
+  joining: boolean,
 ): string {
   if (busy && !live) return "Opening the session with the provider…";
+  if (joining && !live) {
+    return "Joining this room: if it is already playing, its take opens here on its own.";
+  }
   if (busy && live) return "Stopping the take and closing the provider session…";
   if (live && state.status === "streaming") {
     return `Playing · ${formatClock(state.generatedSeconds)} generated across ${state.chunksReceived} chunk(s) · direction ${state.appliedPromptVersion} is on screen.`;

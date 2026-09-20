@@ -474,11 +474,23 @@ export function createDirectorRouter(
     }
     const configuration = attach.data?.configuration ?? DEFAULT_CONFIGURATION;
     const streamKey = `${jam.id}:${configurationKey(configuration)}`;
+    const attachOnly = attach.data?.attachOnly === true;
 
     // Everyone watching the same configuration shares one paid stream. A
     // second viewer attaches to it instead of opening — and paying for — a
     // second copy of the same film.
-    const existing = ledger.findByStreamKey(streamKey);
+    const matching = ledger.findByStreamKey(streamKey);
+    // Arriving in a room that is already playing joins the take it is playing,
+    // whatever configuration opened it. A viewer who never filled in the
+    // script form sends the default configuration, and the host who did send
+    // theirs; keying the arrival strictly meant those two never met, so the
+    // room told the second person nothing was streaming and offered them a
+    // button that would have opened a second paid take of the same film.
+    //
+    // Only an arrival resolves this loosely. A deliberate Play still keys on
+    // the configuration it was given, so a room can still hold one stream per
+    // distinct configuration (docs/specs/configuration-keyed-streams.md).
+    const existing = matching ?? (attachOnly ? ledger.findByJam(jam.id) : undefined);
     if (existing) {
       const open = streams.get(existing.sessionId);
       if (open) {
@@ -499,7 +511,7 @@ export function createDirectorRouter(
         });
         return;
       }
-      if (opening.has(streamKey)) {
+      if (opening.has(existing.streamKey)) {
         // The stream exists in the ledger and is mid-handshake. It is neither
         // attachable yet nor orphaned, and releasing it here would refund and
         // delete the reservation for a paid session that is about to go live —
@@ -516,19 +528,22 @@ export function createDirectorRouter(
       }
       // Ledger and stream map disagree and nothing is opening: the session is
       // not really serving anyone, so release it rather than attach a viewer to
-      // nothing.
-      ledger.release(existing.sessionId);
+      // nothing. Only the configuration this request actually asked for is
+      // released: tearing down another configuration's reservation is not an
+      // arriving viewer's call to make.
+      if (matching) ledger.release(existing.sessionId);
     }
 
-    if (attach.data?.attachOnly) {
-      // Nothing is running for this configuration and this caller may not start
-      // one. Retryable on purpose: a participant who opened the room before the
-      // host pressed start is early, not wrong.
+    if (attachOnly) {
+      // Nothing is running in this room at all — not under this configuration
+      // and not under any other — and this caller may not start one. Retryable
+      // on purpose: a participant who opened the room before somebody pressed
+      // Play is early, not wrong.
       sendError(
         response,
         404,
         "no_stream",
-        "Nobody is streaming this configuration yet.",
+        "Nobody is streaming in this room yet.",
         true,
       );
       return;

@@ -1,5 +1,30 @@
 # Decisions
 
+## 2026-09-20 — Arriving in a room joins the take it is playing (RV-29)
+
+Walking into a room that was already streaming showed a Play button and no film. The cause
+was the stream key: `apps/server/director.ts` resolves every session request against
+`<jamId>:<configurationKey>`, and an arriving viewer has no way to know which configuration
+the take runs under. The person who registered the jam has a stored session
+(`src/lib/jamConfiguration.ts`, `localStorage`) and sends its settings; the person who
+followed an invite has none and sends the default. The two never met, so the room told the
+second person nothing was streaming — and offered them a button whose one press would have
+opened a **second paid take** of the film the room was already watching.
+
+**An arrival resolves loosely; a deliberate Play does not.** `attachOnly` now falls back to
+`ledger.findByJam`, the take this room is running whatever configuration opened it. A Play
+press still keys on the configuration it was given, so a room can still hold one stream per
+distinct configuration and `docs/specs/configuration-keyed-streams.md` is unchanged. The
+orphan-release path stays keyed strictly too: tearing down another configuration's
+reservation is not an arriving viewer's call to make.
+
+**The screens hold their offer back until the room has answered.** Both director surfaces —
+`src/screens/JamDirector.tsx` and `src/director/useDirectorSession.ts` — attach on mount and
+poll every three seconds, and until the first attempt answers, whether there is anything to
+join is unknown. Play now reads "Joining…" and is not pressable in that window. It is a
+short window, but it is exactly the window somebody who has just opened the room is looking
+at, and the press it invited was the expensive one.
+
 ## 2026-09-20 — A finished film is read from the deployment, and the archive says why it is empty (RV-25)
 
 The archive routes were written to be portable -- plain reads of Supabase and Storage, with

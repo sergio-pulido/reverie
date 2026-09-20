@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { Readable } from "node:stream";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import discoverCritique from "../api/discover/critique";
 import discoverRank from "../api/discover/rank";
 import discoverTurn from "../api/discover/turn";
 import type { DiscoverEndpointOptions, Provider } from "../api/_lib/discover-http";
-import { rankResponseSchema, turnResponseSchema } from "../src/conversation/contract";
+import { critiqueResponseSchema, rankResponseSchema, turnResponseSchema } from "../src/conversation/contract";
 import { CATALOGUE_CONFIGURATION } from "../src/catalogue/domain";
 import { MAX_TURNS_PER_SESSION, type PreferenceState } from "../src/preferences/schema";
 import { applyTurn, newState } from "../src/preferences/state";
@@ -201,5 +202,77 @@ describe("POST /api/discover/rank", () => {
     const many = Array.from({ length: 49 }, (_, index) => ({ ...candidates[0], id: `cat:${index + 1}` }));
     const result = await call(discoverRank, path, { state, candidates: many }, { provider: provider(), verifyViewer: signedIn });
     assert.equal(result.statusCode, 400);
+  });
+});
+
+describe("POST /api/discover/critique", () => {
+  const path = "/api/discover/critique";
+  const state = newState("critique-endpoint");
+  const picks = [1, 2].map((id) => {
+    const { availability: _, ...rest } = title(id, { title: `Film ${id}`, genres: ["Comedy"] });
+    return rest;
+  });
+
+  /** A critique that breaks none of the critic's rules. */
+  function note(candidateId: string, reservation = "The last half hour loses its nerve and reaches for a moral.") {
+    return {
+      candidateId,
+      why: "A screwball structure worked out with real rigour, which almost nobody attempts at this scale.",
+      watching: "Brisk and verbal, carried by a cast that plays the farce entirely straight until it cannot.",
+      reservation,
+    };
+  }
+
+  it("returns a critique for each pick, with the state version it was written for", async () => {
+    const reply = JSON.stringify({ critiques: [note("cat:1"), note("cat:2")] });
+    const result = await call(discoverCritique, path, { state, picks, withheld: [] }, { provider: provider(reply), verifyViewer: signedIn });
+    const parsed = critiqueResponseSchema.parse(result.body);
+    assert.equal(parsed.status, "ok");
+    if (parsed.status !== "ok") return;
+    assert.deepEqual(parsed.critiques.map(({ candidateId }) => candidateId), ["cat:1", "cat:2"]);
+    assert.equal(parsed.stateVersion, state.stateVersion);
+  });
+
+  it("carries nothing the preference engine could read: no turn, no quote, no version bump", async () => {
+    const reply = JSON.stringify({ critiques: [note("cat:1")] });
+    const result = await call(discoverCritique, path, { state, picks, withheld: [] }, { provider: provider(reply), verifyViewer: signedIn });
+    assert.deepEqual(Object.keys(result.body).sort(), ["critiques", "model", "source", "stateVersion", "status"]);
+    assert.equal(result.body.stateVersion, state.stateVersion);
+  });
+
+  it("falls back when the critic keeps naming a film it was not given", async () => {
+    const reply = JSON.stringify({ critiques: [{ ...note("cat:1"), watching: "Sharper than Night Terror ever was." }] });
+    const result = await call(discoverCritique, path, { state, picks, withheld: ["Night Terror"] }, { provider: provider(reply, reply), verifyViewer: signedIn });
+    assert.equal(result.body.status, "unavailable");
+    assert.equal(result.body.code, "ASSISTANT_UNUSABLE");
+  });
+
+  it("never lets a withheld title refuse the pick that shares its name", async () => {
+    const reply = JSON.stringify({ critiques: [note("cat:1")] });
+    const result = await call(
+      discoverCritique,
+      path,
+      { state, picks: [picks[0]], withheld: ["Film 1", "Night Terror"] },
+      { provider: provider(reply), verifyViewer: signedIn },
+    );
+    assert.equal(result.body.status, "ok");
+  });
+
+  it("says the assistant is unavailable when no provider is configured", async () => {
+    const result = await call(discoverCritique, path, { state, picks, withheld: [] }, { provider: null, verifyViewer: signedIn });
+    assert.equal(result.body.code, "ASSISTANT_DISABLED");
+  });
+
+  it("refuses more picks than the shortlist has top picks", async () => {
+    const many = Array.from({ length: 4 }, (_, index) => ({ ...picks[0], id: `cat:${index + 1}` }));
+    const result = await call(discoverCritique, path, { state, picks: many }, { provider: provider(), verifyViewer: signedIn });
+    assert.equal(result.statusCode, 400);
+  });
+
+  it("refuses a request from a viewer who is not signed in, before any model call", async () => {
+    const scripted = provider(JSON.stringify({ critiques: [note("cat:1")] }));
+    const result = await call(discoverCritique, path, { state, picks }, { provider: scripted, verifyViewer: async () => false });
+    assert.equal(result.statusCode, 401);
+    assert.equal(scripted.calls, 0);
   });
 });

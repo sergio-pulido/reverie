@@ -289,6 +289,20 @@ Before the first chunk arrives, beat `0` is already locked: `configure` carried 
 
 The same boundary answers both routes. `POST /api/jams/:id/director/session/:sessionId/direct` refuses a direction naming a closed beat with `beat_locked` (`retryable: false`, carries the beat window), and a script `PATCH`/`revert` at or below the boundary is refused with `portion_locked`. A jam may hold one stream per configuration, and an edit is only safe if it is ahead of all of them, so the strictest open stream sets the boundary (`DirectorStreamRegistry`). The JamStore stays persistence-only: edit and revert take `minEditablePortionIndex` and throw below it, and the router reads the guard in the same critical section as the mutation it protects, so the boundary cannot move between check and write.
 
+**The script reaches the provider once, and a later rewrite does not follow it.** `configure`
+carries the whole script when the control channel opens (`sendConfigure` in
+`apps/server/directorStream.ts`, which has exactly one caller, on channel open), and nothing
+re-sends it as the stream advances. A direction is the only other way text reaches the model, and
+it carries `replan`: it steers what is generated **next** rather than naming a position, so a beat
+far ahead cannot be delivered early without the stream rendering it immediately, out of order.
+
+Together those leave a gap that belongs to this contract rather than to any one feature. An edit
+committed to a beat beyond the imminent one is durable and correct in the script and the outline,
+and an open stream will never show it. Outline delivery therefore addresses a stream only when the
+edited beat is that stream's `minEditableBeatIndex` (`docs/specs/story-outline.md`). Closing the
+gap means re-sending a beat as it *becomes* imminent, which needs something watching each stream's
+position and pushing at the boundary; no delivery design in this repository does that today.
+
 **Two ways of producing video, and they are not the same thing.** The live director is one continuous session billed by the second: it holds a peer connection and is directed as it runs. Beat generation (`POST /api/jams/:id/beats/:index/video`, above) is submit-and-wait: one finished clip per portion, which is the only path that can carry a participant's likeness, because a reference image is an input to a queued generation and not something that can be handed to an open stream. A jam may use either. The events `portion.locked`, `media.requested`, `media.ready` and `media.delayed` described elsewhere in this document still belong to a pipeline that does not exist; beat generation is a synchronous route, not an event stream, and the director's beat lock window does not apply to it.
 
 ### Director spend

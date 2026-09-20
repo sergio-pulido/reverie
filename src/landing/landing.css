@@ -63,11 +63,10 @@ body { margin: 0; }
   --landing-surface-hatch: #121631;
   --landing-surface-poster: #141a33;
   --landing-surface-hatch-light: #161b38;
-  --landing-surface-generated: #11162d;
+  --landing-surface-placeholder: #11162d;
   --landing-surface-avatar: #1b2144;
   --landing-accent: #bfb6f2;
   --landing-text: #ece8f7;
-  --landing-heading-next: #d7d3ea;
   --landing-muted-1: #c9c5dc;
   --landing-muted-2: #a9a6c2;
   --landing-muted-3: #8f8ca8;
@@ -75,7 +74,6 @@ body { margin: 0; }
   --landing-line: rgba(191, 182, 242, .10);
   --landing-line-card: rgba(191, 182, 242, .14);
   --landing-line-strong: rgba(191, 182, 242, .45);
-  --landing-dashed: rgba(191, 182, 242, .32);
   --landing-gutter: clamp(20px, 4vw, 48px);
   --landing-serif: "Instrument Serif", Georgia, serif;
   --landing-sans: "DM Sans", system-ui, sans-serif;
@@ -176,23 +174,15 @@ body { margin: 0; }
 .landing-film-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 14px; }
 .landing-film-grid figure { min-width: 0; }
 
-/* "Next" sections: dashed, quieter, never a button. */
-
-.landing-next-card { border: 1px dashed var(--landing-dashed); border-radius: 14px; padding: clamp(24px, 4vw, 40px); }
-.landing-next-tags { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.landing-next-badge { border: 1px dashed rgba(191, 182, 242, .4); border-radius: 999px; padding: 6px 12px; }
-.landing-next-title { font-size: clamp(36px, 5vw, 64px); line-height: 1.02; letter-spacing: -.015em; color: var(--landing-heading-next); }
-.landing-next-copy { font-size: 17px; line-height: 1.6; color: var(--landing-muted-2); max-width: 46ch; text-wrap: pretty; }
-
-.landing-director { padding: clamp(40px, 6vw, 72px) 0 0; }
-.landing-director .landing-next-card { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: clamp(20px, 4vw, 48px); align-items: start; }
-.landing-director .landing-next-title { margin-top: 18px; }
-
-/* Live sections */
+/* Live sections. Every section is one: there is no "next" section left to draw differently. */
 
 .landing-live-section { padding: clamp(80px, 11vw, 150px) 0 0; }
 .landing-section-title { font-size: clamp(40px, 5.6vw, 76px); line-height: 1; letter-spacing: -.015em; }
 .landing-panel { background: var(--landing-surface); border: 1px solid var(--landing-line-card); border-radius: 14px; box-shadow: 0 30px 80px rgba(0, 0, 0, .5); }
+
+.landing-director { padding: clamp(40px, 6vw, 72px) 0 0; }
+.landing-director-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: clamp(24px, 4vw, 56px); margin-top: 22px; align-items: start; }
+.landing-director-grid .landing-cta { margin-top: 32px; }
 
 .landing-jam-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: clamp(28px, 5vw, 72px); align-items: center; margin-top: 22px; }
 .landing-jam-grid .landing-copy { margin-top: 26px; }
@@ -231,14 +221,16 @@ body { margin: 0; }
 .landing-top-pick { position: absolute; top: 10px; left: 10px; background: var(--landing-text); color: var(--landing-bg); font-size: 12px; font-weight: 600; padding: 4px 8px; border-radius: 4px; }
 .landing-discover-cta { margin-top: 28px; }
 
-/* Community (next): the generated shorts are illustrations and say so. */
+/* Made in Reverie: the two dashed tiles are placeholders, and are drawn so they cannot be mistaken
+ * for the real posters beside them. */
 
-.landing-community { padding: clamp(80px, 11vw, 150px) 0 0; }
-.landing-community-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: clamp(24px, 4vw, 56px); margin-top: 18px; align-items: start; }
+.landing-community-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: clamp(24px, 4vw, 56px); margin-top: 22px; align-items: start; }
+.landing-community-grid .landing-cta { margin-top: 32px; }
 .landing-community .landing-film-grid { margin-top: 32px; }
-.landing-generated { background: var(--landing-surface-generated); border: 1px dashed rgba(191, 182, 242, .35); display: flex; flex-direction: column; justify-content: flex-end; padding: 14px; }
-.landing-generated-tag { position: absolute; top: 10px; left: 10px; font-family: var(--landing-mono); font-size: 10px; letter-spacing: .16em; text-transform: uppercase; background: var(--landing-accent); color: var(--landing-bg); padding: 4px 7px; border-radius: 4px; }
-.landing-generated-name { font-family: var(--landing-serif); font-size: 22px; line-height: 1.1; color: var(--landing-text); }
+.landing-community-note { margin-top: 20px; font-size: 14px; line-height: 1.55; color: var(--landing-muted-3); max-width: 66ch; text-wrap: pretty; }
+.landing-placeholder { background: var(--landing-surface-placeholder); border: 1px dashed rgba(191, 182, 242, .35); display: flex; flex-direction: column; justify-content: flex-end; padding: 14px; }
+.landing-placeholder-tag { position: absolute; top: 10px; left: 10px; font-family: var(--landing-mono); font-size: 10px; letter-spacing: .16em; text-transform: uppercase; background: var(--landing-accent); color: var(--landing-bg); padding: 4px 7px; border-radius: 4px; }
+.landing-placeholder-name { font-family: var(--landing-serif); font-size: 22px; line-height: 1.1; color: var(--landing-muted-2); }
 
 /* The loop */
 

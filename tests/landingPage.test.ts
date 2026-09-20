@@ -35,10 +35,10 @@ const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/&#x27;/g, 
 test("the seven sections are there, in order", () => {
   assert.deepEqual(sections(markup).map((candidate) => candidate.label), [
     "Hero",
-    "Director (next)",
+    "Director",
     "Movie Jam",
     "Discover",
-    "Community (next)",
+    "Made in Reverie",
     "The loop",
     "Final CTA",
   ]);
@@ -46,7 +46,7 @@ test("the seven sections are there, in order", () => {
 
 test("every call to action opens something that exists: the home, Discover or the door", () => {
   const external = hrefs(markup).filter((href) => !href.startsWith("#"));
-  assert.deepEqual([...new Set(external)].sort(), ["/about", "/create", "/discover", "/home"]);
+  assert.deepEqual([...new Set(external)].sort(), ["/about", "/catalog", "/create", "/discover", "/home"]);
   assert.deepEqual([...new Set(hrefs(markup).filter((href) => href.startsWith("#")))].sort(), ["#discover", "#top"]);
   // "Open Reverie" opens Reverie: the app's own home, never one screen inside it.
   for (const match of markup.matchAll(/<a [^>]*href="([^"]*)"[^>]*>Open Reverie/g)) assert.equal(match[1], "/home");
@@ -55,30 +55,57 @@ test("every call to action opens something that exists: the home, Discover or th
   for (const match of markup.matchAll(/<a [^>]*href="([^"]*)"[^>]*>Ask it what to watch/g)) assert.equal(match[1], "/discover");
 });
 
-test("Director and Community are marked as not yet available and have no button", () => {
-  for (const label of ["Director (next)", "Community (next)"]) {
-    const html = section(label);
-    assert.match(html, /Next · not yet available/, label);
-    assert.doesNotMatch(html, /<a |<button/, label);
+test("nothing on the page says a part of Reverie is unavailable", () => {
+  // The two sections that used to carry the badge, and the page as a whole.
+  for (const label of ["Director", "Made in Reverie"]) {
+    assert.doesNotMatch(section(label), /not yet available/, label);
   }
-  assert.match(text(section("Final CTA")), /Director and Community are next, and are not available yet\./);
+  assert.doesNotMatch(text(markup), /not yet available|not available yet|is being built|coming soon/i);
+  assert.match(text(section("Final CTA")), /Everything on this page is open today/);
 });
 
-test("the two invented shorts are labelled generated and never drawn as real posters", () => {
-  const community = section("Community (next)");
-  assert.equal([...community.matchAll(/>Generated</g)].length, 2);
+test("all four things the page describes are marked live and each offers a way in", () => {
+  const ways: Readonly<Record<string, string>> = {
+    Director: "/create",
+    "Movie Jam": "/create",
+    Discover: "/discover",
+    "Made in Reverie": "/catalog",
+  };
+  for (const [label, way] of Object.entries(ways)) {
+    const html = section(label);
+    assert.match(html, /class="landing-label landing-live"/, `${label} is marked live`);
+    assert.ok(hrefs(html).includes(way), `${label} leads to ${way}`);
+  }
+  // Every section that names one of the four says "Live now", and only those four do.
+  assert.equal([...markup.matchAll(/>Live now · /g)].length, 4);
+});
+
+test("the loop's four steps are the four that work, and none is labelled next", () => {
+  const loop = text(section("The loop"));
+  for (const name of ["Director", "Movie Jam", "Made in Reverie", "Discover"]) assert.ok(loop.includes(name), name);
+  assert.doesNotMatch(loop, /\bNext\b/);
+  assert.doesNotMatch(loop, /\bCommunity\b/);
+});
+
+test("the two invented shorts are labelled placeholders, in words as well as on the tile", () => {
+  const made = section("Made in Reverie");
+  assert.equal([...made.matchAll(/>Placeholder</g)].length, 2);
   for (const name of ["The Lamp Unlit", "Sunday, Gently"]) {
-    assert.ok(text(community).includes(name), name);
+    assert.ok(text(made).includes(name), name);
     assert.equal(markup.split(name).length - 1, 2, `${name} appears only as its tile and caption`);
   }
-  const generatedFigures = community.split("<figure").slice(1).filter((figure) => figure.includes(">Generated<"));
-  assert.equal(generatedFigures.length, 2);
-  for (const figure of generatedFigures) assert.doesNotMatch(figure, /<img/);
-  assert.doesNotMatch(text(markup), /\bGenerated\b.*\bGenerated\b.*\bGenerated\b/);
+  const placeholders = made.split("<figure").slice(1).filter((figure) => figure.includes(">Placeholder<"));
+  assert.equal(placeholders.length, 2);
+  for (const figure of placeholders) assert.doesNotMatch(figure, /<img/);
+  assert.doesNotMatch(text(markup), /\bPlaceholder\b.*\bPlaceholder\b.*\bPlaceholder\b/);
+  // And the section says so in a sentence, so the tag is not the only thing carrying it.
+  assert.match(text(made), /placeholders, not films anybody made/);
+  // The page never claims the app tags made work "generated": it does not.
+  assert.doesNotMatch(text(markup), /\bgenerated\b/i);
 });
 
-test("the real films are the catalogue's, with their posters, beside the generated shorts", () => {
-  const community = section("Community (next)");
+test("the real films are the catalogue's, with their posters, beside the placeholders", () => {
+  const community = section("Made in Reverie");
   assert.deepEqual([...community.matchAll(/<img [^>]*src="([^"]+)"/g)].map((match) => match[1]), [
     "https://image.tmdb.org/t/p/w342/poster-50.jpg",
     "https://image.tmdb.org/t/p/w342/poster-51.jpg",
@@ -96,7 +123,7 @@ test("every poster's space is reserved before it loads, and only the hero shelf 
     assert.match(image, /alt=""/);
   }
   assert.equal(section("Hero").match(/loading="eager"/g)?.length, 12);
-  assert.doesNotMatch(section("Discover") + section("Community (next)"), /loading="eager"/);
+  assert.doesNotMatch(section("Discover") + section("Made in Reverie"), /loading="eager"/);
 });
 
 test("the Discover illustration marks its first two films as top picks", () => {
@@ -133,7 +160,7 @@ test("without catalogue films the page shows no film rows and invents none", () 
   assert.doesNotMatch(empty, /<img/);
   assert.doesNotMatch(empty, /Films in the catalogue/);
   assert.doesNotMatch(empty, /Top pick/);
-  assert.equal([...empty.matchAll(/>Generated</g)].length, 2);
+  assert.equal([...empty.matchAll(/>Placeholder</g)].length, 2);
   assert.deepEqual(sections(empty).map((candidate) => candidate.label), sections(markup).map((candidate) => candidate.label));
 });
 

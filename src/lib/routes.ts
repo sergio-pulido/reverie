@@ -39,7 +39,10 @@ export const CREATE_PATH = "/create";
 export const JOIN_PATH = "/join";
 /** The conversation, with a film's own page beneath it at `/discover/:id`. */
 export const DISCOVER_PATH = "/discover";
-/** The browsable catalogue. A later slice fills it; today it is a placeholder screen. */
+/**
+ * The browsable catalogue: a paging poster grid with a title search and the chips that narrow it,
+ * and a source switch choosing between the films Reverie reads and the ones made here.
+ */
 export const CATALOG_PATH = "/catalog";
 /**
  * Where what the rooms around you are making used to have a screen of its own.

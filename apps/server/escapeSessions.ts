@@ -274,6 +274,12 @@ export class EscapeRooms {
     if (room.beats.length > MAX_BEATS_KEPT) room.beats.shift();
     room.turn = { index: room.turn.index + 1, proposals: [], votes: new Map() };
 
+    // The room's ending is settled before any work starts, so that what the
+    // room buys next does not depend on how long a narrator takes to answer.
+    if (goalReached(room.scenario, room.state)) {
+      room.ended = { reason: "goal", tell: room.scenario.goal.tell };
+    }
+
     if (outcome.kind === "advanced") {
       // Only an outcome that changed the world is filmed. A refusal already
       // carries the author's sentence, and spending a paid segment on it
@@ -283,11 +289,12 @@ export class EscapeRooms {
       // asks the narrator first: a snapshot taken during those few seconds
       // would otherwise tell the room a beat about to be filmed was not.
       if (this.fal) beat.segment.status = "generating";
+      // This beat is filmed even if the line above has just ended the room:
+      // the shot that reaches the goal is the last shot of the film, and it
+      // was decided here, while the room was still open. The loop below is
+      // not — scenery for a room nobody will play is the thing worth saving.
       this.track(this.produceBeat(room, before, outcome, winner.body, beat));
       this.ensureLoop(room);
-    }
-    if (goalReached(room.scenario, room.state)) {
-      room.ended = { reason: "goal", tell: room.scenario.goal.tell };
     }
     return beat;
   }
@@ -398,7 +405,7 @@ export class EscapeRooms {
         shot = narration.shot;
       }
     }
-    await this.generate(room, beat.segment, `${room.scenario.look} ${shot}`, outcome.seconds);
+    await this.generate(room, beat.segment, `${room.scenario.look} ${shot}`, outcome.seconds, true);
   }
 
   /**
@@ -407,12 +414,17 @@ export class EscapeRooms {
    * Money is committed before the provider is called. A submit that never
    * reached fal is refunded; anything that failed after fal accepted the
    * request is not, because fal may well have run it.
+   *
+   * `decidedWhileOpen` marks work the room committed to before it stopped.
+   * Only the beat sets it, and only because a settle that reaches the goal
+   * decides the beat and ends the room in the same breath.
    */
   private async generate(
     room: Room,
     segment: Segment,
     prompt: string,
     seconds: number,
+    decidedWhileOpen = false,
   ): Promise<void> {
     if (!this.fal) {
       segment.status = "not_configured";
@@ -422,8 +434,13 @@ export class EscapeRooms {
     const wanted = clampDuration(this.fal.model, seconds);
     const reservedUsd = wanted * this.limits.usdPerSecond;
     // Checked again here, not just at the call: generation is asynchronous,
-    // so a session can end between deciding to film something and filming it.
-    if (room.ended) {
+    // so a session can end between deciding to film something and filming
+    // it. What is abandoned is work the room had not committed to when it
+    // stopped; a beat it had is still filmed, or the climax of every room
+    // would be missing from its own film whenever a narrator made the wait
+    // long enough. The ceiling itself is unaffected: the commit below is
+    // what refuses to spend, and it refuses this beat like any other.
+    if (room.ended && !decidedWhileOpen) {
       segment.status = "ceiling_reached";
       segment.message = "The session ended before this could be generated.";
       return;

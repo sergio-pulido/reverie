@@ -2518,6 +2518,49 @@ Verification in this worktree:
   Checked the rendered desktop door and desktop/mobile Director layouts visually.
   These checks cover setup UI, not paid generation or end-to-end collaborative playback.
 
+## 2026-09-20 — The escape room films the beat that reaches its goal (RV-26)
+
+The climactic shot of every escape room was missing from its film, on any deployment with a
+Nebius narrator configured. `settle` started the beat's generation and set `room.ended`
+afterwards; with a narrator, `produceBeat` awaited `narrateBeat` before reaching `generate`,
+by which time the guard there saw an ended room and marked the segment `ceiling_reached`.
+With no narrator the same code reached the guard before `room.ended` was assigned, so
+whether the last beat existed came down to which providers a server happened to have. The
+new debrief screen plays the room's archive, so the gap is now on screen.
+
+- **`apps/server/escapeSessions.ts`**: `settle` sets `room.ended` before the block that
+  films, and `produceBeat` passes `decidedWhileOpen` to `generate`, whose guard is now
+  `room.ended && !decidedWhileOpen`. The beat a settle decided while the room was open is
+  filmed; anything queued against a room that has since stopped is not.
+- The spend ceiling is unchanged. `SpendAccount.commit` is what bounds the money and still
+  refuses this beat like any other. Only the beat sets the flag, never a loop — and because
+  the ending is now settled first, `ensureLoop` sees the ended room deterministically
+  instead of depending on the same race.
+- **`tests/escapeSessions.test.ts`**: the fake provider fetch now answers the narrator as
+  well as fal, and `build()` takes a `nebius` config. Two tests: `cold-sill` run to its goal
+  with a narrator, asserting the last beat is `ready`, measured at 15.104s, submitted as a
+  fifteen-second beat, narrated by Nebius, and that no beat of the finished room is missing;
+  and a room stopped on the ceiling with the same narrator, asserting nothing was committed
+  beyond the opening loop and only that loop reached fal.
+
+### Verified
+
+- `npx tsc --noEmit` clean.
+- `pnpm test`: 1376 tests, 1365 pass, **4 fail** — the pre-existing worker-thread failures in
+  `directorPieces.test.ts` and `directorSegmenter.test.ts`. Confirmed pre-existing by
+  stashing this change and re-running those two files: same 4 failures, 0 passes, either way.
+- The new goal test was written first and failed on the unfixed code with exactly the
+  reported symptom (`ceiling_reached` where `ready` was expected); the ceiling test passed
+  before and after, which is the point of it.
+- No provider was called. fal and Nebius are both faked at `globalThis.fetch`; there is no
+  probe receipt here and no spend against a real account.
+
+**Not done.** The brief names `tests/escapeDebrief.test.ts` and `src/screens/EscapeDebrief.tsx`;
+neither exists on this branch, so the debrief screen itself was not exercised. The tests live
+in `tests/escapeSessions.test.ts`, which is where the server behaviour they cover belongs. The
+screen reads `beats[].media` from the snapshot this fix corrects, so it needs no change of its
+own.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

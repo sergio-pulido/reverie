@@ -5,6 +5,7 @@ import { InMemoryEscapeMediaStore } from "../apps/server/escapeMedia";
 import { SpendAccount } from "../apps/server/spendLedger";
 import { findSegmentModel } from "../apps/server/providers/falSegmentModels";
 import type { FalSegmentConfig } from "../apps/server/providers/falSegments";
+import type { NebiusConfig } from "../apps/server/providers/nebius";
 import { fakeMp4 } from "./fakeMp4";
 
 /**
@@ -17,12 +18,36 @@ const FAL: FalSegmentConfig = {
   model: findSegmentModel("minimax/h3-max/text-to-video")!,
 };
 
-/** Answers every fal call, and records the prompts and durations asked for. */
+const NEBIUS: NebiusConfig = { apiKey: "test-key", model: "Qwen/Qwen3-30B-A3B-Instruct-2507" };
+
+/**
+ * Answers every fal call, and records the prompts and durations asked for.
+ * It answers the narrator as well, because a configured narrator is asked
+ * before the beat is filmed and the wait between the two is where a beat
+ * decided by a settle that also ended the room used to be lost.
+ */
 function fakeFal(clipSeconds = 15.104) {
   const submitted: { prompt: string; duration: number }[] = [];
   const original = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    if (url.includes("/chat/completions")) {
+      const answer = {
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              narration: "The release gave under both hands.",
+              shot: "Low angle on a lever swinging clear.",
+            }),
+          },
+        }],
+      };
+      // The narrator answers on a later turn of the loop, as a real one does.
+      await Promise.resolve();
+      return new Response(JSON.stringify(answer), {
+        headers: { "content-type": "application/json" },
+      });
+    }
     if (url.endsWith("/text-to-video")) {
       const body = JSON.parse(String(init?.body));
       submitted.push({ prompt: body.prompt, duration: body.duration });
@@ -47,14 +72,20 @@ function fakeFal(clipSeconds = 15.104) {
   return { submitted, restore: () => { globalThis.fetch = original; } };
 }
 
-function build(options: { account?: SpendAccount; fal?: FalSegmentConfig | null } = {}) {
+function build(
+  options: {
+    account?: SpendAccount;
+    fal?: FalSegmentConfig | null;
+    nebius?: NebiusConfig | null;
+  } = {},
+) {
   const media = new InMemoryEscapeMediaStore();
   const account = options.account ?? new SpendAccount(100);
   const rooms = new EscapeRooms({
     media,
     account,
     fal: options.fal !== undefined ? options.fal : FAL,
-    nebius: null,
+    nebius: options.nebius ?? null,
     limits: { usdPerSecond: 0.08, loopSeconds: 5, maxConcurrentGenerations: 2 },
     sleep: async () => {},
   });
@@ -197,6 +228,75 @@ test("reaching the goal ends the session in the author's words", async () => {
     assert.equal(snapshot.progress.goalReached, true);
     assert.equal(rooms.propose("jam-5", { authorId: "a", authorName: "Ada", body: "again" }), "session_over");
     assert.equal(rooms.settle("jam-5"), "session_over");
+  } finally {
+    fal.restore();
+  }
+});
+
+test("the beat that reaches the goal is filmed, narrator or not", async () => {
+  const fal = fakeFal();
+  try {
+    // A configured narrator is asked before the shot is submitted, and that
+    // wait is the whole difference: the beat that reaches the goal is decided
+    // by the same settle that ends the session, and it used to come back to a
+    // room that had stopped and be abandoned unfilmed. It is the last shot of
+    // the film — the one the session was played for — so it is filmed.
+    const { rooms } = build({ nebius: NEBIUS });
+    rooms.open("jam-goal", "cold-sill");
+    await rooms.idle();
+    const run = [
+      "take the spanner", "shut the flood valve", "undog the bulkhead",
+      "go through the bulkhead", "open the sample locker", "take the sample case",
+      "climb the ladder", "strike the bell hatch", "stow the case", "pull the ballast release",
+    ];
+    for (const body of run) {
+      rooms.propose("jam-goal", { authorId: "a", authorName: "Ada", body });
+      const beat = rooms.settle("jam-goal");
+      assert.ok(typeof beat !== "string" && beat.outcome === "advanced", `"${body}" advances`);
+      await rooms.idle();
+    }
+    const snapshot = rooms.snapshot("jam-goal", "a")!;
+    assert.equal(snapshot.ended?.reason, "goal");
+
+    const last = snapshot.beats.at(-1)!;
+    assert.equal(last.proposal?.body, "pull the ballast release");
+    assert.equal(last.media.status, "ready", "the shot that ends the room is in the film");
+    assert.equal(last.media.seconds, 15.104);
+    assert.equal(last.narrationSource, "nebius");
+    assert.equal(
+      fal.submitted.at(-1)?.duration,
+      15,
+      "and it reached the provider as a beat, not as a loop",
+    );
+    assert.ok(
+      snapshot.beats.every((beat) => beat.media.status === "ready"),
+      "no beat of a finished room is missing from its archive",
+    );
+  } finally {
+    fal.restore();
+  }
+});
+
+test("a room that stopped on the ceiling still films nothing, narrator or not", async () => {
+  const fal = fakeFal();
+  try {
+    // The goal beat is let through because the room committed to it before it
+    // ended. Running out of money is not that: nothing was committed, and the
+    // room buys nothing, however long the narrator took to answer.
+    const { rooms, account } = build({ account: new SpendAccount(0.8), nebius: NEBIUS });
+    rooms.open("jam-ceiling", "night-audit");
+    await rooms.idle();
+    assert.equal(account.committedUsd, 0.4);
+
+    rooms.propose("jam-ceiling", { authorId: "a", authorName: "Ada", body: "open the counter hatch" });
+    rooms.settle("jam-ceiling");
+    await rooms.idle();
+
+    const snapshot = rooms.snapshot("jam-ceiling", "a")!;
+    assert.equal(snapshot.ended?.reason, "spend_ceiling");
+    assert.equal(snapshot.beats.at(-1)!.media.status, "ceiling_reached");
+    assert.equal(account.committedUsd, 0.4, "the beat was never paid for");
+    assert.equal(fal.submitted.length, 1, "only the opening loop reached the provider");
   } finally {
     fal.restore();
   }

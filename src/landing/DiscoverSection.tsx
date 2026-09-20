@@ -1,6 +1,6 @@
 import { FilmFigure } from "./FilmFigure";
 import type { LandingFilm } from "./films";
-import { APP_URL } from "./links";
+import { DISCOVER_URL } from "./links";
 
 /** The illustration marks its first two films as top picks. */
 const TOP_PICKS = 2;
@@ -45,7 +45,7 @@ export function DiscoverSection({ picks }: { picks: readonly LandingFilm[] }) {
         </div>}
       </div>
       <div className="landing-discover-cta">
-        <a href={APP_URL} className="landing-cta landing-cta-outline landing-cta-section">Ask it what to watch <span aria-hidden="true">↗</span></a>
+        <a href={DISCOVER_URL} className="landing-cta landing-cta-outline landing-cta-section">Ask it what to watch <span aria-hidden="true">↗</span></a>
       </div>
     </div>
   </section>;

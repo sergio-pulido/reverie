@@ -44,12 +44,15 @@ test("the seven sections are there, in order", () => {
   ]);
 });
 
-test("every call to action opens something that exists: Discover or Movie Jam", () => {
+test("every call to action opens something that exists: the home, Discover or Movie Jam", () => {
   const external = hrefs(markup).filter((href) => !href.startsWith("#"));
-  assert.deepEqual([...new Set(external)].sort(), ["/discover", "/jams"]);
+  assert.deepEqual([...new Set(external)].sort(), ["/discover", "/home", "/jams"]);
   assert.deepEqual([...new Set(hrefs(markup).filter((href) => href.startsWith("#")))].sort(), ["#discover", "#top"]);
-  for (const match of markup.matchAll(/<a [^>]*href="([^"]*)"[^>]*>Open Reverie/g)) assert.equal(match[1], "/discover");
+  // "Open Reverie" opens Reverie: the app's own home, never one screen inside it.
+  for (const match of markup.matchAll(/<a [^>]*href="([^"]*)"[^>]*>Open Reverie/g)) assert.equal(match[1], "/home");
   assert.equal([...markup.matchAll(/>Open Reverie/g)].length, 3);
+  // Only the one that says so leads to Discover.
+  for (const match of markup.matchAll(/<a [^>]*href="([^"]*)"[^>]*>Ask it what to watch/g)) assert.equal(match[1], "/discover");
 });
 
 test("Director and Community are marked as not yet available and have no button", () => {

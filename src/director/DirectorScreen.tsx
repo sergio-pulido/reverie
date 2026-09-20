@@ -5,6 +5,7 @@ import {
   buildTimeline,
   directionTurns,
   firstBlockedBeat,
+  isBeatClosed,
   type TimelineBeat,
 } from "../core/directorTimeline";
 import { budgetSpent, formatUsd } from "../core/directorSpend";
@@ -55,21 +56,34 @@ export function DirectorScreen({ slug }: { slug: string | null }) {
   const [highlighted, setHighlighted] = useState<number | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
 
+  /**
+   * Where the viewer is, from whichever clock is actually running.
+   *
+   * A live take has its own: the media element's. A finished film has the
+   * room's shared one, but only while it is playing — a paused clock sitting
+   * at zero is not "beat one is on screen", it is nothing on screen.
+   */
+  const roomPlayhead = clock.reading?.status === "playing" ? clock.playhead : null;
+  const playheadSeconds = session.live ? session.playheadSeconds : roomPlayhead;
+
   const beats = useMemo(
     () =>
       script
         ? buildTimeline(script, {
             window: session.beats,
             producedThrough: session.producedThrough,
+            playheadSeconds,
             spend: session.spend,
           })
         : [],
-    [script, session.beats, session.producedThrough, session.spend],
+    [script, session.beats, session.producedThrough, playheadSeconds, session.spend],
   );
   const turns = useMemo(() => directionTurns(session.audit, script), [session.audit, script]);
 
-  const currentBeatIndex = session.beats?.currentBeatIndex ?? null;
-  const currentBeat = currentBeatIndex === null ? null : beats[currentBeatIndex] ?? null;
+  // The provider's frontier and the viewer's position are different beats;
+  // see TimelineInput.playheadSeconds for why they must not be conflated.
+  const generatingBeat = beats.find((beat) => beat.state === "generating") ?? null;
+  const playingBeat = beats.find((beat) => beat.state === "playing") ?? null;
   const blockedBeat = firstBlockedBeat(beats);
   // Playing and stopping the stream belong to whoever can open this jam: the
   // take is the room's, not one person's. The room's playback clock is a
@@ -79,7 +93,12 @@ export function DirectorScreen({ slug }: { slug: string | null }) {
 
   const rows: Row[] = [
     { key: STAGE_ROW, count: 2 },
-    { key: TRANSPORT_ROW, count: session.recording && clock.available ? 2 : 0 },
+    // A running take's transport is a readout with no controls, so it has no
+    // navigable cells; only the finished film's clock can be driven.
+    {
+      key: TRANSPORT_ROW,
+      count: !session.live && session.recording && clock.available ? 2 : 0,
+    },
     { key: TIMELINE_ROW, count: beats.length },
     { key: COMPOSER_ROW, count: 3 },
   ];
@@ -152,12 +171,27 @@ export function DirectorScreen({ slug }: { slug: string | null }) {
           <Stage
             session={session}
             beats={beats}
-            currentBeat={currentBeat}
+            generatingBeat={generatingBeat}
+            playingBeat={playingBeat}
             cannotStart={cannotStart}
             cellProps={cellProps}
             transport={
               <TransportBar
-                clock={clock}
+                position={
+                  session.live
+                    ? {
+                        kind: "live",
+                        playheadSeconds: session.playheadSeconds ?? 0,
+                        // Generated seconds ARE the frontier: they accumulate
+                        // each chunk's own playback_seconds from the top of
+                        // the script.
+                        frontierSeconds:
+                          session.state.generatedSeconds > 0
+                            ? session.state.generatedSeconds
+                            : null,
+                      }
+                    : { kind: "room", clock }
+                }
                 beats={beats}
                 runtimeSeconds={runtimeSeconds}
                 canDrive={movesTheClock}
@@ -186,6 +220,7 @@ export function DirectorScreen({ slug }: { slug: string | null }) {
           <Timeline
             beats={beats}
             runtimeSeconds={runtimeSeconds}
+            playheadSeconds={playheadSeconds}
             highlighted={highlighted}
             selected={selected}
             onHighlight={setHighlighted}
@@ -292,7 +327,7 @@ function Spend({
 function Legend() {
   return (
     <ul className="director-legend" aria-label="What a beat's state means">
-      {(["written", "generating", "ready", "locked", "blocked"] as const).map((state) => (
+      {(["written", "generating", "playing", "ready", "locked", "blocked"] as const).map((state) => (
         <li key={state} data-state={state}>
           <span className="director-legend-swatch" aria-hidden="true" />
           <strong>{BEAT_STATE_LABEL[state]}</strong> {BEAT_STATE_MEANING[state]}
@@ -325,7 +360,7 @@ function ReviewTools({ beat, live }: { beat: TimelineBeat | null; live: boolean 
             {beat.summary ?? "This beat has no phrase: nothing has written one for it. An imported script carries none."}
           </p>
           <p className="director-zone-note">
-            {beat.state === "locked" || beat.state === "generating" || beat.state === "ready"
+            {isBeatClosed(beat.state)
               ? "This beat is already with the provider. Direction aimed at it will be refused; the beats after it can still change."
               : live
                 ? "Direction sent while this beat is chosen is aimed at it."

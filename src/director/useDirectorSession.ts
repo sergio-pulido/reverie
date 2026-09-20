@@ -32,6 +32,8 @@ import { attachHlsStream } from "../lib/hlsPlayback";
 const POLL_MS = 2_000;
 const RENEW_MS = 30_000;
 const ATTACH_MS = 3_000;
+/** Four times a second: a playhead that visibly moves without a frame loop. */
+const PLAYHEAD_MS = 250;
 
 /** Until the server answers, a budget of nothing: it is what cannot be disproved. */
 const UNKNOWN_SPEND: DirectorSpend = unopenedSpend({
@@ -49,6 +51,16 @@ export interface DirectorSession {
   beats: DirectorBeatWindow | null;
   /** Highest beat this screen has seen the stream reach, kept after it stops. */
   producedThrough: number | null;
+  /**
+   * Where the viewer is in the live take, in seconds, or null when nothing is
+   * playing.
+   *
+   * Read off the media element rather than derived from the session snapshot,
+   * because the snapshot's position is the provider's generation frontier and
+   * moves once per chunk. This is what the viewer is actually watching, and it
+   * is the only signal in the session that advances continuously.
+   */
+  playheadSeconds: number | null;
   audit: DirectorAuditEntry[];
   spend: DirectorSpend;
   /** False when no director is configured on this server at all. */
@@ -76,6 +88,7 @@ export function useDirectorSession(
   const [state, setState] = useState<DirectorState>(initialDirectorState);
   const [beats, setBeats] = useState<DirectorBeatWindow | null>(null);
   const [producedThrough, setProducedThrough] = useState<number | null>(null);
+  const [playheadSeconds, setPlayheadSeconds] = useState<number | null>(null);
   const [audit, setAudit] = useState<DirectorAuditEntry[]>([]);
   const [spend, setSpend] = useState<DirectorSpend>(UNKNOWN_SPEND);
   const [configured, setConfigured] = useState(true);
@@ -309,9 +322,45 @@ export function useDirectorSession(
     [jamId, sessionId, remember],
   );
 
-  const videoRef = useCallback((element: HTMLVideoElement | null) => {
-    video.current = element;
+  /**
+   * The media element's own clock, re-read on an interval.
+   *
+   * `timeupdate` is not enough on its own: it stops firing when a live stream
+   * stalls, so a reading kept from the last event would sit still and be read
+   * as a film that has stopped advancing rather than one that is waiting.
+   * Re-reading the element says what is true right now either way.
+   */
+  const readPlayhead = useCallback(() => {
+    const element = video.current;
+    if (!element) return;
+    // A paused element, or one with nothing decoded yet, reports currentTime 0
+    // — which is a real position for beat one and would put it on screen
+    // before a single frame had arrived. Only a playing element has a playhead.
+    if (element.paused || element.readyState < 2) {
+      setPlayheadSeconds(null);
+      return;
+    }
+    const at = element.currentTime;
+    setPlayheadSeconds(Number.isFinite(at) && at >= 0 ? at : null);
   }, []);
+
+  useEffect(() => {
+    if (!live) {
+      setPlayheadSeconds(null);
+      return;
+    }
+    readPlayhead();
+    const tick = setInterval(readPlayhead, PLAYHEAD_MS);
+    return () => clearInterval(tick);
+  }, [live, readPlayhead]);
+
+  const videoRef = useCallback(
+    (element: HTMLVideoElement | null) => {
+      video.current = element;
+      if (element) readPlayhead();
+    },
+    [readPlayhead],
+  );
 
   return {
     sessionId,
@@ -320,6 +369,7 @@ export function useDirectorSession(
     state,
     beats,
     producedThrough,
+    playheadSeconds,
     audit,
     spend,
     configured,

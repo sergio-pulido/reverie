@@ -6,6 +6,7 @@ import {
   RICH_SPEND,
   SLUG,
   playButton,
+  playLiveVideo,
   turnCards,
   type FakeServer,
 } from "./directorScreen";
@@ -112,7 +113,7 @@ describe("the stage, in its three states", () => {
     assert.equal(playButton().disabled, true);
   });
 
-  it("generating shows the live element, the seconds produced and the beat it is on", async () => {
+  it("generating shows the live element, the seconds produced and the beat being made", async () => {
     server = await openDirector({
       offsetSeconds: 12,
       state: { status: "streaming", generatedSeconds: 18, chunksReceived: 3 },
@@ -126,7 +127,64 @@ describe("the stage, in its three states", () => {
     assert.equal(live!.hidden, false);
     const line = text(".director-stage-line");
     assert.match(line, /0:18 generated across 3 chunks/);
-    assert.match(line, /Beat 3 of 6 is on screen/);
+    // Nothing has decoded a frame yet, so nothing is on screen — and the beat
+    // at the provider's frontier must not pretend to be.
+    assert.match(line, /No beat is on screen yet/);
+    assert.match(line, /Beat 3 is being generated/);
+  });
+
+  it("the beat on screen follows the playhead, not the provider's frontier", async () => {
+    // The frontier stands still at 12s for the whole test. If the timeline
+    // only moved when a chunk landed — which is once per ten seconds — nothing
+    // below would ever change. This is the screen-level regression test for
+    // "the timeline does not get updated as the film goes on".
+    server = await openDirector({
+      offsetSeconds: 12,
+      state: { status: "streaming", generatedSeconds: 18, chunksReceived: 3 },
+    });
+    await click(playButton());
+    await settle();
+    assert.deepEqual(beatStates(), [
+      "ready",
+      "ready",
+      "generating",
+      "locked",
+      "written",
+      "written",
+    ]);
+
+    await playLiveVideo(2);
+    assert.deepEqual(beatStates().slice(0, 3), ["playing", "ready", "generating"]);
+    assert.match(text(".director-stage-line"), /Beat 1 of 6 is on screen/);
+    assert.match(text(".director-timeline h2"), /Beat 1 of 6 · 0:02 \/ 0:30/);
+
+    await playLiveVideo(7);
+    assert.deepEqual(beatStates().slice(0, 3), ["ready", "playing", "generating"]);
+    assert.match(text(".director-stage-line"), /Beat 2 of 6 is on screen/);
+
+    // Caught up to the frontier: the beat being made keeps saying so, and the
+    // screen stops claiming a separate beat is on screen.
+    await playLiveVideo(12);
+    assert.deepEqual(beatStates().slice(0, 3), ["ready", "ready", "generating"]);
+    assert.match(text(".director-stage-line"), /No beat is on screen yet/);
+  });
+
+  it("a running take shows the clock and how far ahead the provider has got", async () => {
+    // The transport used to appear only after Stop, so while the film ran
+    // there was no playhead on the screen at all.
+    server = await openDirector({
+      offsetSeconds: 12,
+      state: { status: "streaming", generatedSeconds: 18, chunksReceived: 3 },
+    });
+    await click(playButton());
+    await settle();
+    await playLiveVideo(7);
+
+    assert.match(text(".director-transport-clock"), /0:07 \/ 0:30/);
+    assert.match(text(".director-transport-clock"), /generated through 0:18/);
+    assert.match(text(".director-transport-note"), /cannot be scrubbed/);
+    // A running take is not the room's clock, so it offers no controls to drive.
+    assert.equal(document.querySelectorAll(".director-transport-button").length, 0);
   });
 
   it("still holds the finished session as a frame, with the room's clock under it", async () => {

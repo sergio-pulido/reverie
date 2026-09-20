@@ -19,6 +19,8 @@ import {
   filmPath,
   jamSlugFromPath,
   screenFromPath,
+  createPath,
+  createWayFromPath,
 } from "../src/lib/routes";
 import { parentPath } from "../src/shell/keys";
 
@@ -179,4 +181,16 @@ test("nothing redirects to or away from Catalog", () => {
   assert.equal(screenFromPath(CATALOG_PATH), "catalog");
   assert.equal(redirectFor(CATALOG_PATH), null);
   assert.equal(DESTINATION_PATH.catalog, CATALOG_PATH);
+});
+
+test("each way in has a path of its own under the door, and /jams/new still means the jam form", () => {
+  assert.equal(screenFromPath("/create/director"), "newJam");
+  assert.equal(screenFromPath("/create/jam"), "newJam");
+  assert.equal(screenFromPath("/create/escape"), "newJam");
+  assert.equal(screenFromPath("/create/other"), "home", "only the three ways are forms; anything else is not a screen");
+  assert.equal(createWayFromPath("/create/director"), "director");
+  assert.equal(createWayFromPath("/create/escape/"), "escape");
+  assert.equal(createWayFromPath("/jams/new"), "jam");
+  assert.equal(createWayFromPath("/create"), null);
+  assert.equal(createPath("director"), "/create/director");
 });

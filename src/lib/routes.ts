@@ -36,6 +36,28 @@ export const NEW_JAM_PATH = "/jams/new";
  * flow it already had.
  */
 export const CREATE_PATH = "/create";
+
+/**
+ * The three ways in, each with a path of its own under the door: `/create/director`,
+ * `/create/jam`, `/create/escape`. The way lives in the URL so that a refresh, a shared link
+ * or Back lands on the same form it left, rather than on whichever way the app last held in
+ * memory. `/jams/new` keeps meaning the jam form, for links already out there.
+ */
+export const CREATE_WAYS = ["director", "jam", "escape"] as const;
+export type CreateWayPath = (typeof CREATE_WAYS)[number];
+
+export function createPath(way: CreateWayPath): string {
+  return `${CREATE_PATH}/${way}`;
+}
+
+const CREATE_WAY = /^\/create\/(director|jam|escape)\/?$/;
+
+/** Which way a create-form path names, or null when the path is not a create form. */
+export function createWayFromPath(pathname: string): CreateWayPath | null {
+  const match = CREATE_WAY.exec(pathname);
+  if (match) return match[1] as CreateWayPath;
+  return pathname === NEW_JAM_PATH ? "jam" : null;
+}
 export const JOIN_PATH = "/join";
 /** The conversation, with a film's own page beneath it at `/discover/:id`. */
 export const DISCOVER_PATH = "/discover";
@@ -94,7 +116,7 @@ export function screenFromPath(pathname: string): Screen {
   if (pathname === DISCOVER_PATH || pathname === `${DISCOVER_PATH}/` || FILM_PAGE.test(pathname)) return "discover";
   if (pathname === CATALOG_PATH || pathname === `${CATALOG_PATH}/`) return "catalog";
   if (pathname === "/jams") return "jams";
-  if (pathname === "/jams/new") return "newJam";
+  if (pathname === "/jams/new" || CREATE_WAY.test(pathname)) return "newJam";
   if (pathname === "/join") return "join";
   if (DIRECTOR_SLUG.test(pathname)) return "director";
   if (pathname.startsWith("/jams/")) return "studio";

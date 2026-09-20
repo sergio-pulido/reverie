@@ -301,7 +301,7 @@ describe("a film's preview", () => {
     await openPreviewFromRow();
     await press("ArrowRight");
     await press("Enter");
-    assert.equal(window.location.pathname, "/jams/new");
+    assert.equal(window.location.pathname, "/create/jam");
     const title = document.querySelector<HTMLInputElement>(".room-form input")!;
     const premise = document.querySelector<HTMLTextAreaElement>(".room-form textarea")!;
     assert.equal(title.value, "Inspired by Inception 1");

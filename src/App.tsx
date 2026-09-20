@@ -27,6 +27,8 @@ import {
   DISCOVER_PATH,
   JOIN_PATH,
   NEW_JAM_PATH,
+  createPath,
+  createWayFromPath,
   destinationOf,
 
   directorPath,
@@ -114,8 +116,10 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
   const pendingSearch = useRef<SearchRequest | null>(null);
   /** The home's copy of the film it opened, shown while the full record loads, and only for that film. */
   const [filmSeed, setFilmSeed] = useState<{ providerId: string; title: CatalogueTitle } | null>(null);
-  const [roomTitle, setRoomTitle] = useState("Untitled Movie Jam");
-  const [premise, setPremise] = useState(() => randomPremise());
+  // The form opens on a titled premise, so a room can be started without typing either.
+  const [opening] = useState(() => randomPremise());
+  const [roomTitle, setRoomTitle] = useState(opening.title);
+  const [premise, setPremise] = useState(opening.premise);
   const [visibility, setVisibility] = useState<JamVisibility>("invite_only");
   const [persistence, setPersistence] = useState<JamPersistence>(hasSupabaseConfiguration() ? "remote" : "preview");
   const [sourceKind, setSourceKind] = useState<SourceKind>("from-scratch");
@@ -216,19 +220,33 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
     navigate("create", CREATE_PATH);
   }
 
-  /** One of the three chosen: the flow it already had, opened with that choice carried into it. */
-  function chooseWay(chosen: CreateWay) {
+  /** The form set up for one way: what the door does on a press, and what a refresh recovers. */
+  function applyWay(chosen: CreateWay) {
     setWay(chosen);
-    setRoomTitle((current) => ["Untitled Movie Jam", "Untitled Film", "Untitled Escape Room"].includes(current)
-      ? chosen === "director" ? "Untitled Film" : chosen === "escape" ? "Untitled Escape Room" : "Untitled Movie Jam"
-      : current);
     setSourceKind(chosen === "escape" ? "escape-room" : "from-scratch");
-    // A fresh premise each time the door is used, so nobody has to type one to start.
-    setPremise((current) => randomPremise(current));
+    // A fresh titled premise each time the door is used, so nobody has to type to start.
+    const fresh = randomPremise(premise);
+    setRoomTitle(fresh.title);
+    setPremise(fresh.premise);
     setRegisteredRoom(null);
     setGeneratedJam(null);
-    navigate("newJam", NEW_JAM_PATH);
   }
+
+  /** One of the three chosen: the flow it already had, opened at a path that says which. */
+  function chooseWay(chosen: CreateWay) {
+    applyWay(chosen);
+    navigate("newJam", createPath(chosen));
+  }
+
+  // The way is the URL's, not the app's memory: a refresh on /create/director must open the
+  // Director form, not whatever the app last held. Read whenever the location lands on a form.
+  useEffect(() => {
+    if (location.screen !== "newJam") return;
+    const named = createWayFromPath(window.location.pathname);
+    if (named && named !== way) applyWay(named);
+    // applyWay reads state it also sets; the location is the only thing this follows.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location]);
 
   function openFilm(title: CatalogueTitle | undefined, providerId: string) {
     setFilmSeed(title ? { providerId, title } : null);
@@ -248,7 +266,7 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
     setSourceKind("from-scratch");
     setRegisteredRoom(null);
     setGeneratedJam(null);
-    navigate("newJam", NEW_JAM_PATH);
+    navigate("newJam", createPath("jam"));
     // Chosen from deep in a conversation: the form opens at its top, not where search was scrolled.
     window.scrollTo({ top: 0 });
   }

@@ -96,7 +96,7 @@ A card is a poster with the title and year beneath it. Selecting one — click, 
 hover after a short dwell on pointer devices — opens a **preview modal** over the transcript:
 
 - backdrop, title, year, runtime, genres, score, the critic's note when the film is one of a
-    turn's picks, and the synopsis
+  turn's picks, and the synopsis
 - accessibility flags when the record carries them (subtitles, audio description)
 - two actions:
   - **Open the film page** → `/discover/:id`, the existing full page, which stays the place where

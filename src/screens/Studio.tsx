@@ -132,8 +132,9 @@ export function Studio({ slug, onLeave }: { slug: string; onLeave: () => void })
  * in the slot the live director occupies otherwise, rather than on a screen of
  * its own — everything around it (the invite, the lobby, the chat, the roster,
  * the live stage) is the jam's and is untouched. Which one this is comes from
- * the server: `absent` means this jam has no escape room, and until the answer
- * arrives neither is drawn, so the panels do not swap under the reader.
+ * the server, and only a positive answer changes what is drawn: the screenplay
+ * path is the default and keeps the slot while the question is outstanding or
+ * unanswerable, so no jam is ever blank because of a feature it does not use.
  */
 function Story({
   jamId,
@@ -158,7 +159,13 @@ function Story({
 }) {
   const escape = useEscapeRoom(jamId);
 
-  if (escape.state.status === "unknown") return null;
+  // The jam's own screen is what a room gets unless an escape room proves it is
+  // one. Asking is an addition to this screen, so a probe that has not answered
+  // yet, or that failed, costs the room nothing: the director, the outline and
+  // the queue are drawn regardless. Drawing nothing until the probe succeeded
+  // put every jam one 401, one 500 or one unreachable server away from a blank
+  // studio, which is a price the screenplay path must never pay for a feature
+  // it does not use.
   if (escape.state.status === "present") {
     return <EscapeRoom
       snapshot={escape.state.snapshot}

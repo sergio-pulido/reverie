@@ -53,16 +53,29 @@ export function useEscapeRoom(jamId: string): {
       } catch (error) {
         if (cancelled) return;
         // 404 is the answer "this jam is not an escape room", and it will not
-        // change while this room is open: it is recorded, not reported.
-        if (error instanceof JamError && error.code === "not_found") setState({ status: "absent" });
-        else setFailure(safely(error));
+        // change while this room is open: it is recorded, not reported, and
+        // nothing is asked again.
+        if (error instanceof JamError && error.code === "not_found") {
+          setState({ status: "absent" });
+          stop();
+          return;
+        }
+        // Anything else is this question failing, not an answer about the jam.
+        // It is recorded for a room that is an escape room to show, and the
+        // screen keeps drawing the screenplay path meanwhile.
+        setFailure(safely(error));
       }
     };
+    let poll: ReturnType<typeof setInterval> | null = null;
+    const stop = () => {
+      if (poll !== null) clearInterval(poll);
+      poll = null;
+    };
     void read();
-    const poll = setInterval(() => void read(), ESCAPE_POLL_MS);
+    poll = setInterval(() => void read(), ESCAPE_POLL_MS);
     return () => {
       cancelled = true;
-      clearInterval(poll);
+      stop();
     };
   }, [jamId]);
 

@@ -1,10 +1,11 @@
 import { FormEvent, useMemo, useState } from "react";
 import { Footer } from "./chrome";
 import { JamDirector } from "./screens/JamDirector";
+import { OutlinePanel } from "./screens/OutlinePanel";
 import { readJamConfiguration, rememberJamSession } from "./lib/jamConfiguration";
 import type { Jam } from "./core/jam";
 import type { JamSession } from "./core/session";
-import { totalDurationSeconds } from "./core/script";
+import { totalDurationSeconds, type JamScript } from "./core/script";
 import { formatClock } from "./core/scriptMarkdown";
 import { TopBar } from "./shell/TopBar";
 
@@ -33,16 +34,19 @@ export function ScriptScreen({ jam, roomTitle, onStudio }: ScriptScreenProps) {
     () => session?.settings ?? readJamConfiguration(jam.id),
     [session, jam.id],
   );
-  const total = totalDurationSeconds(jam.script);
-  const portions = jam.script.scenes.reduce((sum, scene) => sum + scene.portions.length, 0);
+  // The screenplay follows the revision the outline describes, not the one
+  // the jam was created with: an outline edit rewrites portions underneath.
+  const [script, setScript] = useState<JamScript>(jam.script);
+  const total = totalDurationSeconds(script);
+  const portions = script.scenes.reduce((sum, scene) => sum + scene.portions.length, 0);
   let elapsed = 0;
 
   return <main className="site-shell setup-shell"><TopBar current="jam" />
     <section className="script-layout" aria-label="Generated jam script">
       <header className="script-head">
-        <p className="eyebrow">{roomTitle} · SCRIPT · {formatClock(total)} · {jam.script.scenes.length} SCENES · {portions} PORTIONS</p>
-        <h1>{jam.script.title}</h1>
-        <p className="intro">{jam.script.logline}</p>
+        <p className="eyebrow">{roomTitle} · SCRIPT · {formatClock(total)} · {script.scenes.length} SCENES · {portions} PORTIONS</p>
+        <h1>{script.title}</h1>
+        <p className="intro">{script.logline}</p>
         <p className="jam-note">{jam.source.kind === "imported-script" ? "Imported into this Movie Jam as its own editable script." : "An original generated Movie Jam script — not an existing film or catalogue title."}</p>
         <div className="hero-actions">
           <button className="button button-primary" onClick={onStudio}>Open the studio <span>↗</span></button>
@@ -51,7 +55,8 @@ export function ScriptScreen({ jam, roomTitle, onStudio }: ScriptScreenProps) {
       </header>
       <SessionPanel jam={jam} session={session} onSession={setSession} />
       <JamDirector jamId={jam.id} canDrive configuration={configuration} />
-      {jam.script.scenes.map((scene, sceneIndex) => (
+      <OutlinePanel jamId={jam.id} canEdit onScript={setScript} />
+      {script.scenes.map((scene, sceneIndex) => (
         <article key={sceneIndex} className="jam-scene">
           <h2>Scene {sceneIndex + 1} — {scene.heading}</h2>
           {scene.portions.map((portion, portionIndex) => {

@@ -6,7 +6,13 @@ import liveToken from "../../api/live/token";
 import discoverTurn from "../../api/discover/turn";
 import discoverRank from "../../api/discover/rank";
 import voiceTranscribe from "../../api/voice/transcribe";
-import { createJamsRouter, InMemoryJamStore, type JamStore } from "./jams";
+import {
+  createJamsRouter,
+  InMemoryJamStore,
+  type JamStore,
+  type PlaybackGuard,
+} from "./jams";
+import { createOutlineRouter } from "./outline";
 import {
   createDirectorRouter,
   DirectorStreamRegistry,
@@ -82,11 +88,20 @@ export function createApiApp(
   // second face on that same account, not a second pot.
   const account = resolveSpendAccount();
   const budget = new FalBudget(account.budgetUsd, account);
+  // One boundary, read by the script routes and by the outline queue, inside
+  // the same per-jam critical section as the mutation it protects.
+  const guard: PlaybackGuard = (jamId) => ({
+    minEditablePortionIndex: streams.minEditablePortionIndex(jamId),
+    stateVersion: 0,
+  });
+  app.use(createJamsRouter(store, guard));
+  // The outline queue sends a landed beat to the same streams the director
+  // holds, so one edited phrase drives the script and the stream alike.
   app.use(
-    createJamsRouter(store, (jamId) => ({
-      minEditablePortionIndex: streams.minEditablePortionIndex(jamId),
-      stateVersion: 0,
-    })),
+    createOutlineRouter(store, guard, {
+      window: (jamId) => streams.beatWindow(jamId),
+      streamsFor: (jamId) => streams.streamsFor(jamId),
+    }),
   );
   app.use(createSessionsRouter(store));
   app.use(createDirectorRouter(store, {

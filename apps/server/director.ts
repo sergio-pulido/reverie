@@ -19,6 +19,7 @@ import { DirectorArchiveSink, type ArchiveContainer } from "./directorArchive";
 import { DirectorPieceRecorder } from "./directorPieces";
 import type { DirectorSegmentSink } from "./directorSegmentSink";
 import { DirectorStream, type DirectorPeer } from "./directorStream";
+import type { DirectorBeatWindow } from "../../src/core/directorBeats";
 import { attachViewer, type ViewerPeer } from "./directorViewers";
 import { DirectorSegmenter } from "./directorSegmenter";
 import { DirectorLiveSink } from "./directorLiveSink";
@@ -125,6 +126,29 @@ export class DirectorStreamRegistry {
       boundary = Math.max(boundary, stream.beats.minEditableBeatIndex);
     }
     return boundary;
+  }
+
+  /** Every open stream of a jam, so a landed outline edit can be sent to each. */
+  streamsFor(jamId: string): DirectorStream[] {
+    return [...this.bySession.values()].filter((stream) => stream.jamId === jamId);
+  }
+
+  /**
+   * The strictest open stream's beat window, for the outline panel. The same
+   * rule as `minEditablePortionIndex`, with the on-screen and locked beats
+   * that stream reports; nothing is locked when no stream is open.
+   */
+  beatWindow(jamId: string): DirectorBeatWindow {
+    let strictest: DirectorBeatWindow = {
+      currentBeatIndex: null,
+      lockedBeatIndex: null,
+      minEditableBeatIndex: 0,
+    };
+    for (const stream of this.streamsFor(jamId)) {
+      const window = stream.beats;
+      if (window.minEditableBeatIndex >= strictest.minEditableBeatIndex) strictest = window;
+    }
+    return strictest;
   }
 
   hasOpenStreamForJam(jamId: string): boolean {

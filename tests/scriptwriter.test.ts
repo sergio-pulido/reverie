@@ -74,8 +74,8 @@ test("completion token budget scales with the script size and stays capped", () 
     portionMinSeconds: 15,
     portionMaxSeconds: 15,
   });
-  assert.equal(completionTokenBudget(tiny), 800 + 4 * 260);
-  assert.equal(completionTokenBudget(FOUR_MINUTES), 800 + 18 * 260);
+  assert.equal(completionTokenBudget(tiny), 800 + 4 * 300);
+  assert.equal(completionTokenBudget(FOUR_MINUTES), 800 + 18 * 300);
   assert.equal(completionTokenBudget(huge), 8000);
 });
 
@@ -160,4 +160,29 @@ test("gives up on a typed, retryable failure after the bounded attempts", async 
     (error: unknown) => error instanceof ScriptwriterError && error.retryable,
   );
   assert.equal(calls, SCRIPT_ATTEMPTS);
+});
+
+test("the writer asks for a beat beside every portion, in the shape it will be read in", () => {
+  const prompt = buildSystemPrompt(DEFAULT_SCRIPT_FORMAT);
+  // Beats are born with the script: the phrase and the prose come from one
+  // completion and one view of the story.
+  assert.match(prompt, /Give every portion a "summary"/);
+  assert.match(prompt, /at most 120 characters/);
+  assert.match(prompt, /"durationSeconds": number, "summary": string, "action": string/);
+});
+
+test("a beat the model wrote survives into the finished script", async () => {
+  const draft = fittedDraft();
+  draft.scenes[0].portions[0].summary = "she hears the tide answer";
+  const complete: ScriptCompletion = async () => JSON.stringify(draft);
+  const script = await writeJamScript(
+    TEST_CONFIG,
+    { kind: "from-scratch", prompt: "A keeper finds a door." },
+    FOUR_MINUTES,
+    complete,
+  );
+  assert.equal(script.scenes[0].portions[0].summary, "she hears the tide answer");
+  // A portion the model left unsummarised is not given one here; the fill-in
+  // in apps/server/outlineWriter.ts is the only thing that writes a missing beat.
+  assert.equal(script.scenes[0].portions[1].summary, undefined);
 });

@@ -35,11 +35,23 @@ const MIN_RESERVATION_CHARS = 20;
 
 const criticReplySchema = z.object({ critiques: z.array(z.unknown()).max(CONVERSATION_LIMITS.maxCritiquePicks * 2) });
 
-/** Crowds the critic may not hide behind, and scores it may not borrow from them. */
-const CROWD = /\b(critics?|audiences?|reviewers?|viewers|consensus|acclaim(?:ed)?|universally|rotten tomatoes|metacritic|imdb|letterboxd|box office)\b/i;
+/**
+ * Crowds the critic may not hide behind. What is refused is a verdict borrowed from other
+ * people — "audiences loved it", "an acclaimed performance", a score site's name. Saying that
+ * some viewers may bounce off a film is not borrowing a verdict; it is having one, and a
+ * reservation is often exactly that shape.
+ */
+const CROWD =
+  /\b(critics?|reviewers?|consensus|universally|acclaim(?:ed)?|rotten tomatoes|metacritic|imdb|letterboxd|box office|audiences?\s+(?:loved|adored|hated|embraced|flocked|made|turned)|widely\s+(?:loved|praised|regarded|considered|held))\b/i;
 
-/** Second person in any form: the critique is about the film, not about who is watching. */
-const VIEWER = /\byou(?:'|’)?(?:re|ll|ve|d|rs?)?\b/i;
+/**
+ * The viewer's preferences, turned to and written about. Not every "you": "a twist you do not
+ * see coming" is ordinary criticism, and refusing it only costs good prose. What is refused is
+ * the critique facing the person to tell them what they asked for or what they will feel, which
+ * is the advertisement this whole pass exists to replace.
+ */
+const VIEWER =
+  /\byou(?:'|\u2019)?(?:re|ve|d)?\s+(?:asked|said|want|wanted|requested|told|are looking|were looking)\b|\byou(?:'|\u2019)?ll\s+(?:love|like|enjoy|adore)\b|\bfor you\b|\bwhat you\b|\byour\s+(?:taste|tastes|mood|evening|night|request|preference|preferences|criteria|list)\b/i;
 
 /** A reservation that reserves nothing. */
 const HOLLOW = /\b(nothing (?:much )?(?:to|against|bad|wrong)|no (?:real|major|obvious|true|serious)|hard to fault|little to fault|few flaws|no flaws|no reservations|flawless|faultless|none(?: at all)?\.?$)/i;
@@ -100,7 +112,7 @@ export function faultInCritique(critique: Critique, film: RankCandidate, withhel
   if (crowd) return `your critique of ${film.title} says "${crowd[0]}", and you may not speak for a crowd`;
 
   const viewer = VIEWER.exec(text);
-  if (viewer) return `your critique of ${film.title} says "${viewer[0]}", and you must write about the film, not about the person watching it`;
+  if (viewer) return `your critique of ${film.title} says "${viewer[0]}", and you must write about the film, not about what the viewer asked for`;
 
   return null;
 }

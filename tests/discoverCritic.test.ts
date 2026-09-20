@@ -83,20 +83,47 @@ describe("faultInCritique", () => {
     assert.equal(faultInCritique(good("cat:4", { why: "The crowd puts it at 7.4, and that is about right." }), rated, []), null);
   });
 
-  it("refuses speaking for critics, audiences or a consensus", () => {
-    for (const phrase of ["Critics called it a classic.", "Audiences loved it on release.", "The consensus is generous.", "An acclaimed performance anchors it."]) {
+  it("refuses a verdict borrowed from critics, audiences or a score site", () => {
+    for (const phrase of [
+      "Critics called it a classic.",
+      "Audiences loved it on release.",
+      "The consensus is generous.",
+      "An acclaimed performance anchors it.",
+      "It is widely regarded as the best of them.",
+    ]) {
       assert.match(faultInCritique(good("cat:1", { why: phrase }), PICKS[0], []) ?? "", /speak for a crowd/, phrase);
     }
   });
 
-  it("refuses addressing the viewer instead of writing about the film", () => {
-    for (const phrase of ["You will laugh out loud.", "It fits what you asked for.", "Your evening is safe with it."]) {
-      assert.match(faultInCritique(good("cat:1", { why: phrase }), PICKS[0], []) ?? "", /not about the person watching/, phrase);
+  it("lets the critic say who might bounce off it, which is a verdict and not a borrowed one", () => {
+    for (const phrase of [
+      "Its theatricality will lose viewers who want their fantasy grounded.",
+      "The slow burn asks for patience an audience expecting jokes may not have.",
+    ]) {
+      assert.equal(faultInCritique(good("cat:1", { reservation: phrase }), PICKS[0], []), null, phrase);
     }
   });
 
-  it("does not mistake an ordinary word for the second person", () => {
-    assert.equal(faultInCritique(good("cat:1", { why: "A young cast carries it, with a youthful looseness." }), PICKS[0], []), null);
+  it("refuses a critique that turns to face the viewer and sells", () => {
+    for (const phrase of [
+      "You’ll love every minute of it.",
+      "It fits what you asked for exactly.",
+      "You wanted something light, and here it is.",
+      "Your evening is safe with it.",
+      "A perfect choice for you.",
+    ]) {
+      assert.match(faultInCritique(good("cat:1", { why: phrase }), PICKS[0], []) ?? "", /not about what the viewer asked for/, phrase);
+    }
+  });
+
+  it("leaves the impersonal second person of criticism alone, and ordinary words with it", () => {
+    for (const phrase of [
+      "A twist you do not see coming, and a last shot that refuses to explain it.",
+      "The pacing sags if you are not already invested in the marriage at its centre.",
+      "A young cast carries it, with a youthful looseness.",
+    ]) {
+      assert.equal(faultInCritique(good("cat:1", { why: phrase }), PICKS[0], []), null, phrase);
+    }
   });
 });
 

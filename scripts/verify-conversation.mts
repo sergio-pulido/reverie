@@ -7,12 +7,15 @@
 //   pnpm verify:conversation
 //
 // It needs REVERIE_LIVE_ENABLED=true, NEBIUS_API_KEY and the Supabase variables. It prints what
-// the assistant said, match counts and the top titles, never credentials or payloads.
+// the assistant said, match counts, the top titles, and the critic's note on each pick — which is
+// the point of printing anything: a note that restates the genres is a prompt that has not worked,
+// and only reading them says so. Never credentials or payloads.
 
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createClient } from "@supabase/supabase-js";
+import discoverCritique from "../api/discover/critique";
 import discoverRank from "../api/discover/rank";
 import discoverTurn from "../api/discover/turn";
 import { fetchCatalogue } from "../api/_lib/supabase-catalogue";
@@ -21,7 +24,7 @@ import { CATALOGUE_CONFIGURATION } from "../src/catalogue/domain";
 import { orderByAssistant } from "../src/catalogue/scorer";
 import { toShortlistFilters } from "../src/catalogue/shortlistFilters";
 import { CATALOGUE_LIMITS, type CatalogueOk, type CatalogueTitle } from "../src/catalogue/contract";
-import { CONVERSATION_LIMITS, rankResponseSchema, turnResponseSchema } from "../src/conversation/contract";
+import { CONVERSATION_LIMITS, critiqueResponseSchema, rankResponseSchema, turnResponseSchema } from "../src/conversation/contract";
 import type { PreferenceState } from "../src/preferences/schema";
 import { applyTurn, newState } from "../src/preferences/state";
 
@@ -80,8 +83,8 @@ async function shortlist(): Promise<CatalogueOk> {
   return result;
 }
 
-async function rank(items: readonly CatalogueTitle[]) {
-  const candidates = items.map((item) => ({
+function asCandidate(item: CatalogueTitle) {
+  return {
     id: item.id,
     title: item.title,
     year: item.year,
@@ -90,9 +93,26 @@ async function rank(items: readonly CatalogueTitle[]) {
     originalLanguage: item.originalLanguage,
     rating: item.rating,
     synopsis: item.synopsis?.slice(0, CONVERSATION_LIMITS.rankSynopsisChars),
-  }));
+  };
+}
+
+/** Wraps a note to the width of a terminal, indented under the film it is about. */
+function wrap(label: string, text: string, width = 96): string {
+  const lines: string[] = [];
+  let line = "";
+  for (const word of text.split(/\s+/)) {
+    if (line.length + word.length + 1 > width) {
+      lines.push(line);
+      line = word;
+    } else line = line ? `${line} ${word}` : word;
+  }
+  if (line) lines.push(line);
+  return lines.map((part, index) => `       ${index === 0 ? label : " ".repeat(label.length)}${part}`).join("\n");
+}
+
+async function rank(items: readonly CatalogueTitle[]) {
   const started = Date.now();
-  const reply = rankResponseSchema.parse(await post(discoverRank, "/api/discover/rank", { state, candidates }));
+  const reply = rankResponseSchema.parse(await post(discoverRank, "/api/discover/rank", { state, candidates: items.map(asCandidate) }));
   assert.equal(reply.status, "ok", `the assistant ranked the shortlist: ${JSON.stringify(reply)}`);
   if (reply.status !== "ok") throw new Error("unreachable");
   const { picks } = orderByAssistant(toCandidates(items), state, reply.stateVersion, reply.ranking);
@@ -101,7 +121,42 @@ async function rank(items: readonly CatalogueTitle[]) {
     const reason = reply.reasons.find(({ candidateId }) => candidateId === pick.id)?.reason ?? "";
     console.log(`   - ${pick.title.title} (${pick.title.year ?? "?"}, ${pick.title.genres.join("/")}) ${reason}`);
   }
+  await critique(items, picks);
   return picks;
+}
+
+/**
+ * The critic over those picks, printed in full. A refusal is printed too, and is not a failure of
+ * this script: the row keeps the ranking's reasons, which is the whole point of the fallback.
+ */
+async function critique(items: readonly CatalogueTitle[], picks: readonly { id: string; title: CatalogueTitle }[]) {
+  const chosen = picks.slice(0, CONVERSATION_LIMITS.maxCritiquePicks).map(({ title: film }) => film);
+  if (chosen.length === 0) return;
+  const shown = new Set(chosen.map(({ id }) => id));
+  const withheld = items.filter(({ id }) => !shown.has(id)).map(({ title: name }) => name);
+  const started = Date.now();
+  const reply = critiqueResponseSchema.parse(
+    await post(discoverCritique, "/api/discover/critique", { state, picks: chosen.map(asCandidate), withheld }),
+  );
+  if (reply.status !== "ok") {
+    console.log(`  the critic did not write (${reply.status}: ${"code" in reply ? reply.code : ""}), so the reasons above stand`);
+    return;
+  }
+  console.log(`  the critic, in ${Date.now() - started} ms:`);
+  for (const film of chosen) {
+    const note = reply.critiques.find(({ candidateId }) => candidateId === film.id);
+    console.log(`   - ${film.title}`);
+    if (!note) {
+      console.log("       (no note: it found nothing honest to say against this one)");
+      continue;
+    }
+    console.log(wrap("why:      ", note.why));
+    console.log(wrap("watching: ", note.watching));
+    console.log(wrap("but:      ", note.reservation));
+  }
+  for (const note of reply.critiques) {
+    assert.ok(shown.has(note.candidateId), "the critic wrote only about the films it was given");
+  }
 }
 
 const light = await say("something light for a Friday night");
@@ -130,5 +185,11 @@ const clear = await say("A scary film under two hours");
 assert.equal(clear.question, null, "a clear request is answered, not questioned");
 const scary = await shortlist();
 assert.ok(scary.items.every(({ genres, runtimeMinutes }) => genres.includes("Horror") && (runtimeMinutes ?? 999) < 120));
+
+const dark = await say("something bleak and slow from the seventies");
+assert.equal(dark.question, null, "a request this concrete is answered, not questioned");
+const bleak = await shortlist();
+assert.ok(bleak.items.length > 0, "and finds films");
+await rank(bleak.items);
 
 console.log("\nPASS conversation");

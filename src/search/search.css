@@ -16,7 +16,7 @@
   /* A pick the critic wrote about is a poster and a column of prose side by side. A paragraph
      down a 200-pixel column is one or two words a line and unreadable from a sofa, so the slot
      grows sideways instead and the row scrolls, as it already does. */
-  --pick-width: 560px;
+  --pick-width: 620px;
   /* What is on screen, and how much of the bottom a phone's keyboard has taken. `useViewport`
      publishes both from the visual viewport; without it the whole screen is assumed. */
   --screen: var(--search-viewport, 100dvh);
@@ -535,7 +535,7 @@ button.search-card:hover .search-card-poster { box-shadow: 0 0 0 3px rgba(207, 2
 .search-panel .search-preview-attribution { padding: 14px 0 0; }
 
 @media (max-width: 1100px) {
-  .search-shell, .search-layer, .search-overlay { --card-width: 170px; --pick-width: 440px; --control-height: 76px; }
+  .search-shell, .search-layer, .search-overlay { --card-width: 170px; --pick-width: 480px; --control-height: 76px; }
   .search-card-noted { gap: 18px; }
   .search-card-why { font-size: 19px; }
   .search-card-against { font-size: 18px; }

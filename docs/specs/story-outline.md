@@ -349,31 +349,34 @@ about where a direction came from, so a beat needs no translation to become one.
 naming a closed beat is refused with `beat_locked`, the stream-side counterpart of the
 `portion_locked` a script edit gets.
 
-As built: **after a cascade commits, the edited beat's new phrase is sent to the open streams that
-are about to render it** as `direct({ body: summary, beatIndex, authorId })`.
+As built: **the script is handed to the provider a chunk at a time, and a beat goes only once it
+has closed to editing.** `configure` carries the beats of the opening window — what fal will
+generate before it has reported anything — and every chunk after that is followed by a `prompt`
+carrying the beats of the chunk after the one being generated, with `script_mode: "append"` and
+`replan: false`. fal's `prompt` takes a `script` as well as text, which is what makes this
+possible at all; see its API for `script_mode` and the version rule.
 
-Two limits on that, and the second is the one that is easy to get wrong.
+**That is what makes an edit reach the picture, and it is why nothing is pushed when one lands.**
+A beat the provider holds has been planned from and can never be unplanned: if the whole script
+goes at `configure`, an edit afterwards rewrites the outline while the stream goes on rendering
+the version fal was given — the room sees its change on the timeline and never on screen. Handing
+beats over as they close inverts that. Every beat fal has is one nobody can still change, and
+every beat that can still change is one fal has not seen, so the next handover reads whatever the
+story says by then. The queue therefore delivers nothing after a commit; the stream reads the
+current revision itself.
 
-**Only the edited beat is sent, never the rewritten tail.** The director's `replan` flag means a
-burst of prompts would cancel down to the last one and flood a bounded audit log with text no
-human asked for.
+**The lock boundary is now a record rather than a prediction.** `minEditableBeatIndex` is the
+first beat past the seconds actually handed over — `committedThroughSeconds` on the stream — not
+an arithmetic guess about where the provider must have got to. It is wider than the old
+"two beats ahead": one chunk of lead over a ten-second chunk closes about four five-second beats.
+That width is the true cost of the guarantee, and it was always being paid — under the old shape
+every beat in the film was committed from the first second, the window simply did not say so.
 
-**And only to a stream whose next beat this is.** A direction is a *steering* prompt, not a
-positional one: the provider re-plans what it generates next from whatever it is told. Sending a
-stream a beat it will not reach for another three minutes therefore does not schedule that beat,
-it makes the stream render it now, out of order. A stream is addressed only when the edited beat
-is `minEditableBeatIndex` for that stream — which the lock window already makes the imminent one,
-since the two closed beats are the one on screen and the one with the provider.
-
-The honest consequence: **a beat edited further ahead does not reach an already-open stream at
-all.** The script went to the provider once, in the `configure` message at session open, and
-nothing re-sends it as the stream advances. The commit is durable either way and the outline is
-correct; it is the live stream that will not reflect it. Closing that would mean re-sending a beat
-as it becomes imminent, which nothing does today.
-
-The edit record reports `direction: { sent, refused, skipped }` — `skipped` being a stream this
-edit was not for. A refusal (`stream_not_ready`, `beat_locked`) is recorded and never fails the
-edit, and with no stream open nothing is sent and nothing is wrong.
+A beat is still direction text for the live director, and a free-text direction still exists
+beside this: `direct({ body, beatIndex? })` is a *change* of direction, sent with `replan: true`
+so it cuts into what is planned, and a beat naming a closed beat is refused with `beat_locked`.
+The handover is the opposite verb — the next page of the same script, queued behind what is
+already planned.
 
 **What delivery costs.** A direction is a control message on a session that is already billing for
 wall-clock time, so fanning one out to several streams adds no charge per this server's own

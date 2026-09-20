@@ -2594,6 +2594,40 @@ the code it quotes sit together again.
   by a second probe with `FAL_KEY` empty: loading the screen posts only `attachOnly` sessions,
   so a page load never opens a paid take.
 
+## 2026-09-20 — A beat reaches the provider when it locks, not at configure (RV-33)
+
+- **The bug this fixes:** an edit landed, the timeline showed it, and the film kept playing the
+  old story. `configure` had given fal the whole script at session open, so every beat was planned
+  from before the room could change it and nothing re-sent them.
+- `configure` now carries only the opening window's beats (`DIRECTOR_MAX_CHUNK_SECONDS`, the
+  longest chunk the model makes). Each `chunk` is followed by a `prompt` carrying the beats of the
+  chunk after the one being generated, `script_mode: "append"`, `replan: false`, with the version
+  incremented as fal's API prescribes. Recorded on the trail as `beats_sent`.
+- Every hand-over reads the CURRENT revision (`DirectorStream.readScript`, wired to
+  `store.getCurrentScriptRevision`), so an edit that lands mid-take is in the beats that have not
+  gone yet. Hand-overs are serialized behind one promise so two chunks cannot send the same beats.
+- `beatWindow` takes `committedThroughSeconds` and derives the boundary from it: the first beat
+  past what was actually sent. The old arithmetic (`current + 2`) remains only for callers with no
+  stream to ask — a preview, a fixture — and is documented as the guess it is.
+- **The window is wider than before**: one chunk of lead over a ten-second chunk closes about four
+  five-second beats, against the two the old rule claimed. The cost was always being paid; the
+  window just did not say so.
+- The outline queue no longer pushes a landed beat to open streams, and `OutlineEditRecord`
+  loses `direction: { sent, refused, skipped }`. With the hand-over, a push would send the same
+  beat twice — the second time as a steering prompt that busts fal's planned queue. The free-text
+  direction route (`/direct`, `replan: true`) is unchanged: a change of direction is a different
+  act from handing over the next page of the same script.
+- Verified: `pnpm test` 1443/1443, `npx tsc --noEmit` clean, `pnpm build` clean. New coverage in
+  `tests/directorRoutes.test.ts` (hand-over timing against the frontier, the window following what
+  was sent, a mid-take edit reaching the next hand-over, nothing sent twice, past the last beat)
+  and `tests/director.test.ts` (the configure window, script slicing).
+- **Not verified, and it needs one paid take:** whether fal accepts an opening script of one chunk
+  rather than the whole film, and whether an appended beat arrives in time for the chunk it
+  belongs to. A refusal would be the fatal `invalid_initial_script`, so it would be visible
+  immediately rather than degrading quietly. The API shape comes from
+  https://fal.ai/models/minimax/h3-max/director/api — `prompt` takes `script` and `script_mode`,
+  versions increment by one — and was read, not measured.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

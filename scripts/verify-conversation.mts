@@ -19,7 +19,7 @@ import { fetchCatalogue } from "../api/_lib/supabase-catalogue";
 import { toCandidates } from "../src/catalogue/candidates";
 import { CATALOGUE_CONFIGURATION } from "../src/catalogue/domain";
 import { orderByAssistant } from "../src/catalogue/scorer";
-import { toShortlistFilters } from "../src/catalogue/shortlistFilters";
+import { toShortlistRead } from "../src/catalogue/shortlistFilters";
 import { CATALOGUE_LIMITS, type CatalogueOk, type CatalogueTitle } from "../src/catalogue/contract";
 import { CONVERSATION_LIMITS, rankResponseSchema, turnResponseSchema } from "../src/conversation/contract";
 import type { PreferenceState } from "../src/preferences/schema";
@@ -71,14 +71,23 @@ async function say(message: string) {
   return reply;
 }
 
-async function shortlist(): Promise<CatalogueOk> {
-  const filters = toShortlistFilters(state);
-  const result = await fetchCatalogue({ query: "", page: 1, pageSize: CATALOGUE_LIMITS.shortlistSize, ...filters }, accessToken);
+/** One catalogue page for exactly these words and filters, exactly as the browser reads it. */
+async function page(query: string, filters: Record<string, unknown>): Promise<CatalogueOk> {
+  const result = await fetchCatalogue({ query, page: 1, pageSize: CATALOGUE_LIMITS.shortlistSize, ...filters }, accessToken);
   assert.equal(result.status, "ok", `the shortlist loaded: ${JSON.stringify(result)}`);
   if (result.status !== "ok") throw new Error("unreachable");
-  console.log(`  filters ${JSON.stringify(filters)} -> ${result.total} titles match`);
   return result;
 }
+
+async function shortlist(): Promise<CatalogueOk> {
+  const { subject, filters } = toShortlistRead(state);
+  const result = await page(subject, filters);
+  const words = subject === "" ? "" : ` about ${JSON.stringify(subject)}`;
+  console.log(`  filters ${JSON.stringify(filters)}${words} -> ${result.total} titles match`);
+  return result;
+}
+
+const titles = (found: CatalogueOk, count = 5) => found.items.slice(0, count).map(({ title, year }) => `${title} (${year ?? "?"})`);
 
 async function rank(items: readonly CatalogueTitle[]) {
   const candidates = items.map((item) => ({
@@ -130,5 +139,44 @@ const clear = await say("A scary film under two hours");
 assert.equal(clear.question, null, "a clear request is answered, not questioned");
 const scary = await shortlist();
 assert.ok(scary.items.every(({ genres, runtimeMinutes }) => genres.includes("Horror") && (runtimeMinutes ?? 999) < 120));
+
+/**
+ * A request a genre-only funnel cannot answer: the viewer says what the film is about, and the
+ * same state is read both ways — with the words the assistant heard, and with only the genres,
+ * length and era they imply — so the difference between the two is on the record.
+ */
+async function about(message: string) {
+  state = newState(`verify-about-${Date.now()}`);
+  previousQuestion = null;
+  await say(message);
+  const { subject, filters } = toShortlistRead(state);
+  assert.notEqual(subject, "", `"${message}": the assistant heard what the film is about`);
+  console.log(`  what it is about: ${JSON.stringify(subject)}; filters ${JSON.stringify(filters)}`);
+
+  const before = await page("", filters);
+  const after = await page(subject, filters);
+  console.log(`  before, by genre alone (${before.total} match): ${titles(before).join(", ")}`);
+  console.log(`  after, with the words  (${after.total} match): ${titles(after).join(", ")}`);
+
+  assert.ok(after.total > 0, `"${message}": the words found films, so nothing has to be widened`);
+  assert.ok(after.total < before.total, `"${message}": the words narrow what the filters alone return`);
+  assert.notDeepEqual(titles(after), titles(before), `"${message}": and return different films`);
+  await rank(after.items);
+  return { before, after };
+}
+
+await about("a film about a family with some pets");
+await about("a heist that goes wrong");
+await about("someone who loses their memory");
+
+// Words nothing is about must not empty the screen: the filters alone still answer.
+state = newState(`verify-nothing-${Date.now()}`);
+previousQuestion = null;
+await say("a comedy about zzqqxx nothingness");
+const { subject: missing, filters: stillWanted } = toShortlistRead(state);
+const found = await page(missing, stillWanted);
+const fallback = await page("", stillWanted);
+console.log(`  ${JSON.stringify(missing)} matched ${found.total}; the filters alone still match ${fallback.total}`);
+assert.ok(fallback.total > 0, "a subject that matches nothing falls back to a real shortlist");
 
 console.log("\nPASS conversation");

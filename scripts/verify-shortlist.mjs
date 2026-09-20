@@ -29,6 +29,8 @@ async function shortlist(label, filters) {
   return data;
 }
 
+const top = (page, count = 4) => page.items.slice(0, count).map((row) => row.title);
+
 const all = await shortlist("unrefined", {});
 const scary = await shortlist("+ something scary", { include_genres: ["horror"] });
 const short = await shortlist("+ under two hours", { include_genres: ["horror"], max_runtime: 119 });
@@ -56,6 +58,32 @@ assert.deepEqual(
   ["backdrop_path", "genres", "id", "original_language", "overview", "poster_path", "release_date", "runtime", "title"],
   "only the columns Discover maps",
 );
+
+// What the viewer said the film is about, as the search argument. The point of these is that a
+// genre filter alone could not have chosen them: they select by plot, not by category.
+console.log("");
+const pets = await shortlist("about a family with pets", { search: "family with pets" });
+const petsAndFamily = await shortlist("+ family films", { search: "family with pets", include_genres: ["family"] });
+const family = await shortlist("family films alone", { include_genres: ["family"] });
+const heist = await shortlist("about a heist that goes wrong", { search: "heist goes wrong" });
+const memory = await shortlist("about losing a memory", { search: "loses their memory" });
+const unknownWords = await shortlist("words nothing is about", { search: "zzqqxx nothingness", include_genres: ["comedy"] });
+const comedies = await shortlist("the same, words dropped", { include_genres: ["comedy"] });
+
+console.log(`\n  a family with pets -> ${top(pets).join(", ")}`);
+console.log(`  family films alone -> ${top(family).join(", ")}`);
+console.log(`  a heist that goes wrong -> ${top(heist).join(", ")}`);
+console.log(`  loses their memory -> ${top(memory).join(", ")}\n`);
+
+for (const [label, page] of [["pets", pets], ["heist", heist], ["memory", memory]]) {
+  assert.ok(page.total > 0, `${label}: the words find films`);
+  assert.ok(page.total < all.total / 100, `${label}: and narrow the catalogue sharply`);
+}
+assert.notDeepEqual(top(pets), top(family), "selecting by plot does not return what selecting by genre returns");
+assert.ok(petsAndFamily.total <= pets.total, "a genre filter still narrows the words further");
+assert.ok(petsAndFamily.items.every((row) => /\bFamily\b/.test(row.genres ?? "")), "and every row carries that genre");
+assert.equal(unknownWords.total, 0, "words nothing is about match nothing");
+assert.ok(comedies.total > 0, "so the filters alone must still have an answer to fall back to");
 
 const languages = [...new Set(all.items.map((row) => row.original_language))];
 console.log(`languages on the first shortlist: ${languages.join(" ")}`);

@@ -176,3 +176,30 @@ export async function callRpc(
     throw new RestError("unavailable", "The room directory returned an unexpected response.");
   }
 }
+
+/**
+ * Reads the jam's live-consent register as the caller.
+ *
+ * Still under RLS: an active member sees the room's register, and nobody else sees anything.
+ * The server holds no service-role key here either, so it cannot read a register for a
+ * caller who could not read it themselves.
+ */
+export async function readLiveConsents(
+  config: SupabaseConfig,
+  accessToken: string,
+  jamId: string,
+  options: SupabaseRestOptions = {},
+): Promise<unknown[]> {
+  const rows = await getJson(
+    config,
+    accessToken,
+    `/rest/v1/jam_live_consents?jam_id=eq.${jamId}` +
+      "&select=id,jam_id,owner_id,kind,purpose,asset_ref,granted_at,expires_at,withdrawn_at" +
+      "&order=granted_at.asc&limit=200",
+    options,
+  );
+  if (!Array.isArray(rows)) {
+    throw new RestError("unavailable", "The consent register returned an unexpected response.");
+  }
+  return rows;
+}

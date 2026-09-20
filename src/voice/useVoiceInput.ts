@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { VOICE_LIMITS } from "./contract";
 import { MicrophoneError, startRecording, type Recording } from "./recorder";
 import { openStream, type StreamSession } from "./streamClient";
@@ -144,6 +144,30 @@ export function useVoiceInput({ onTranscript }: VoiceInputOptions) {
     if (action === "cancel") moveTo("idle");
   }, [start, stop, moveTo]);
 
+  /**
+   * Press and hold, for screens where speaking is the primary way in: `start`
+   * opens the microphone if it is closed, `end` stops a recording or gives up
+   * on one still opening.
+   *
+   * Both read the live phase rather than the rendered one. A tap short enough
+   * to beat a re-render would otherwise leave the microphone open, and an
+   * `end` that arrived twice (a release, then the pointer capture being
+   * given back) would read as a second press and start recording again.
+   */
+  const hold = useMemo(
+    () => ({
+      start: () => {
+        if (pressAction(phaseRef.current) === "start") void start();
+      },
+      end: () => {
+        const action = pressAction(phaseRef.current);
+        if (action === "stop") void stop();
+        if (action === "cancel") moveTo("idle");
+      },
+    }),
+    [start, stop, moveTo],
+  );
+
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -156,5 +180,5 @@ export function useVoiceInput({ onTranscript }: VoiceInputOptions) {
     };
   }, []);
 
-  return { phase, level, notice, partial, press };
+  return { phase, level, notice, partial, press, hold };
 }

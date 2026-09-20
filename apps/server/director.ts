@@ -1,3 +1,4 @@
+import type { FalBudget } from "./falBudget";
 import express, { type Router } from "express";
 import { z } from "zod";
 import { sendError, type JamStore } from "./jams";
@@ -27,11 +28,17 @@ import {
 } from "../../src/core/configuration";
 import { sessionSettingsSchema } from "../../src/core/session";
 import {
+  DIRECTOR_MIN_BILLED_SECONDS,
   DirectorError,
   resolveDirectorConfig,
   startDirectorSession,
   type DirectorConfig,
 } from "./providers/falDirector";
+import {
+  sessionSpendUsd,
+  type DirectorRates,
+  type DirectorSpend,
+} from "../../src/core/directorSpend";
 
 /**
  * The live director, proxied end to end by this server.
@@ -143,6 +150,10 @@ const viewerSchema = z
 export interface DirectorRouterOptions {
   config?: DirectorConfig | null;
   limits?: DirectorSessionLimits;
+  /** Supplied so several routers reserve against one shared fal budget. */
+  ledger?: DirectorSessionLedger;
+  /** The process-wide fal budget a ledger built here reserves against. */
+  budget?: FalBudget;
   recordings?: DirectorRecordingStore;
   index?: DirectorIndexStore;
   registry?: DirectorStreamRegistry;
@@ -287,11 +298,22 @@ export function createDirectorRouter(
     return task;
   }
 
+  // A process with no configured FAL_ASSET_BUDGET_USD leaves the ledger on its
+  // own limits rather than imposing a ceiling of zero over them. A configured
+  // one is shared, so Director and beat generation debit the same total.
+  const ledger =
+    options.ledger
+    ?? new DirectorSessionLedger(
+      limits,
+      options.now,
+      options.budget?.totalUsd ? options.budget : undefined,
+    );
   // The ledger reclaims abandoned sessions on its own, inside `open` and
   // `findByStreamKey` as well as on a sweep. A stream left running past its
   // session keeps billing with nobody watching, so stopping it is bound to the
-  // ledger rather than left to whichever route happened to notice.
-  const ledger = new DirectorSessionLedger(limits, options.now, (sessionId) => {
+  // ledger rather than left to whichever route happened to notice. This also
+  // attaches the resource owner when the ledger was injected process-wide.
+  ledger.onClosed((sessionId) => {
     void releaseSession(sessionId).catch(() => undefined);
   });
   // Reclaim must not depend on another browser happening to open or find a
@@ -343,7 +365,55 @@ export function createDirectorRouter(
     return config;
   }
 
+  const rates: DirectorRates = {
+    budgetUsd: limits.budgetUsd,
+    usdPerSecond: limits.usdPerSecond,
+    minBilledSeconds: DIRECTOR_MIN_BILLED_SECONDS,
+  };
+
+  /**
+   * What has been spent, in USD, and what is left.
+   *
+   * A session's figure comes from the seconds fal actually generated, never
+   * from its reservation: the reservation is the worst case this process
+   * committed up front so a dead browser tab cannot leak budget, and quoting
+   * it back as spend would overstate every session that ran short. It does cap
+   * the figure, because a session cannot be billed past the limit it stops at.
+   *
+   * Everything else still open keeps its reservation, because those sessions
+   * have not settled and this one must not be told money it cannot have.
+   */
+  function spendOf(sessionId: string | null): DirectorSpend {
+    const session = sessionId ? ledger.find(sessionId) : undefined;
+    const stream = sessionId ? streams.get(sessionId) : undefined;
+    const sessionUsd = session
+      ? Math.min(
+          session.reservedUsd,
+          sessionSpendUsd(stream?.snapshot.generatedSeconds ?? 0, rates),
+        )
+      : 0;
+    const committedElsewhere = ledger.committedUsd - (session?.reservedUsd ?? 0);
+    return {
+      ...rates,
+      sessionUsd,
+      remainingUsd: Math.max(0, rates.budgetUsd - committedElsewhere - sessionUsd),
+    };
+  }
+
   router.use(express.json({ limit: "8kb" }));
+
+  /**
+   * The director budget of THIS server, so a screen can state the ceiling
+   * before it opens a paid session.
+   *
+   * It does not look the jam up: the budget belongs to this process, not to a
+   * room, and refusing to name the ceiling because the script lives elsewhere
+   * would help nobody. `configured` says whether a session could be opened at
+   * all, which is a different fact from having money left.
+   */
+  router.get("/api/jams/:id/director/budget", (_request, response) => {
+    response.json({ configured: requireConfig() !== null, spend: spendOf(null) });
+  });
 
   router.post("/api/jams/:id/director/session", async (request, response) => {
     const jam = await store.getJam(request.params.id);
@@ -405,6 +475,7 @@ export function createDirectorRouter(
           lifecycle: jam.lifecycle,
           state: open.snapshot,
           beats: open.beats,
+          spend: spendOf(existing.sessionId),
         });
         return;
       }
@@ -559,6 +630,7 @@ export function createDirectorRouter(
       lifecycle: started.lifecycle,
       state: stream.snapshot,
       beats: stream.beats,
+      spend: spendOf(session.sessionId),
     });
   });
 
@@ -627,6 +699,7 @@ export function createDirectorRouter(
       beats: stream.beats,
       audit: stream.entries,
       droppedAuditEntries: stream.audit.droppedCount,
+      spend: spendOf(request.params.sessionId),
     });
   });
 

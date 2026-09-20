@@ -5,7 +5,8 @@
  *
  * jsdom has no layout, so nothing here measures anything. It also lacks the few browser APIs the
  * screens call, and those are replaced by recorders a test can inspect: `scrollTo`,
- * `scrollIntoView` and `IntersectionObserver`, whose intersections a test reports by hand.
+ * `scrollIntoView`, `IntersectionObserver` (whose intersections a test reports by hand) and
+ * media playback, which jsdom does not implement at all.
  */
 import { JSDOM, VirtualConsole } from "jsdom";
 
@@ -43,6 +44,12 @@ window.scrollBy = ((...args: unknown[]) => {
   scrollCalls.push({ by: args.length === 1 ? args[0] : { left: args[0], top: args[1] } });
 }) as typeof window.scrollBy;
 window.HTMLElement.prototype.scrollIntoView = function scrollIntoView() {};
+/** Every element asked to play, so a test can check the screen is not dead. */
+export const playCalls: Element[] = [];
+window.HTMLMediaElement.prototype.play = function play() {
+  playCalls.push(this);
+  return Promise.resolve();
+};
 window.HTMLElement.prototype.scrollTo = function scrollTo() {} as typeof window.HTMLElement.prototype.scrollTo;
 
 type ObserverRecord = { callback: IntersectionObserverCallback; targets: Set<Element>; options?: IntersectionObserverInit };

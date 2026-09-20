@@ -116,11 +116,10 @@ export interface DirectorControlChannel {
  *
  * This is not a default worth inheriting: werift offers **VP8 only** unless
  * told otherwise, so an unconfigured peer silently forecloses H.264 — and
- * H.264 (`avc1`) with Opus is the whole of what fMP4 can carry, which is what
- * live HLS delivery and the durable archive are both built on. Offering VP8
- * second is deliberate rather than decorative: if fal cannot do H.264 the
- * session still connects and still records, and delivery refuses in the open
- * instead of the handshake failing outright.
+ * H.264 (`avc1`) with Opus is the whole of what fMP4 can carry, while the
+ * recording-only path writes VP8 WebM. Both stay in the offer; the selected
+ * container decides which one leads, and an unsupported fallback is refused
+ * by the muxer rather than being emitted under the wrong container label.
  */
 export const DIRECTOR_VIDEO_CODECS = [
   new RTCRtpCodecParameters({

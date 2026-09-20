@@ -57,6 +57,39 @@ export async function createJam(input: CreateJamInput): Promise<CreatedJam> {
   return { jam: parsed.data, persistence: "remote" };
 }
 
+/** One room, by the slug in its URL, with whether this viewer hosts it. */
+export type OpenedJam = { jam: JamRoom; isHost: boolean; persistence: JamPersistence };
+
+/**
+ * Reads one room by slug.
+ *
+ * Narrower than the Studio's snapshot on purpose: a Director session is one
+ * person working alone, so it needs the room and nothing about members,
+ * messages or proposals. A browser-only preview registration is found in this
+ * browser's own registry, where it is the only place it exists.
+ */
+export async function openJam(slug: string): Promise<OpenedJam> {
+  if (!hasSupabaseConfiguration()) {
+    const jam = readPreviewJams().find((candidate) => candidate.slug === slug);
+    if (!jam) throw new JamError("not_found", "This jam is not registered in this browser.");
+    // A preview jam exists only here, so whoever opens it is whoever made it.
+    return { jam, isHost: true, persistence: "preview" };
+  }
+
+  const userId = await ensureUserId("Opening a jam");
+  const { data, error } = await supabase!
+    .from("jams")
+    .select(`${JAM_COLUMNS}`)
+    .eq("slug", slug)
+    .maybeSingle();
+  if (error) throw toJamError(error, "This jam could not be opened.");
+  if (!data) throw new JamError("forbidden", "This jam is not open to your session.");
+
+  const parsed = jamRoomSchema.safeParse(data);
+  if (!parsed.success) throw new JamError("unavailable", "This jam returned an unexpected record.", true);
+  return { jam: parsed.data, isHost: parsed.data.host_id === userId, persistence: "remote" };
+}
+
 export async function listJams(): Promise<JamRegistry> {
   if (!hasSupabaseConfiguration()) {
     return { jams: readPreviewJams(), persistence: "preview" };

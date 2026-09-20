@@ -31,6 +31,13 @@ detaches the viewer id it allocated. This covers navigation and React's developm
 than leaving a phantom viewer billed until reclaim. The finished recording is rendered once; the
 integration had accidentally left both the old and new player branches in the DOM.
 
+The later `/director/:slug` screen merged from `main` follows the same contract. It auto-attaches
+without opening a paid stream, renews and detaches its own viewer id, selects HLS when the server
+does, and treats unmount as one viewer leaving rather than a whole-room stop. Its Stop and every
+path into direction (button, Enter, or a Direct-mode voice transcript) remain host-only. Keeping
+the newer screen on the old single-viewer contract would have reintroduced the exact spend and
+authority bugs this review closes.
+
 Finally, recording and live delivery now select one media pipeline. With HLS enabled, the fMP4
 segmenter fans the same numbered pieces to the live window and, when recording is enabled, the MP4
 archive sink. With HLS disabled, the established WebM piece recorder owns the archive. This
@@ -42,6 +49,339 @@ its archive cannot mux.
 
 No provider claim changes: H.264 muxing and a real fal stream remain unprobed.
 
+## 2026-09-20 — Two ways to reach a film, and neither pretends to be the other
+
+Reverie now has both a conversation (`/discover`) and a catalogue (`/catalog`). The tempting move
+is to make one of them a mode of the other: put a grid behind the conversation, or bolt a chat bar
+onto the grid. Both were refused, and the split is the decision.
+
+**Browsing is not asking.** The conversation exists because a viewer who cannot name what they want
+can say it instead, and every turn costs a model call. Browsing is the opposite request — *show me
+what there is* — and it has to be free, instant and endless. Putting a conversation bar on the
+catalogue would make the cheap surface look like the expensive one and invite a model call from a
+viewer who only wanted to scroll. So the catalogue carries a title field, chips and a grid, and
+nothing that sends a message. Voice is the conversation's input; it is not on the catalogue either.
+
+**Nothing on the catalogue turns a title down.** "Not this one" belongs to the conversation, where
+refusing a film is a statement that shapes the next answer. On a browsing grid it would be an
+edit to a catalogue the viewer does not own, with no turn to carry it, so the action is simply not
+offered rather than offered and made inert.
+
+**The grid says which order it is in.** Unrefined it is the order the catalogue query answered, and
+nothing claims more. Once a chip narrows it, the shortlist is ordered by the deterministic scorer
+and the line above the grid says *Ranked by genre match*. The catalogue never calls the assistant,
+so it can never show a model's ranking — and, just as important, can never show a "Ranking…" state
+for something that will not happen. A ranking is named by what produced it or it is not named.
+
+**A refined grid stops paging, on purpose.** Filters are applied in Postgres over the whole
+catalogue, so a refined read is one shortlist of 48 rows rather than an endless walk through pages
+the database has already rejected. Paging a filtered feed would mean asking for page after page of
+rows that mostly do not match, and it would let the scorer's order change under the viewer as pages
+arrived. One shortlist, ranked once, is the honest shape of "everything that fits this".
+
+**A film page is a layer over whatever opened it.** The home already drew the film page over itself
+so its shelves, scroll and focus survived; the catalogue needs exactly that, for its loaded pages.
+Rather than add a second special case, `App.tsx` now reads the history entry the film was opened
+from and draws the page over that screen when it is one that can hold its place
+(`FILM_LAYER_OVER`). Everything else — including a film reached by URL — is Discover's, which is
+where a film with no history behind it should land. The rule is now one sentence instead of two
+exceptions, and the next screen that lists films inherits it by being named.
+
+## 2026-09-20 — A Director session is a way of working on a jam, not a sixth destination
+
+`/director/:slug` is one person making one film by talking to it. The obvious
+place to put it is the top bar, beside Home, Discover, Catalog, Movie Jam and
+Community. It is not there, for two reasons.
+
+The first is mechanical and hard: the bar's five destinations already have to
+fit a 360-pixel screen, where the brand and the account are pinned and the
+strip scrolls inside the bar. A sixth would not fit, and the fix for that
+would be to make the bar worse for every screen in the app.
+
+The second is that it would be a category error. Home, Discover, Catalog,
+Movie Jam and Community are *places*. A Director session is a *way of working
+on a jam you already have* — the same room, the same script, the same beats,
+the same paid stream, differing only in who is in the room. So it lives under
+Movie Jam: `destinationOf("director")` answers `"jam"`, the bar marks Movie
+Jam while you are there, Back leads to `/jams`, and the Movie Jam list gains
+the choice — **With people**, which opens the Studio, or **Alone**, which
+opens the Director session. Nothing redirects between them and neither is the
+"real" one.
+
+The cost is that a Director session cannot be reached in one press from any
+screen; it takes Movie Jam and then a choice. That is the right price for a
+bar that still fits a phone and a mental model that does not make "a mode" and
+"a place" the same thing.
+
+## 2026-09-20 — The Director screen shows what the product knows, and names what it does not
+
+The design this screen was drawn from carries a finished film: nine beats,
+2:11, per-beat stills, variants of a shot to choose between, a library of
+reference images, and dollar figures. Almost none of that has anything behind
+it, and the temptation in building it is to keep the shapes and fill them with
+something — a grey rectangle where a still goes, a disabled Download, a
+carousel with one item in it. Every one of those tells the viewer the feature
+is nearly there. Four of them are not there at all.
+
+So each absence is drawn as an absence, and says what is missing:
+
+- **No beat has a still.** The stream is forwarded to viewers and recorded
+  whole; nothing in this build samples a frame per beat. The beat's frame
+  holds its own phrase, and the timeline says why there is no image, once.
+- **No variants.** Nothing generates a second take of a beat, keeps one, or
+  chooses between them. Review says so where the variants would be.
+- **No reference library.** A Director session keeps no images or clips,
+  because there is nowhere to keep them.
+- **No audio description.** There is no describer and no narration track. Its
+  row in the drawer reads "Not made" and carries no control at all — not a
+  disabled one, which would read as "soon".
+
+**Attach fans out for real and then stops.** A dropped image or clip offers
+the four intents — the look, a character, a place, a shot — because declaring
+a purpose before the media is used is the rule live media already proved. One
+tap picks it, and then the composer says plainly that nothing can carry it to
+the film: there is no upload route, no reference store, and `jam_proposals`
+carries text and nothing else (`docs/specs/multimodal-creative-turns.md`).
+Building the gesture and stopping at the wall is more honest than hiding the
+gesture, and much more honest than faking the wall away.
+
+**Every number is derived.** The runtime, the beat count, each beat's duration
+and start come from the script's own portions. The beat states come from the
+stream's own window (`src/core/directorBeats.ts`, asked rather than restated).
+The turns come from the session's audit trail, and a turn's beat is the one it
+named or the one that was playing when it was sent — never a guess. The spend
+comes from the server, from seconds the provider actually generated. Where the
+script itself is missing — it lives in the process that generated it, so a
+restart or a different host loses it — the screen says that and offers nothing
+built from it.
+
+## 2026-09-20 — Direct mode arms the microphone; it does not leave it open
+
+The two modes are the one choice that changes what everything below the stage
+does, so they are the most prominent control after it. Direct applies each
+completed instruction on its own; Review is stopped, with per-beat tools.
+
+Direct is deliberately *hold to speak* rather than an open microphone.
+Continuous transcription is a spend question rather than a feature one — it is
+listed as exactly that in `docs/specs/multimodal-creative-turns.md` — and an
+always-listening control in a room is a consent question as well. The gesture
+bounds both: audio is captured while the control is held and at no other time,
+the partial transcript is on screen while it is, and on release the final
+transcript goes straight to the stream. Leaving Direct closes the microphone,
+because a Review mode that was still listening would contradict the only thing
+Review means.
+
+The voice machinery underneath is the app's existing relay, recorder and
+partial merge; only the gesture is new, and it is added to the existing control
+rather than copied beside it.
+
+## 2026-09-20 — Spend is the server's figure, from generated seconds, in USD
+
+The screen has to show what a session has cost against `FAL_ASSET_BUDGET_USD`.
+Three ways of getting that number would have been wrong.
+
+Quoting the **reservation** would overstate it. The ledger debits a session's
+worst case up front so a dead browser tab cannot leak budget, and a session
+that ran ten seconds has not spent two minutes' worth.
+
+Computing it **in the browser** would put the rate, the ceiling and the
+provider's minimum in two places, and they would drift. The arithmetic is
+shared (`src/core/directorSpend.ts`) and the numbers are the server's alone.
+
+**Hiding the minimum** would understate it. fal bills sixty seconds per
+session whether or not they are used, so an open session that has generated
+nothing has already cost $4.80 at list price, and the screen says so from the
+moment it opens.
+
+The figure is USD with two decimals, never `Intl.NumberFormat` with the
+viewer's locale — which would re-label the same number as their own currency
+without converting it. When the budget left cannot pay for a beat's seconds,
+that beat is **blocked** on the timeline, marked differently from the other
+four states, and the composer says so on a line of its own: being told the
+stream is stopped must not hide being told the budget is out.
+
+## 2026-09-20 — Probe receipt: what MiniMax H3 actually returns, and what the room is built on
+
+Two live generations through `minimax/h3-max/text-to-video` with a real loop shot from a
+shipped scenario, on 2026-09-20, via `scripts/probe-escape-segment.mts`:
+
+| asked | measured duration | bytes | accepted | completed | playable file |
+| --- | --- | --- | --- | --- | --- |
+| 15s | **15.104s** | 9,795,075 | 523ms | 22.9s | 25.3s |
+| 5s | **5.184s** | 3,792,092 | 488ms | 6.4s | 8.7s |
+
+Both came back as `video/mp4` from `v3b.fal.media`. Two things follow, and the escape room is
+built on them rather than on the published schema.
+
+**The model overshoots, by a tenth of a second or two, and not proportionally.** So a clip's
+length is read from the file (`src/core/mediaDuration.ts`, the `moov`/`mvhd` header) rather than
+assumed from the request, and the measured number is what the panel reports. The cut back to the
+loop is driven by the element's own `ended` event and never by a timer, so the overshoot cannot
+clip a beat short however far it drifts — which is what "the beat durations fit what the model
+returns" has to mean when the two numbers are not the same.
+
+**A fifteen-second beat takes about twenty-five seconds to become playable — longer than the
+beat itself.** The idle loop is therefore not a nicety; it is the only thing between the room and
+a spinner. A location's loop is generated at 5 seconds, which is the model's floor, the cheapest
+and, measured here, the fastest to first frame; a beat is 15. A beat that arrives late is simply
+a longer loop, and one that never arrives leaves the loop running.
+
+At the configured list rate of $0.08 per generated second that is $0.40 a loop and $1.20 a beat,
+so a clean ten-step run of a scenario costs about $14 of the $20 ceiling this project ships with.
+That is why the ceiling ending a session is a designed ending rather than a failure. **The rate
+is a configured estimate, not an invoice this repository has seen**: it is the figure the
+director already used, chosen because list price never understates the bill.
+
+Also verified live, in a browser against the hosted Supabase project, on 2026-09-20: a room
+opened, a proposal in a participant's own words resolved and was filmed, a second proposal was
+discarded, the beat cut in over the loop and handed the screen back when it ended, and a refusal
+was reported in the author's words without spending anything. Not verified: two browsers in one
+room, and any of this on Vercel.
+
+## 2026-09-20 — The rules decide what happened; the model only tells it
+
+An escape room's whole value is that it is coherent — that the key fits the drawer for everyone,
+on every replay, in the same way. So the question "what happened" is answered by a pure module
+(`src/core/escape/rules.ts`) with no network, no React, no clock and no randomness, reading an
+authored scenario, and by nothing else. The model is handed the resolved outcome afterwards and
+writes the prose and the shot. It is never asked a question about the world, so there is nothing
+here for it to get wrong about the world.
+
+That boundary is enforced, not hoped for. An outcome that does not advance returns the very state
+it was given, **by identity**, so "an impossible action changes nothing" is checkable rather than
+intended. An advancing one appends exactly one action id to a log, and the tests search each
+scenario exhaustively over the transitions the rules actually produce, replay every reachable
+goal log to prove it reproduces that same world, and prove that dropping any single step of a
+shortest solution fails to reach the goal.
+
+**Interpretation is a matcher, not a model.** Turning "jam the crank with the file" into an
+action is also a question about this world, so it is answered by the same offline, testable code
+(`src/core/escape/intent.ts`). The cost is real and is stated where it lives: a phrasing nobody
+anticipated does not match, and the room is told so rather than handed something it did not ask
+for. Widening that is an author writing more aliases.
+
+**Every refusal is the author's sentence.** A condition carries the words to say when it does not
+hold, so a room is told "the porch is still filling; the pressure behind the door will not let
+the dogs move" rather than a template. A generic "you cannot do that" is what makes a room feel
+arbitrary, and the format has nowhere to put one.
+
+**Things carry `seen` as well as `known`.** A door two rooms away is not hidden, but nobody has
+been there: it must not appear in the progress panel, and naming it must read as meaningless
+rather than as "it is not here", which would confirm the building has one. This was found by a
+test asserting what the panel lists at the start, and it changed the format.
+
+## 2026-09-20 — Only an outcome that changed the world is filmed
+
+A beat costs $1.20 and a clean run of a scenario is ten or eleven of them against a $20 ceiling.
+A refusal — "the lock still holds", "the bolt will not move by hand" — is the most cinematic
+thing in an escape room and is also the cheapest thing to get wrong about: the scenario authors a
+shot for what happens, not for what does not. So refusals become beats in the record, are shown
+to the room with the sentence their author wrote, and are not generated. The loop keeps the
+screen and the panel says "not filmed".
+
+The alternative was letting the model invent a shot for a failure. That is inside the boundary —
+the rules had already decided it failed — but it would spend a fifth of the budget on the door
+that did not open, and the room would run out before reaching the one that does.
+
+## 2026-09-20 — One spend account for the process, and the queue half of the fal adapter
+
+`FAL_ASSET_BUDGET_USD` is documented as a ceiling on this process. A second feature holding its
+own copy of that number would have meant two features each believing they could spend all of it,
+and the documented ceiling would quietly have become twice what it says. Money now lives in one
+`SpendAccount` (`apps/server/spendLedger.ts`); the director ledger keeps its reservation
+behaviour unchanged and debits that account instead of a private total.
+
+The escape room needs a clip it can **play again** — a location's loop is generated once and
+reused for the rest of the session — and a realtime Director session cannot give you one: it
+produces frames and no file, which is exactly why RV-16 deleted the per-portion queue pipeline
+and said the director was the only video path. That decision stands for the **film**: a Movie Jam
+is still one continuous directed stream. It does not fit a room that has to cut between a
+reusable loop and a rendered action, so the fal adapter regains its queue half
+(`apps/server/providers/falSegments.ts`) for the escape room only. Same provider, same rules: a
+typed spec per model carrying the duration band and request body it actually wants, a
+server-owned allowlist that `FAL_MODEL` selects from, an unknown value refused rather than
+quietly replaced, and no path anywhere that produces something which only looks generated.
+
+## 2026-09-20 — The escape-room routes check who is asking; the rest of this Express host does not
+
+The script, session and director routes on the local Node server carry no authorization — a
+known, recorded gap. The escape-room routes do not repeat it: they move a world a whole room can
+see and they spend from a budget, so identity is Supabase Auth's answer to the presented access
+token and the role is the caller's own `jam_members` row read under Row Level Security with that
+same token. This server holds no service-role key for it and can see no more than the participant
+it is acting for. Opening a room and closing a vote are host-only; proposing and voting need an
+active member; an `authorId` in a request body is rejected outright rather than overruled.
+
+A room is polled by everyone in it every three seconds, and two Supabase calls per participant
+per poll is not a thing to ship. The answer is cached for twenty seconds against a SHA-256 digest
+of the token — the digest, so a long-lived structure never holds a credential. The cost is
+stated where it lives: an admission or a removal takes up to twenty seconds to be felt.
+
+This leaves the host inconsistent, and deliberately so. Bringing the other routes up to this is
+worth doing and is not this slice; what is not worth doing is adding a fourth unauthenticated
+surface because the first three are.
+
+## 2026-09-20 — Appearing in the film is a consent kind, not a second register
+
+A participant can choose to be a character in the film the room generates. That needed a record
+of who agreed, to what, until when — and the live-media register already holds exactly that shape
+for camera, microphone and screen. So `likeness` joins `jam_live_consents` as a fourth consent
+kind rather than starting a parallel store.
+
+The alternative, a `jam_likeness_grants` table of its own, was rejected for a specific reason and
+not for tidiness: two registers means two answers to "may this person be used", and the moment
+they disagree — a withdrawal landing in one and not the other — the disagreement is a person on
+screen who asked not to be. One table, one withdrawal function, one definition of effective.
+
+The cost of sharing is that a likeness grant now flows through code written for publishable
+tracks. `permittedKinds` was the sharp edge: unchanged, a likeness grant would have been read as
+permission to publish something. It now filters to track kinds explicitly, and two tests hold both
+directions — agreeing to appear starts no camera, and a camera grant seeds no beat. The
+TypeScript union caught this at the seam before any of it ran, which is the argument for the
+kinds being a closed union rather than a string.
+
+**A partial unique index allows one standing likeness grant per participant per jam.** Two would
+mean two references for one face, and withdrawing one would leave the other standing — a
+withdrawal that does not withdraw. Changing your frame is withdrawing and agreeing again, with a
+fresh purpose and a fresh expiry, which is the honest shape of that act anyway.
+
+**Withdrawal is forward-looking, and the interface says so in those words.** A beat is a thing
+that happened. `describeBeatLikeness` is three-valued — `none`, `standing`, `withdrawn_since` —
+rather than a boolean, precisely so that a withdrawal cannot quietly reclassify an existing beat
+as having used nobody. "Ending the agreement stops the next beat, not this one" is the sentence
+the room sees, and a DOM test asserts the copy does not drift into implying a recall.
+
+## 2026-09-20 — Reference-to-video is a model on the fal allowlist, and one budget covers both
+
+`minimax/h3-max/reference-to-video` generates a beat seeded by approved frames;
+`minimax/h3-max/text-to-video` generates the same beat with nobody in it. They are two entries in
+one server-owned allowlist behind one adapter and one key, not a new provider. A request carrying
+frames reaches the reference model and one without reaches the plain model; there is deliberately
+no third path that asks for a likeness and quietly returns a beat without it.
+
+**Measured, against both live models** (`pnpm probe:beat-video`, 2026-09-20, 5-second 768p
+clips): the plain beat took 5.8 s from submit to a downloaded clip with 2.5 s of reported
+inference; the reference beat took 8.6 s with 3.0 s — 1.48× the wall clock, 1.2× the inference.
+The provider refuses a reference below 256×256 (`image_too_small`), which is why the frame check
+is server-side and happens before anything is spent.
+
+Cost could not be measured the same way: no response from the queue carries a price, so the
+figures in `.env.example` are fal's published rates read from their model listing on 2026-09-20 —
+$0.08 per second at 768p for reference-to-video, against $0.04 promotional for text-to-video,
+which is 2× per second today and level once the promotion ends. Both defaults are the list rate,
+so a stale default overstates rather than understates the bill. Reference *inputs* are billed as
+tokens beyond an included 4,096; a 1024×1024 image is 1,024 tokens, so capping a frame at
+1024×1024 and a beat at three references keeps every likeness beat inside the allowance. That cap
+is a pricing decision written into `src/core/likeness.ts`, not a guess at a good size.
+
+**`FAL_ASSET_BUDGET_USD` is now genuinely one total.** The director's ledger counted its own
+spend; beat generation would have counted its own beside it, and the stated budget would have
+been half the real ceiling. Both now reserve against a shared `FalBudget`.
+
+**The frame goes to the provider inline, as a `data:` URI**, rather than being uploaded for a URL.
+It has to reach the provider — that is the generation the person consented to — but it does not
+have to become an address that anyone holding the link can fetch, and inline means the only
+copies are ours and the provider's, for the length of the request.
 ## 2026-09-20 — The account menu shows the real anonymous session, not a fabricated identity
 
 The top bar now ends in an avatar with a menu behind it. The obvious way to build that surface is

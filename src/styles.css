@@ -98,6 +98,8 @@ footer { width: 100%; max-width: 1410px; margin: 0 auto; padding: 24px 48px; bor
 .registry-card h2, .registry-empty h2 { margin: 0 0 10px; font: 500 30px Fraunces, Georgia, serif; letter-spacing: -.025em; }
 .registry-card p:not(.eyebrow), .registry-empty p { margin: 0; color: #aeb5c6; line-height: 1.5; }
 .registry-card .button { flex: 0 0 auto; }
+/* Two ways to work on one jam: with people, in the room, or alone, directing it. */
+.registry-ways { flex: 0 0 auto; display: flex; gap: 10px; flex-wrap: wrap; }
 .registry-empty { padding: 34px; border: 1px dashed #465476; color: #aeb5c6; }
 .setup-layout, .join-layout { width: min(1180px, 100%); margin: auto; padding: 70px 48px 88px; display: grid; grid-template-columns: .9fr 1.1fr; gap: 100px; align-items: center; }
 /* The create screen explains a Jam beside its form: the illustration sits under the intro on a
@@ -150,7 +152,7 @@ footer { width: 100%; max-width: 1410px; margin: 0 auto; padding: 24px 48px; bor
 .queue-card-stack p:not(.eyebrow) { max-width: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 @media (max-width: 950px) { .setup-layout, .studio-grid, .registry-layout { grid-template-columns: 1fr; gap: 35px; } .setup-layout-explained { grid-template-areas: "intro" "form" "scene"; } .chat-resizer { display: none; } .setup-layout, .registry-layout { padding: 48px 24px 66px; } .registry-head { position: static; } .studio-header, .studio-grid { padding-left: 24px; padding-right: 24px; } .studio-header { align-items: start; flex-direction: column; } }
-@media (max-width: 600px) { .contribution-form { grid-template-columns: 1fr; } .studio-actions, .studio-actions .button, .registry-card .button { width: 100%; } .queue-card, .registry-card { align-items: start; flex-direction: column; } }
+@media (max-width: 600px) { .contribution-form { grid-template-columns: 1fr; } .studio-actions, .studio-actions .button, .registry-card .button, .registry-ways { width: 100%; } .registry-ways .button { flex: 1 1 auto; } .queue-card, .registry-card { align-items: start; flex-direction: column; } }
 
 /* Live room: connection state, roster and presence. */
 .connection { padding: 2px 7px; border: 1px solid #526080; border-radius: 3px; color: #c9d4ff; }
@@ -261,4 +263,54 @@ footer { width: 100%; max-width: 1410px; margin: 0 auto; padding: 24px 48px; bor
 
 .live-consents li {
   align-items: flex-start;
+}
+
+/* The escape room: the third story source, and the panel it becomes in a jam. */
+.scenario-picker { display: grid; gap: 10px; margin-bottom: 21px; }
+.scenario-card { display: grid; gap: 6px; padding: 14px 16px; text-align: left; border-radius: 6px; border: 1px solid #48506a; background: transparent; color: #c2c4d0; }
+.scenario-card strong { color: #edf0fb; font-size: 15px; }
+.scenario-card span { color: #aeb5c6; font-size: 13px; line-height: 1.5; }
+.scenario-card em { color: #8e94a8; font: 11px "DM Mono", monospace; font-style: normal; letter-spacing: .06em; }
+.scenario-card.active { border-color: #f6f4ee; background: rgba(246, 244, 238, .08); }
+.scenario-card.active strong { color: #fff; }
+.escape-room .queue-card { padding: 20px 0 0; border-top: 1px solid #303a52; }
+.escape-proposals li span em { color: #8e94a8; font-style: normal; font-size: 13px; }
+.escape-progress .roster { max-height: 220px; overflow: auto; }
+
+/* Appearing in the film: the camera, the frame under review, and who has agreed. */
+.likeness-capture {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* The camera and the picture under review are the same size and in the same place, so
+   what a person approves is plainly the frame they just saw. */
+.likeness-preview {
+  width: 100%;
+  max-width: 320px;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.35);
+  transform: scaleX(-1);
+}
+
+.likeness-capture input {
+  padding: 0.6rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  font: inherit;
+}
+
+.likeness-roster li {
+  align-items: flex-start;
+}
+
+/* Withdrawing is one press and never hides behind a menu or a confirmation step. */
+.appear-in-film .studio-actions {
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }

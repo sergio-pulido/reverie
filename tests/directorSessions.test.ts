@@ -170,8 +170,8 @@ test("a shared stream outlives one viewer leaving, and ends with the last", () =
   const ledger = new DirectorSessionLedger(
     { budgetUsd: 20, usdPerSecond: 0.08, maxConcurrentSessions: 1, maxSessionSeconds: 60 },
     () => now.value,
-    (sessionId) => closed.push(sessionId),
   );
+  ledger.onClosed((sessionId) => closed.push(sessionId));
   const session = ledger.open("jam:en|");
   assert.notEqual(typeof session, "string");
   const { sessionId } = session as { sessionId: string };
@@ -216,8 +216,8 @@ test("an active viewer cannot extend a session past its paid ceiling", () => {
   const ledger = new DirectorSessionLedger(
     { budgetUsd: 20, usdPerSecond: 0.08, maxConcurrentSessions: 1, maxSessionSeconds: 60 },
     () => now.value,
-    (sessionId) => closed.push(sessionId),
   );
+  ledger.onClosed((sessionId) => closed.push(sessionId));
   const session = ledger.open("jam:en|") as { sessionId: string };
   const viewer = ledger.attach(session.sessionId) as string;
 
@@ -238,8 +238,8 @@ test("a stream every viewer abandoned is reclaimed, and the caller is told", () 
   const ledger = new DirectorSessionLedger(
     { budgetUsd: 20, usdPerSecond: 0.08, maxConcurrentSessions: 1, maxSessionSeconds: 60 },
     () => now.value,
-    (sessionId) => closed.push(sessionId),
   );
+  ledger.onClosed((sessionId) => closed.push(sessionId));
   const session = ledger.open("jam:en|") as { sessionId: string };
   ledger.attach(session.sessionId);
 
@@ -285,8 +285,8 @@ test("a dropped viewer's renewal does not keep the session's own clock alive", (
   const ledger = new DirectorSessionLedger(
     { budgetUsd: 20, usdPerSecond: 0.08, maxConcurrentSessions: 1, maxSessionSeconds: 60 },
     () => now.value,
-    (sessionId) => closed.push(sessionId),
   );
+  ledger.onClosed((sessionId) => closed.push(sessionId));
   const session = ledger.open("jam:en|") as { sessionId: string };
   const viewer = ledger.attach(session.sessionId) as string;
 

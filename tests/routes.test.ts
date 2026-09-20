@@ -5,10 +5,13 @@ import {
   CATALOG_PATH,
   COMMUNITY_PATH,
   DESTINATION_PATH,
+  DIRECTOR_PATH,
   HOME_PATH,
   LANDING_PATH,
   DISCOVER_PATH,
   destinationOf,
+  directorPath,
+  directorSlugFromPath,
   filmFromPath,
   filmPath,
   jamSlugFromPath,
@@ -32,6 +35,31 @@ test("the top bar reaches Discover as a destination of its own", () => {
   assert.deepEqual(Object.keys(DESTINATION_PATH).sort(), ["catalog", "community", "discover", "home", "jam"]);
   assert.equal(destinationOf("home"), "home");
   for (const screen of ["jams", "create", "join", "script", "studio"] as const) assert.equal(destinationOf(screen), "jam", screen);
+});
+
+test("a Director session is its own screen at /director/:slug", () => {
+  assert.equal(DIRECTOR_PATH, "/director");
+  assert.equal(screenFromPath("/director/the-salt-door-91af20cd"), "director");
+  assert.equal(directorSlugFromPath("/director/the-salt-door-91af20cd"), "the-salt-door-91af20cd");
+  assert.equal(directorPath("the-salt-door-91af20cd"), "/director/the-salt-door-91af20cd");
+});
+
+test("only a slug segment makes a Director session; the bare path and deeper ones do not", () => {
+  for (const path of ["/director", "/director/", "/director/a/b", "/director/A-B", "/directors/x"]) {
+    assert.notEqual(screenFromPath(path), "director", path);
+    assert.equal(directorSlugFromPath(path), null, path);
+  }
+});
+
+test("a Director session belongs to Movie Jam, and adds no sixth destination", () => {
+  assert.equal(destinationOf("director"), "jam");
+  assert.equal(BAR_DESTINATIONS.length, 5);
+  assert.equal(BAR_DESTINATIONS.includes("director" as never), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(DESTINATION_PATH, "director"), false);
+});
+
+test("Back from a Director session leads to the Movie Jam list", () => {
+  assert.equal(parentPath("director", false, null), "/jams");
 });
 
 test("a film page lives beneath the screen it belongs to", () => {

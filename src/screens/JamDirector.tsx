@@ -75,8 +75,8 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
   const [viewerId, setViewerId] = useState<string | null>(null);
   const [liveDelivery, setLiveDelivery] = useState(false);
   const [playbackFailure, setPlaybackFailure] = useState<string | null>(null);
-  // The room's life, as the server holds it. Read once on mount so a reopened
-  // tab shows an ended room as ended, then kept current by start and stop.
+  // The room's life, as the server holds it. Read on mount so a reopened tab
+  // shows a stopped room as stopped, then kept current by play and stop.
   const [lifecycle, setLifecycle] = useState<JamLifecycle>("live");
   const live = sessionId !== null;
   const active = useRef<{ sessionId: string; viewerId: string | null } | null>(null);
@@ -123,10 +123,10 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
    * Joins a stream that is already running.
    *
    * Opening a jam where the room is watching something should show the film,
-   * not a button. This never starts a stream — starting bills a sixty-second
-   * minimum, and only the host does it — so a participant either attaches to
-   * what is running or waits, which is also how the host rejoins their own
-   * stream after reopening the jam.
+   * not a button. This never starts one: starting bills a sixty-second
+   * minimum, so walking into a room must not be able to spend that. Arriving
+   * attaches to what is already running or waits for somebody to press Play,
+   * which is also how whoever started it rejoins after reopening the jam.
    */
   useEffect(() => {
     if (sessionId) return;
@@ -434,6 +434,16 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
       </button>
     </div>
 
+    {/*
+      * A refused Play is reported where Play is.
+      *
+      * This sat at the foot of the card, under the direction log and a
+      * paragraph of notes, which is far enough from the button to read as
+      * nothing happening at all — and the most common refusal, a server with
+      * no director configured, is exactly the one a reader needs told.
+      */}
+    {failure && <Notice>{failure}</Notice>}
+
     <label className="field">
       <span>New direction</span>
       <input
@@ -467,7 +477,6 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
       {durable ? "" : " This server has no recording storage configured, so the recording is lost when it restarts."}
     </p>
 
-    {failure && <Notice>{failure}</Notice>}
     {state.error && <Notice>{state.error}</Notice>}
   </div>;
 }

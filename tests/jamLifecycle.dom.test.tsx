@@ -160,6 +160,59 @@ describe("the room shows where it is in its life", () => {
     }
   });
 
+  it("says why a refused Play was refused, next to Play", async () => {
+    // A server with no director configured is the commonest refusal, and it
+    // used to be reported at the foot of the card, under the direction log and
+    // a paragraph of notes — far enough from the button to read as the press
+    // having done nothing at all.
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(typeof input === "string" ? input : input.toString());
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "content-type": "application/json" },
+        });
+      if (url.endsWith(`/api/jams/${JAM}`)) return json({ jam: { lifecycle: "live" } });
+      if (url.endsWith(`/api/jams/${JAM}/director/session`) && init?.method === "POST") {
+        return json(
+          {
+            error: {
+              code: "director_disabled",
+              safeMessage: "The live director is not configured on this server.",
+              retryable: false,
+            },
+          },
+          503,
+        );
+      }
+      return json({});
+    }) as typeof fetch;
+
+    try {
+      await render(<JamDirector jamId={JAM} configuration={DEFAULT_CONFIGURATION} />);
+      const play = document.querySelector<HTMLButtonElement>('[data-testid="jam-director-play"]');
+      await click(play);
+      await settle();
+
+      const notice = document.querySelector<HTMLElement>(".notice");
+      assert.ok(notice, "the refusal is on screen");
+      assert.match(notice.textContent ?? "", /not configured on this server/);
+      // Next to the control that was pressed, not at the foot of the card.
+      assert.ok(
+        play?.compareDocumentPosition(notice) === Node.DOCUMENT_POSITION_FOLLOWING,
+        "the refusal follows the button that was refused",
+      );
+      assert.ok(
+        notice.compareDocumentPosition(document.querySelector(".field")!) ===
+          Node.DOCUMENT_POSITION_FOLLOWING,
+        "and sits above the direction field rather than below the whole card",
+      );
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it("lets go of a session somebody else stopped, and shows that take", async () => {
     // Anybody in the room can send the stop signal, so most stops arrive from
     // another browser. A screen that only learned about its own Stop would sit

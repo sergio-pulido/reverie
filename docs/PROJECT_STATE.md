@@ -2117,6 +2117,22 @@ the existing `:root:not([data-input="pointer"])` guard.
   there is no policy granting a browser a wider read of `jams`, so a public gallery would need a
   migration that does not exist.
 
+## 2026-09-20 — A refused Play said nothing where Play is (RV-24)
+
+- Pressing Play against a server with `REVERIE_DIRECTOR_ENABLED` unset looked like nothing
+  happening. The server answered `503 director_disabled` correctly and the screen did render
+  the reason — at the foot of the player card, under the direction log and a paragraph of
+  notes. The notice now sits directly under Play and Stop, above the direction field, and a
+  DOM test asserts its position rather than merely its presence (it fails with the old
+  placement).
+- Two comments in `JamDirector` still described the host-owned start RV-23 removed. Corrected.
+- `REVERIE_LIVE_ENABLED=true` does not buy the director: it is gated separately by
+  `REVERIE_DIRECTOR_ENABLED` because it bills per second with a sixty-second minimum
+  (`.env.example` says so). That is the configuration this bug was hiding.
+- Verified: `pnpm typecheck`; `pnpm test` 1210/1210; `pnpm build`. Reproduced against the
+  running local stack before and after: `GET /director/budget` answered `configured: false`,
+  and `POST /director/session` answered `503 director_disabled`.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

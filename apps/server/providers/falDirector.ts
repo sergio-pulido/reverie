@@ -309,10 +309,21 @@ function parseEventData(frame: string): unknown {
 }
 
 /** Finds an `sdp` string anywhere in a parsed payload. */
+/**
+ * Finds the answer's SDP, and only an answer's. A stream may carry other
+ * things with an `sdp` field — the offer read back, a status frame — and an
+ * offer taken for the answer sets our own description as the remote one,
+ * after which ICE checks against itself and never completes. An offer is
+ * told by `a=setup:actpass` (only an offerer says so) or by `type: "offer"`.
+ */
 function findSdp(value: unknown): string | null {
   if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
-  if (typeof record.sdp === "string" && record.sdp.length > 0) return record.sdp;
+  if (typeof record.sdp === "string" && record.sdp.length > 0) {
+    const isOffer = record.type === "offer" || /^a=setup:actpass/m.test(record.sdp);
+    if (!isOffer) return record.sdp;
+    console.info("director handshake: skipped an sdp that is an offer, not an answer");
+  }
   for (const inner of Object.values(record)) {
     const found = findSdp(inner);
     if (found) return found;

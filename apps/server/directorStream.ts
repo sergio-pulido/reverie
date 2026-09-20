@@ -287,6 +287,19 @@ export class DirectorStream {
     {
       const lines = answerSdp.split("\n");
       const candidates = lines.filter((line) => line.startsWith("a=candidate"));
+      const ufrag = (sdp: string) => /a=ice-ufrag:(\S+)/.exec(sdp)?.[1] ?? null;
+      const setup = (sdp: string) => /a=setup:(\S+)/.exec(sdp)?.[1] ?? null;
+      const offerSdp = connection.localDescription?.sdp ?? offer.sdp;
+      console.info("director answer identity", {
+        sessionId: this.options.sessionId,
+        offerUfrag: ufrag(offerSdp),
+        answerUfrag: ufrag(answerSdp),
+        sameAsOffer: ufrag(offerSdp) !== null && ufrag(offerSdp) === ufrag(answerSdp),
+        offerSetup: setup(offerSdp),
+        answerSetup: setup(answerSdp),
+        firstOfferCandidate: /a=candidate:(.*)/.exec(offerSdp)?.[1]?.slice(0, 80) ?? null,
+        firstAnswerCandidate: /a=candidate:(.*)/.exec(answerSdp)?.[1]?.slice(0, 80) ?? null,
+      });
       console.info("director answer candidates", {
         sessionId: this.options.sessionId,
         count: candidates.length,

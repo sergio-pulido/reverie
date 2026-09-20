@@ -129,12 +129,17 @@ footer { width: 100%; max-width: 1410px; margin: 0 auto; padding: 24px 48px; bor
 /* The conversation column is reader-adjustable through --chat-width; the scene column takes what
    is left. Both tracks may shrink, because `.site-shell` clips overflow: a column wider than its
    track is lost off the edge rather than scrolled to. */
-.studio-grid { width: min(1410px, 100%); margin: 0 auto; padding: 0 48px 70px; display: grid; grid-template-columns: clamp(260px, var(--chat-width, 38%), 62%) minmax(0, 1fr); gap: 20px; }
+/* The room is an app, not a page: the shell is exactly the screen, the header keeps its place,
+   and the grid takes what is left. The chat fills that height; the scene scrolls inside its
+   own column. Nothing below the fold, ever. */
+.studio-shell { height: 100vh; overflow: hidden; }
+.studio-shell > footer { display: none; }
+.studio-grid { flex: 1; min-height: 0; width: min(1410px, 100%); margin: 0 auto; padding: 0 48px 24px; display: grid; grid-template-columns: clamp(260px, var(--chat-width, 38%), 62%) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 20px; }
 .conversation-panel, .studio-scene { min-width: 0; }
 .conversation-panel, .queue-card { border: 1px solid #3c4969; background: linear-gradient(140deg, rgba(19, 28, 49, .95), rgba(10, 14, 24, .92)); }
 /* The chat is a fixture of the screen, not of the column beside it: it never grows past the
    viewport, stays in view while the scene scrolls, and its own list scrolls inside it. */
-.conversation-panel { position: sticky; top: 16px; align-self: start; height: calc(100vh - 32px); display: flex; flex-direction: column; padding: 26px; }
+.conversation-panel { min-height: 0; height: 100%; display: flex; flex-direction: column; padding: 26px; }
 .chat-resizer { position: absolute; top: 0; right: -14px; width: 14px; height: 100%; cursor: col-resize; touch-action: none; }
 .chat-resizer::after { content: ""; position: absolute; top: 0; bottom: 0; left: 6px; width: 2px; background: #3c4969; }
 .chat-resizer:hover::after, .chat-resizer:focus-visible::after { background: #bbc9ff; }
@@ -151,14 +156,14 @@ footer { width: 100%; max-width: 1410px; margin: 0 auto; padding: 24px 48px; bor
 .contribution.host span, .contribution.host p { color: #182033; }
 .contribution-form { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding-top: 18px; border-top: 1px solid #303a52; }
 .contribution-form textarea { min-height: 56px; resize: vertical; }
-.studio-scene { display: grid; gap: 20px; align-content: start; }
+.studio-scene { display: grid; gap: 20px; align-content: start; min-height: 0; overflow: auto; overscroll-behavior: contain; }
 .scene-card-compact { min-height: 390px; }
 .queue-card { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 30px; padding: 24px 26px; align-items: end; }
 .queue-card-stack { flex-direction: column; align-items: stretch; gap: 0; }
 .queue-card p:not(.eyebrow) { max-width: 270px; margin: 0; color: #aeb5c6; font-size: 14px; line-height: 1.5; }
 .queue-card-stack p:not(.eyebrow) { max-width: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-@media (max-width: 950px) { .setup-layout, .studio-grid, .registry-layout { grid-template-columns: 1fr; gap: 35px; } .conversation-panel { position: static; height: auto; min-height: 420px; } .setup-layout-explained { grid-template-areas: "intro" "form" "scene"; } .chat-resizer { display: none; } .setup-layout, .registry-layout { padding: 48px 24px 66px; } .registry-head { position: static; } .studio-header, .studio-grid { padding-left: 24px; padding-right: 24px; } .studio-header { align-items: start; flex-direction: column; } }
+@media (max-width: 950px) { .setup-layout, .studio-grid, .registry-layout { grid-template-columns: 1fr; gap: 35px; } .studio-shell { height: auto; overflow: visible; } .studio-shell > footer { display: flex; } .studio-grid { grid-template-rows: none; padding-bottom: 70px; } .conversation-panel { height: auto; min-height: 420px; } .studio-scene { overflow: visible; } .setup-layout-explained { grid-template-areas: "intro" "form" "scene"; } .chat-resizer { display: none; } .setup-layout, .registry-layout { padding: 48px 24px 66px; } .registry-head { position: static; } .studio-header, .studio-grid { padding-left: 24px; padding-right: 24px; } .studio-header { align-items: start; flex-direction: column; } }
 @media (max-width: 600px) { .contribution-form { grid-template-columns: 1fr; } .studio-actions, .studio-actions .button, .registry-card .button, .registry-ways { width: 100%; } .registry-ways .button { flex: 1 1 auto; } .queue-card, .registry-card { align-items: start; flex-direction: column; } }
 
 /* Live room: connection state, roster and presence. */

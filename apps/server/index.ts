@@ -23,7 +23,12 @@ async function start() {
   if (!isProduction) {
     const vite = await createViteServer({
       root: rootDirectory,
-      server: { middlewareMode: true },
+      // A demo is watched from the room's own phones, so this server is reached through a
+      // tunnel under a hostname nobody can know in advance. Vite refuses an unknown Host
+      // by default, which is right for a dev server on a laptop and wrong for the one
+      // afternoon the laptop is the product. The development branch only: a production
+      // build never reaches here, and HOST still decides what the socket binds to.
+      server: { middlewareMode: true, allowedHosts: true },
       appType: "spa",
     });
     app.use(vite.middlewares);

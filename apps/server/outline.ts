@@ -208,11 +208,6 @@ export class OutlineEditQueue {
         this.fail(record, { code: "not_found", safeMessage: "This jam has no script on this server.", retryable: false });
         return;
       }
-      // A room can end while an edit waits its turn.
-      if ((await this.store.getJam(record.jamId))?.lifecycle === "ended") {
-        this.fail(record, ENDED_ERROR);
-        return;
-      }
       // Re-read at the front of the queue: the beat may have locked while the
       // edit waited, and that must fail visibly rather than rewrite a beat the
       // provider already has.
@@ -320,13 +315,6 @@ export class OutlineEditQueue {
   }
 }
 
-/** A finished room keeps the film it made; editing its story afterwards would describe one that was never shot. */
-const ENDED_ERROR: OutlineEditError = {
-  code: "jam_ended",
-  safeMessage: "This jam has ended; its story is what the recording shows.",
-  retryable: false,
-};
-
 function lockedError(minEditablePortionIndex: number): OutlineEditError {
   return {
     code: "portion_locked",
@@ -421,21 +409,20 @@ export function createOutlineRouter(
     // A replay returns what the first request produced, in whatever state it
     // is now — it never queues the edit twice.
     //
-    // This is answered BEFORE every refusal below, including the room having
-    // ended. A replay performs nothing, so the state it would be refused for
-    // is irrelevant to it: a retried fetch or a reconnect after the room
-    // finished must still be told what its edit did, not that it is too late.
-    // Refusing a replay is exactly the non-idempotency the envelope exists to
-    // prevent.
+    // This is answered BEFORE every refusal below. A replay performs nothing,
+    // so the state it would be refused for is irrelevant to it: a retried
+    // fetch or a reconnect must still be told what its edit did, not that it
+    // is too late. Refusing a replay is exactly the non-idempotency the
+    // envelope exists to prevent.
     const replay = queue.find(jamId, command.data.requestId);
     if (replay) {
       response.status(200).json({ edit: replay });
       return;
     }
-    if ((await store.getJam(jamId))?.lifecycle === "ended") {
-      sendError(response, 409, ENDED_ERROR.code, ENDED_ERROR.safeMessage, false);
-      return;
-    }
+    // A room between takes still takes story edits. Stopping the stream ends
+    // the take, not the room — the next press of play reads whatever the
+    // outline says by then — so there is no state here in which the room is
+    // finished with its story.
     if (!resolveCascade()) {
       sendError(
         response,

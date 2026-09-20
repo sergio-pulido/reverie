@@ -2,10 +2,16 @@
  * A jam's life: live, playing, ended.
  *
  * A room exists before anything is generated, generates for a while, and then
- * is finished — and what remains of a finished room is its recording. The
- * three states are exactly those three situations, so "what can I do here"
- * and "what am I looking at" have one answer rather than being inferred from
+ * stops — and what remains of a stopped room is its recording. The three
+ * states are exactly those three situations, so "what can I do here" and
+ * "what am I looking at" have one answer rather than being inferred from
  * whether some session id happens to be open.
+ *
+ * None of them is terminal. A room is a place, not a single take: anybody in
+ * it can play it and anybody can stop it, and playing a stopped room opens a
+ * new session rather than resurrecting the old one. Each session archives
+ * separately, so a second take adds to the room's archive instead of
+ * overwriting the first.
  *
  * Server-owned, like every other room transition. The browser projects this;
  * it never decides it. A client that believes a room is playing cannot make it
@@ -28,9 +34,11 @@ export interface LifecycleTransition {
 /**
  * Applies an event to a lifecycle.
  *
- * `ended` is terminal: a room that has finished does not go back to playing,
- * because its recording is the artifact and a second session would leave two
- * different films behind one room URL. Starting again is a new jam.
+ * A stopped room plays again. The room is the place the story is being made,
+ * and the stream is one take inside it; refusing a second take would mean a
+ * misplaced Stop — which anybody in the room can now send — silently retires
+ * the room for everyone. The takes do not overwrite each other: every session
+ * keeps its own archive entry, and the room shows the most recent one.
  */
 export function applyLifecycle(
   current: JamLifecycle,
@@ -38,7 +46,6 @@ export function applyLifecycle(
 ): LifecycleTransition {
   if (event === "start") {
     if (current === "playing") return refuse(current, "already_playing");
-    if (current === "ended") return refuse(current, "already_ended");
     return { ok: true, lifecycle: "playing" };
   }
   if (current === "ended") return refuse(current, "already_ended");
@@ -55,13 +62,13 @@ function refuse(lifecycle: JamLifecycle, refusal: LifecycleRefusal): LifecycleTr
 /** Where a new room starts. It is open and joinable before anything generates. */
 export const INITIAL_LIFECYCLE: JamLifecycle = "live";
 
-/** A finished room is the only one with something to play back. */
+/** A stopped room is the one with something to play back. */
 export function hasRecording(lifecycle: JamLifecycle): boolean {
   return lifecycle === "ended";
 }
 
 export function lifecycleLabel(lifecycle: JamLifecycle): string {
   if (lifecycle === "playing") return "Playing";
-  if (lifecycle === "ended") return "Ended";
+  if (lifecycle === "ended") return "Stopped";
   return "Live";
 }

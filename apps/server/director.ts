@@ -445,19 +445,9 @@ export function createDirectorRouter(
       sendError(response, 404, "not_found", "This jam does not exist on this server.", false);
       return;
     }
-    // A finished room does not stream again: its recording is the artifact, and
-    // a second session would leave two different films behind one room URL.
-    // Checked before the ledger is charged, so a refused start costs nothing.
-    if (jam.lifecycle === "ended") {
-      sendError(
-        response,
-        409,
-        "jam_ended",
-        "This jam has ended. Its recording is what remains of it.",
-        false,
-      );
-      return;
-    }
+    // A stopped room plays again. Anybody in the room sends the play signal and
+    // anybody sends the stop signal, so a stop is a stop rather than a retirement:
+    // the new session gets its own archive entry beside the previous take's.
 
     const active = requireConfig();
     if (!active) {

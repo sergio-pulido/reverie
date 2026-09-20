@@ -326,18 +326,20 @@ test("a second viewer on the same configuration attaches to the one stream", asy
   assert.ok(joined.beats);
 
   assert.equal((await endSession(jam.id, sessionId)).status, 200);
-  // The stream slot is free again, but this room has ended and does not buy a
-  // second film. Its recording is what remains of it.
+  assert.equal((await store.getJam(jam.id))?.lifecycle, "ended");
+
+  // The room plays again, as a second take rather than a resurrection: the
+  // stop signal belongs to everybody in the room, so it stops the stream
+  // rather than retiring the room.
   const reopened = await fetch(`${baseUrl}/api/jams/${jam.id}/director/session`, {
     method: "POST",
   });
-  assert.equal(reopened.status, 409);
-  assert.equal((await reopened.json()).error.code, "jam_ended");
-
-  // A different room still opens, so the refusal is about this jam's life and
-  // not about the concurrency slot.
-  const next = await openJamSession();
-  await endSession(next.jam.id, next.sessionId);
+  assert.equal(reopened.status, 201);
+  const nextTake = await reopened.json();
+  assert.notEqual(nextTake.sessionId, sessionId);
+  assert.equal(nextTake.attached, false);
+  assert.equal((await store.getJam(jam.id))?.lifecycle, "playing");
+  await endSession(jam.id, nextTake.sessionId);
 });
 
 test("a different configuration gets its own stream", async () => {
@@ -806,7 +808,7 @@ test("an open session is billed the provider's minimum before it has generated a
   await endSession(jam.id, sessionId);
 });
 
-test("watching an ended room points at its recording instead of 404", async () => {
+test("watching a stopped room points at its recording instead of 404", async () => {
   const { jam, sessionId } = await openJamSession();
   await endSession(jam.id, sessionId);
 
@@ -838,7 +840,7 @@ test("watching a session that never existed is still a plain 404", async () => {
   assert.equal(watched.status, 404);
 });
 
-test("a room stopped by its last viewer leaving is ended, not left playing", async () => {
+test("a room stopped by its last viewer leaving is stopped, not left playing", async () => {
   viewerClosers = [];
   const { jam, sessionId, viewerId } = await openJamSession();
   const watched = await fetch(
@@ -865,11 +867,10 @@ test("a room stopped by its last viewer leaving is ended, not left playing", asy
   viewerClosers[0]();
   await new Promise((resolve) => setTimeout(resolve, 20));
 
-  const reopened = await fetch(`${baseUrl}/api/jams/${jam.id}/director/session`, {
-    method: "POST",
-  });
-  assert.equal(reopened.status, 409);
-  assert.equal((await reopened.json()).error.code, "jam_ended");
+  // Read from the store rather than from a refused reopen: a stopped room can
+  // be played again now, so the only evidence that the teardown moved the
+  // lifecycle is the lifecycle itself.
+  assert.equal((await store.getJam(jam.id))?.lifecycle, "ended");
 });
 
 test("spend follows the seconds the stream actually generated, not its reservation", async () => {

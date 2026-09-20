@@ -538,22 +538,26 @@ test("with no provider configured no cascade is fabricated", async () => {
   }
 });
 
-test("a room that has ended keeps the story its recording shows", async () => {
+test("a room between takes still takes story edits", async () => {
+  // Stopping the stream ends the take, not the room: anybody in the room can
+  // stop it and anybody can play it again, so the story a stopped room is
+  // holding is the one the next take will shoot.
   const jam = await newJam();
   await store.advanceLifecycle(jam.id, "start");
   await store.advanceLifecycle(jam.id, "stop");
-  const response = await post(jam.id, setEdit(2, "after the fact"));
-  assert.equal(response.status, 409);
-  const body = await response.json();
-  assert.equal(body.error.code, "jam_ended");
-  assert.equal(body.error.retryable, false);
-  assert.equal(cascadeCalls, 0);
-  // The outline is still readable; it is the editing that stops.
-  const outline = await fetch(`${baseUrl}/api/jams/${jam.id}/outline`);
-  assert.equal(outline.status, 200);
+  const response = await post(jam.id, setEdit(2, "between the takes"));
+  assert.equal(response.status, 202);
+  const landed = await settleEdit(jam.id, (await response.json()).edit.id);
+  assert.equal(landed.status, "landed");
+  const outline = await (await fetch(`${baseUrl}/api/jams/${jam.id}/outline`)).json();
+  assert.equal(outline.beats[2].summary, "between the takes");
 });
 
-test("a room ending under a queued edit fails it rather than rewriting a finished film", async () => {
+test("a take stopping under a queued edit does not cancel the edit behind it", async () => {
+  // The queue is serialized on the room, not on the take. An edit that waited
+  // its turn while the stream stopped is still an edit to this room's story,
+  // and the beat lock — not the lifecycle — is what refuses one that is too
+  // late to matter.
   const jam = await newJam();
   const held = gate();
   behaviour = async (script, edit, call) => {
@@ -568,9 +572,7 @@ test("a room ending under a queued edit fails it rather than rewriting a finishe
   held.release();
 
   assert.equal((await settleEdit(jam.id, first.edit.id)).status, "landed");
-  const failed = await settleEdit(jam.id, second.edit.id);
-  assert.equal(failed.status, "failed");
-  assert.equal(failed.error?.code, "jam_ended");
+  assert.equal((await settleEdit(jam.id, second.edit.id)).status, "landed");
 });
 
 test("a beat further ahead than the stream's next one is committed but not directed", async () => {
@@ -603,7 +605,7 @@ test("two streams on different beats: only the one about to render it is told", 
   assert.deepEqual(behind.directed, []);
 });
 
-test("a replay after the room ends still reports what the edit did", async () => {
+test("a replay after the take stops still reports what the edit did", async () => {
   const jam = await newJam();
   const command = setEdit(2, "the stair floods");
   const first = await post(jam.id, command);
@@ -614,9 +616,9 @@ test("a replay after the room ends still reports what the edit did", async () =>
   await store.advanceLifecycle(jam.id, "start");
   await store.advanceLifecycle(jam.id, "stop");
 
-  // A retried fetch or a reconnect after the room finished must be told what
-  // its edit did, not that it is too late: a replay performs nothing, so the
-  // state it would be refused for does not apply to it.
+  // A retried fetch or a reconnect after the take stopped must be told what
+  // its edit did, not be handed a second copy of it: a replay performs
+  // nothing, and answering it is what makes the envelope idempotent.
   const replay = await post(jam.id, command);
   assert.equal(replay.status, 200);
   const record = (await replay.json()).edit;
@@ -624,8 +626,9 @@ test("a replay after the room ends still reports what the edit did", async () =>
   assert.equal(record.status, "landed");
   assert.equal(record.revision, landed.revision);
 
-  // A genuinely new edit on the ended room is still refused.
-  const fresh = await post(jam.id, setEdit(2, "after the fact"));
-  assert.equal(fresh.status, 409);
-  assert.equal((await fresh.json()).error.code, "jam_ended");
+  // And it is answered as a replay rather than queued again: a genuinely new
+  // edit on the same stopped room gets its own record.
+  const fresh = await post(jam.id, setEdit(2, "after the take"));
+  assert.equal(fresh.status, 202);
+  assert.notEqual((await fresh.json()).edit.id, record.id);
 });

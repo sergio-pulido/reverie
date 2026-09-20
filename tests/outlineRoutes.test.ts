@@ -602,3 +602,30 @@ test("two streams on different beats: only the one about to render it is told", 
   assert.deepEqual(imminent.directed, [{ body: "the stair floods", beatIndex: 2, authorId: undefined }]);
   assert.deepEqual(behind.directed, []);
 });
+
+test("a replay after the room ends still reports what the edit did", async () => {
+  const jam = await newJam();
+  const command = setEdit(2, "the stair floods");
+  const first = await post(jam.id, command);
+  assert.equal(first.status, 202);
+  const landed = await settleEdit(jam.id, (await first.json()).edit.id);
+  assert.equal(landed.status, "landed");
+
+  await store.advanceLifecycle(jam.id, "start");
+  await store.advanceLifecycle(jam.id, "stop");
+
+  // A retried fetch or a reconnect after the room finished must be told what
+  // its edit did, not that it is too late: a replay performs nothing, so the
+  // state it would be refused for does not apply to it.
+  const replay = await post(jam.id, command);
+  assert.equal(replay.status, 200);
+  const record = (await replay.json()).edit;
+  assert.equal(record.id, landed.id);
+  assert.equal(record.status, "landed");
+  assert.equal(record.revision, landed.revision);
+
+  // A genuinely new edit on the ended room is still refused.
+  const fresh = await post(jam.id, setEdit(2, "after the fact"));
+  assert.equal(fresh.status, 409);
+  assert.equal((await fresh.json()).error.code, "jam_ended");
+});

@@ -139,7 +139,10 @@ this spec is wrong.
 The envelope from `docs/specs/transactional-scene-contract.md` is carried as:
 
 - **`requestId`** — a client-minted UUID. Replaying it returns the edit record the first request
-  created, whatever state it is in now; nothing is performed twice. The register is the per-jam
+  created, whatever state it is in now; nothing is performed twice. A replay is answered **before
+  every refusal**, including the room having ended: it performs nothing, so the state it would be
+  refused for does not apply to it, and a reconnect after the room finished must still be told
+  what its edit did. The register is the per-jam
   ledger of recent edits (bounded, below), so the window is the ledger's retention.
 - **`expectedRevision`** — the script revision the client was looking at when it edited. This
   slice defines the outline's version *in terms of the revision log* rather than adding a second

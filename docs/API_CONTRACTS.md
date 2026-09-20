@@ -192,7 +192,9 @@ with the current `revision`), `mechanism` (`direct | vote | poll | chat`, defaul
 (`503 generation_disabled`), the beat exists (`400 invalid_command`), the beat is editable
 (`409 portion_locked`), the revision is current, the queue has room (`409 queue_full`, at most 10 waiting).
 A room that has ended is refused `409 jam_ended`: its recording is the artifact and its story no
-longer moves. A replayed `requestId` returns `200` with the record the first request created.
+longer moves. A replayed `requestId` returns `200` with the record the first request created, and
+is answered before every refusal above — including `jam_ended` — because a replay performs nothing
+and a reconnect after the room finished must still learn what its edit did.
 
 Edits are processed one at a time per jam. The cascade completion runs outside the per-jam critical
 section; the commit takes it once and lands every rewritten portion as one revision, refusing

@@ -418,15 +418,22 @@ export function createOutlineRouter(
       sendError(response, 404, "not_found", "This jam has no script on this server.", false);
       return;
     }
-    if ((await store.getJam(jamId))?.lifecycle === "ended") {
-      sendError(response, 409, ENDED_ERROR.code, ENDED_ERROR.safeMessage, false);
-      return;
-    }
     // A replay returns what the first request produced, in whatever state it
     // is now — it never queues the edit twice.
+    //
+    // This is answered BEFORE every refusal below, including the room having
+    // ended. A replay performs nothing, so the state it would be refused for
+    // is irrelevant to it: a retried fetch or a reconnect after the room
+    // finished must still be told what its edit did, not that it is too late.
+    // Refusing a replay is exactly the non-idempotency the envelope exists to
+    // prevent.
     const replay = queue.find(jamId, command.data.requestId);
     if (replay) {
       response.status(200).json({ edit: replay });
+      return;
+    }
+    if ((await store.getJam(jamId))?.lifecycle === "ended") {
+      sendError(response, 409, ENDED_ERROR.code, ENDED_ERROR.safeMessage, false);
       return;
     }
     if (!resolveCascade()) {

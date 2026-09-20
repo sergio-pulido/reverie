@@ -113,6 +113,9 @@ describe("faultInCritique", () => {
       "The consensus is generous.",
       "An acclaimed performance anchors it.",
       "It is widely regarded as the best of them.",
+      "A cult classic, and rightly so.",
+      "A fan favourite that has aged oddly.",
+      "Beloved by everyone who saw it young.",
     ]) {
       assert.match(faultInCritique(good("cat:1", { why: phrase }), PICKS[0], []) ?? "", /speak for a crowd/, phrase);
     }
@@ -134,6 +137,9 @@ describe("faultInCritique", () => {
       "You wanted something light, and here it is.",
       "Your evening is safe with it.",
       "A perfect choice for you.",
+      "You won’t be disappointed by the ending.",
+      "You might love the long middle section.",
+      "It is your kind of film exactly.",
     ]) {
       assert.match(faultInCritique(good("cat:1", { why: phrase }), PICKS[0], []) ?? "", /not about what the viewer asked for/, phrase);
     }
@@ -152,7 +158,16 @@ describe("faultInCritique", () => {
 
 describe("isHollow", () => {
   it("rejects a reservation that reserves nothing", () => {
-    for (const hollow of ["Nothing much against it.", "No real flaws here at all.", "It is hard to fault.", "None.", "Very little."]) {
+    for (const hollow of [
+      "Nothing much against it.",
+      "No real flaws here at all.",
+      "It is hard to fault.",
+      "None.",
+      "Very little.",
+      "No complaints from this corner at all.",
+      "Not a single wasted minute anywhere in it.",
+      "It comes close to perfect, honestly.",
+    ]) {
       assert.equal(isHollow(hollow), true, hollow);
     }
   });

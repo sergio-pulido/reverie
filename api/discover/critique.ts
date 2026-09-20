@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { critiqueRequestSchema, type CritiqueOk } from "../../src/conversation/contract.js";
+import { eligibleRankCandidates } from "../_lib/discover-assistant.js";
 import { writeCritiques } from "../_lib/discover-critic.js";
 import {
   abortOnDisconnect,
@@ -46,7 +47,11 @@ export default async function discoverCritique(request: IncomingMessage, respons
   }
   const parsed = critiqueRequestSchema.safeParse(body);
   const state = parsed.success ? parseState(parsed.data.state) : null;
-  if (!parsed.success || !state) {
+  // The same rule the ranking endpoint applies: the model only ever sees films this state
+  // allows. A pick the state rules out is not on screen, so nothing is paid to write about it.
+  const eligible = parsed.success && state ? new Set(eligibleRankCandidates(parsed.data.picks, state).map(({ id }) => id)) : new Set<string>();
+  const picks = parsed.success ? parsed.data.picks.filter(({ id }) => eligible.has(id)) : [];
+  if (!parsed.success || !state || picks.length === 0) {
     fail(response, 400, "INVALID_REQUEST", "That request was not valid.");
     return;
   }
@@ -61,9 +66,8 @@ export default async function discoverCritique(request: IncomingMessage, respons
     return;
   }
 
-  const { picks, withheld } = parsed.data;
   // A title sent as both a pick and a withheld one would refuse every critique of it.
-  const held = withheld.filter((name) => !picks.some((film) => film.title === name));
+  const held = parsed.data.withheld.filter((name) => !picks.some((film) => film.title === name));
   const signal = abortOnDisconnect(response);
   const result = await withSlot(() => writeCritiques(provider.complete, state, picks, held, options.now, signal));
   if (isUnavailable(result)) {

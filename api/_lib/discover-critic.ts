@@ -52,7 +52,7 @@ const looseCritiqueSchema = z.object({
  * reservation is often exactly that shape.
  */
 const CROWD =
-  /\b(critics?|reviewers?|consensus|universally|acclaim(?:ed)?|rotten tomatoes|metacritic|imdb|letterboxd|box office|audiences?\s+(?:loved|adored|hated|embraced|flocked|made|turned)|widely\s+(?:loved|praised|regarded|considered|held))\b/i;
+  /\b(critics?|reviewers?|consensus|universally|acclaim(?:ed)?|rotten tomatoes|metacritic|imdb|letterboxd|box office|audiences?\s+(?:loved|adored|hated|embraced|flocked|made|turned)|widely\s+(?:loved|praised|regarded|considered|held)|cult\s+(?:classic|favou?rite|following|hit)|fan\s+favou?rite|beloved\s+by)\b/i;
 
 /**
  * The viewer's preferences, turned to and written about. Not every "you": "a twist you do not
@@ -61,10 +61,11 @@ const CROWD =
  * is the advertisement this whole pass exists to replace.
  */
 const VIEWER =
-  /\byou(?:'|\u2019)?(?:re|ve|d)?\s+(?:asked|said|want|wanted|requested|told|are looking|were looking)\b|\byou(?:'|\u2019)?ll\s+(?:love|like|enjoy|adore)\b|\bfor you\b|\bwhat you\b|\byour\s+(?:taste|tastes|mood|evening|night|request|preference|preferences|criteria|list)\b/i;
+  /\byou(?:'|\u2019)?(?:re|ve|d)?\s+(?:asked|said|want|wanted|requested|told|are looking|were looking)\b|\byou(?:(?:'|\u2019)?(?:ll|re))?\s+(?:will|wo|won(?:'|\u2019)?t|might|may|should|are going to)?\s*(?:love|like|enjoy|adore|be disappointed|regret)\b|\bfor you\b|\bwhat you\b|\byour\s+(?:taste|tastes|mood|evening|night|request|preference|preferences|criteria|list|kind|sort|thing)\b/i;
 
 /** A reservation that reserves nothing. */
-const HOLLOW = /\b(nothing (?:much )?(?:to|against|bad|wrong)|no (?:real|major|obvious|true|serious)|hard to fault|little to fault|few flaws|no flaws|no reservations|flawless|faultless|none(?: at all)?\.?$)/i;
+const HOLLOW =
+  /\b(nothing (?:much )?(?:to|against|bad|wrong)|no (?:real|major|obvious|true|serious|complaints?|notes?|quarrel)|not a single (?:flaw|misstep|wasted|false)|hard to fault|little to fault|few flaws|no flaws|no reservations|(?:close to |nearly |almost )?(?:flawless|faultless|perfect)|none(?: at all)?\.?$)/i;
 
 /**
  * A running time claimed in the prose, a score claimed in it, and a year claimed as this film's

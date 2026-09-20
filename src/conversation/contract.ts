@@ -14,6 +14,10 @@ export const CONVERSATION_LIMITS = {
   /** Synopses are cut before they leave the browser; the model needs a gist, not the record. */
   rankSynopsisChars: 280,
   maxReasonChars: 160,
+  /** Picks one critique call covers: the top picks the ranking produced, never more. */
+  maxCritiquePicks: 3,
+  /** One part of a critique: room for a thought, still readable across a room. */
+  maxCritiquePartChars: 200,
 } as const;
 
 export const turnRequestSchema = z.strictObject({
@@ -28,9 +32,32 @@ export const rankCandidateSchema = catalogueTitleSchema
   .pick({ id: true, title: true, year: true, genres: true, runtimeMinutes: true, originalLanguage: true, rating: true })
   .extend({ synopsis: z.string().trim().max(CONVERSATION_LIMITS.rankSynopsisChars).optional() });
 
+/**
+ * What the critic wrote about one pick. Three parts, all required: a recommendation with
+ * nothing against it is advertising, so a pick whose reservation is missing shows no critique
+ * at all rather than a hollow one.
+ */
+export const critiqueSchema = z.object({
+  candidateId: z.string(),
+  /** Why this film, of these. About the film, never about the viewer. */
+  why: z.string().trim().min(1).max(CONVERSATION_LIMITS.maxCritiquePartChars),
+  /** What watching it is actually like. */
+  watching: z.string().trim().min(1).max(CONVERSATION_LIMITS.maxCritiquePartChars),
+  /** The one honest reason it might not land. */
+  reservation: z.string().trim().min(1).max(CONVERSATION_LIMITS.maxCritiquePartChars),
+});
+
 export const rankRequestSchema = z.strictObject({
   state: z.unknown(),
   candidates: z.array(rankCandidateSchema).min(1).max(CONVERSATION_LIMITS.maxRankCandidates),
+});
+
+export const critiqueRequestSchema = z.strictObject({
+  state: z.unknown(),
+  /** The picks to write about, and the only films the critic may name. */
+  picks: z.array(rankCandidateSchema).min(1).max(CONVERSATION_LIMITS.maxCritiquePicks),
+  /** The rest of the shortlist, by title. The critic is not given these and may not name one. */
+  withheld: z.array(z.string().trim().min(1).max(240)).max(CONVERSATION_LIMITS.maxRankCandidates).default([]),
 });
 
 /** Why the assistant could not help. The browser says so and falls back to chips and the scorer. */
@@ -77,15 +104,29 @@ export const rankOkSchema = z.object({
     .max(3),
 });
 
+export const critiqueOkSchema = z.object({
+  status: z.literal("ok"),
+  source: z.literal("nebius"),
+  model: z.string().max(120),
+  stateVersion: z.number().int().min(0),
+  /** Untrusted until the browser checks each one against the picks it is actually showing. */
+  critiques: z.array(critiqueSchema).max(CONVERSATION_LIMITS.maxCritiquePicks),
+});
+
 export const turnResponseSchema = z.discriminatedUnion("status", [turnOkSchema, unavailableSchema, conversationErrorSchema]);
 export const rankResponseSchema = z.discriminatedUnion("status", [rankOkSchema, unavailableSchema, conversationErrorSchema]);
+export const critiqueResponseSchema = z.discriminatedUnion("status", [critiqueOkSchema, unavailableSchema, conversationErrorSchema]);
 
 export type TurnRequest = z.infer<typeof turnRequestSchema>;
 export type RankCandidate = z.infer<typeof rankCandidateSchema>;
 export type RankRequest = z.infer<typeof rankRequestSchema>;
+export type Critique = z.infer<typeof critiqueSchema>;
+export type CritiqueRequest = z.infer<typeof critiqueRequestSchema>;
 export type UnavailableCode = (typeof unavailableCodes)[number];
 export type Unavailable = z.infer<typeof unavailableSchema>;
 export type TurnOk = z.infer<typeof turnOkSchema>;
 export type RankOk = z.infer<typeof rankOkSchema>;
 export type TurnResponse = z.infer<typeof turnResponseSchema>;
 export type RankResponse = z.infer<typeof rankResponseSchema>;
+export type CritiqueOk = z.infer<typeof critiqueOkSchema>;
+export type CritiqueResponse = z.infer<typeof critiqueResponseSchema>;

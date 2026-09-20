@@ -65,8 +65,9 @@ describe("the registry says where each room actually is", () => {
 
       const state = (id: string) =>
         document.querySelector(`[data-testid="jam-state-${id}"]`)?.textContent ?? "";
-      assert.match(state(PLAYING), /^PLAYING · PUBLIC$/);
-      assert.match(state(STOPPED), /^STOPPED · INVITE ONLY$/);
+      // The card leads with which of the three this is; the state is the room's.
+      assert.match(state(PLAYING), /· PLAYING · PUBLIC$/);
+      assert.match(state(STOPPED), /· STOPPED · INVITE ONLY$/);
       // The word the rows still carry, and which nothing could ever change.
       assert.doesNotMatch(document.body.textContent ?? "", /DRAFT/);
     } finally {
@@ -82,7 +83,7 @@ describe("the registry says where each room actually is", () => {
       await render(<JamRegistry onNew={() => {}} onOpen={() => {}} onDirect={() => {}} />);
       await settle();
       const state = document.querySelector(`[data-testid="jam-state-${PLAYING}"]`)?.textContent ?? "";
-      assert.match(state, /^LIVE · PUBLIC$/);
+      assert.match(state, /· LIVE · PUBLIC$/);
     } finally {
       restore();
     }

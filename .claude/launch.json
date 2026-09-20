@@ -52,16 +52,24 @@
       "port": 4347
     },
     {
+<<<<<<< HEAD
       "name": "reverie-polish",
       "runtimeExecutable": "/usr/bin/env",
       "runtimeArgs": [
         "PORT=4367",
+=======
+      "name": "reverie-critic",
+      "runtimeExecutable": "/usr/bin/env",
+      "runtimeArgs": [
+        "PORT=4357",
+>>>>>>> claude/critic-film-recommendations-fadda5
         "node",
         "--env-file-if-exists=.env.local",
         "--import",
         "tsx",
         "apps/server/index.ts"
       ],
+<<<<<<< HEAD
       "port": 4367
     },
     {
@@ -76,6 +84,9 @@
         "apps/server/index.ts"
       ],
       "port": 4387
+=======
+      "port": 4357
+>>>>>>> claude/critic-film-recommendations-fadda5
     }
   ]
 }

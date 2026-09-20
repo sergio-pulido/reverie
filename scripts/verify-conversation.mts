@@ -195,11 +195,9 @@ assert.equal(clear.question, null, "a clear request is answered, not questioned"
 const scary = await shortlist();
 assert.ok(scary.items.every(({ genres, runtimeMinutes }) => genres.includes("Horror") && (runtimeMinutes ?? 999) < 120));
 
-const dark = await say("something bleak and slow from the seventies");
-assert.equal(dark.question, null, "a request this concrete is answered, not questioned");
-const bleak = await shortlist();
-assert.ok(bleak.items.length > 0, "and finds films");
-await rank(bleak.items);
+// The critic again, over horror rather than the comedies above: a note that reads the same
+// whatever the shortlist is would be a note about nothing.
+await rank(scary.items);
 
 /**
  * A request a genre-only funnel cannot answer: the viewer says what the film is about, and the

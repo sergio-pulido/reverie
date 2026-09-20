@@ -100,6 +100,53 @@ the call fails, the jam is still created with its beats missing and `POST /api/j
 layer is still "history"; the name stays **outline** / **beat** in code and docs, for the reason
 recorded below on 2026-09-19.
 
+## 2026-09-20 — A critic writes the recommendation, fenced by what can be checked
+
+The ranking call is handed an id, a title, a year, genres, a runtime, a language and 280
+characters of synopsis, and told to invent nothing outside that record. The model has read far
+more about these films than a row holds, and the rule forbade all of it, so every reason it wrote
+was the genre list read back: "Perfect blend of comedy, family, and romance with a light, joyful
+tone." The product's most expert moment was its blandest.
+
+A third call now writes about the three films the ranking picked, and is sent for exactly the
+knowledge the second call is denied. For each pick it says why this one, what watching it is like,
+and one honest reservation. It cannot be fenced by its sources, so it is fenced by what can be
+checked against the row beside it:
+
+- It may write only about the picks it was handed. The rest of the shortlist goes with the
+  request as titles it was not shown; naming one refuses the whole reply.
+- It may not claim a running time or a release year the row contradicts, and may not invent a
+  score. The list rows carry no score at all today, so in practice every score is a refusal.
+- It may not borrow a verdict from critics, audiences or a score site, and may not turn to face
+  the viewer to say what they asked for or what they will feel.
+- Every pick needs a reservation. A pick whose reservation is missing or says nothing against the
+  film loses its critique rather than getting a hollow one, and a set where none survives is
+  refused and retried.
+
+Two of those fences were drawn wrongly at first, and only reading live output showed it. Banning
+digits outright was meant to make a wrong year and a wrong running time one rule; live it refused
+"16-bit sprites", "the 1990 game" and a running time the row itself states — true sentences, and
+precisely the knowledge worth having. Banning the second person was meant to stop advertising;
+live it refused "the pacing sags if you are not already invested". Both now check the claim rather
+than the vocabulary: a running time only in the idioms that state one, a year only where it is
+claimed as this film's release, the viewer only where the critique is about them. A part that
+overruns its length is cut back to its whole sentences instead, because running long is not a
+claim that can be wrong.
+
+The call is its own endpoint rather than part of the ranking, and the browser makes it after the
+posters are on screen. A turn hands its films over the moment they are ranked and stays open for
+its critique; the note lands in the same frozen snapshot, which keeps its films and their order
+untouched. That is why the critic can afford a 24-second attempt inside a 36-second deadline:
+nothing is waiting on it. When it fails, the row keeps the reasons the ranking wrote and the
+conversation says nothing about it. A missing critique is not worth an apology.
+
+What this does not do, and cannot: the critic will write a confident, detailed critique of a film
+the model does not know. Probed with two invented titles among three real ones, it wrote about all
+three, citing a closing scene of a film that does not exist. Nothing here catches that, because an
+invented scene contradicts no field of the row. The prompt asks it to leave such a film out;
+measured on Qwen3-30B, that instruction does not bind. The honest boundary of this feature is that
+its checks are about consistency with the catalogue, not about truth.
+
 ## 2026-09-20 — The broadcast review closes every viewer and muxer lifetime (RV-19)
 
 Reviewing the integrated broadcast branch found that its accounting model was stricter than its

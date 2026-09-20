@@ -9,7 +9,7 @@ import type { DiscoverEndpointOptions, Provider } from "../api/_lib/discover-htt
 import { critiqueResponseSchema, rankResponseSchema, turnResponseSchema } from "../src/conversation/contract";
 import { CATALOGUE_CONFIGURATION } from "../src/catalogue/domain";
 import { MAX_TURNS_PER_SESSION, type PreferenceState } from "../src/preferences/schema";
-import { applyTurn, newState } from "../src/preferences/state";
+import { applyTurn, newState, rejectCandidate } from "../src/preferences/state";
 import { title } from "./catalogueFixtures";
 
 type Captured = { statusCode: number; body: Record<string, unknown> };
@@ -274,5 +274,18 @@ describe("POST /api/discover/critique", () => {
     const result = await call(discoverCritique, path, { state, picks }, { provider: scripted, verifyViewer: async () => false });
     assert.equal(result.statusCode, 401);
     assert.equal(scripted.calls, 0);
+  });
+
+  it("never writes about a film the state rules out, and pays nothing when none is left", async () => {
+    const refused = rejectCandidate(state, "cat:1");
+    const scripted = provider(JSON.stringify({ critiques: [note("cat:2")] }));
+    const result = await call(discoverCritique, path, { state: refused, picks }, { provider: scripted, verifyViewer: signedIn });
+    assert.equal(result.body.status, "ok", "the pick that survives is still written about");
+    assert.deepEqual((result.body.critiques as { candidateId: string }[]).map(({ candidateId }) => candidateId), ["cat:2"]);
+
+    const none = provider();
+    const empty = await call(discoverCritique, path, { state: rejectCandidate(refused, "cat:2"), picks }, { provider: none, verifyViewer: signedIn });
+    assert.equal(empty.statusCode, 400);
+    assert.equal(none.calls, 0, "no model call for films the state has already ruled out");
   });
 });

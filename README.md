@@ -42,7 +42,7 @@ The Studio's scene panel is a static illustration, not generated output.
 | Layer | Technology | State |
 | --- | --- | --- |
 | Client | React, TypeScript, Vite | Discover, the jam list, create, join, lobby and Studio screens |
-| Vercel functions | Node handlers in `api/` | `health`, `catalogue`, `catalogue-title`, `discover/turn`, `discover/rank`, `live/token`. A Vercel deployment has not been verified. |
+| Vercel functions | Node handlers in `api/` | `health`, `catalogue`, `catalogue-title`, `discover/turn`, `discover/rank`, `discover/critique`, `live/token`. A Vercel deployment has not been verified. |
 | Local server | Express (`apps/server`) | Serves the app and the same handlers, plus the script, session and playback routes. Those routes run only here and keep their state in memory. |
 | Collaboration | Supabase Postgres, Auth, RLS, Realtime | Hosted project migrated; `pnpm verify:realtime` passed 27/27 against it |
 | Validation | Zod | Command and provider-response schemas at every boundary |

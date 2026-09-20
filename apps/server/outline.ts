@@ -11,6 +11,11 @@ import {
   type OutlineEditIntent,
   type OutlineEditRecord,
 } from "../../src/core/outlineEdit";
+import {
+  openBeats,
+  outlineDirectionCommandSchema,
+  type DirectionTarget,
+} from "../../src/core/outlineDirection";
 import type { JamScript } from "../../src/core/script";
 import {
   getPortionAt,
@@ -25,7 +30,7 @@ import {
   type PlaybackGuard,
 } from "./jams";
 import { resolveNebiusConfig } from "./providers/nebius";
-import { OutlineWriterError, runCascade } from "./outlineWriter";
+import { OutlineWriterError, runCascade, runTargeting } from "./outlineWriter";
 
 /**
  * The outline edit queue: every way of steering the story lands here as one
@@ -43,6 +48,17 @@ import { OutlineWriterError, runCascade } from "./outlineWriter";
 
 /** Rewrites the story from the edited beat on. Injected in tests; the default calls the provider. */
 export type CascadeRunner = (script: JamScript, edit: OutlineEditIntent) => Promise<JamScript>;
+
+/**
+ * Chooses which of the beats that can still change a free-text direction is
+ * about, and what that beat now reads. Injected in tests; the default calls
+ * the provider.
+ */
+export type TargetingRunner = (
+  script: JamScript,
+  direction: string,
+  candidates: readonly Beat[],
+) => Promise<DirectionTarget>;
 
 /** The slice of a live stream the queue needs: which jam, where it is, and one direction. */
 export interface OutlineStream {
@@ -62,6 +78,12 @@ export interface OutlineRouterOptions {
    * with `generation_disabled` rather than fabricated.
    */
   cascade?: CascadeRunner | null;
+  /**
+   * How a direction is aimed at a beat. `undefined` resolves the provider per
+   * request from the environment; `null` means no provider, so a direction is
+   * refused rather than aimed at the opening beat by default.
+   */
+  target?: TargetingRunner | null;
   /** The strictest open stream's window, for the panel. Defaults to nothing locked. */
   window?: (jamId: string) => DirectorBeatWindow;
   /** The jam's open streams, so a landed beat can be sent as direction. */
@@ -118,8 +140,18 @@ export class OutlineEditQueue {
     return this.queue(jamId).records.filter((record) => record.status === "queued").length;
   }
 
-  /** Queues an admitted command and starts the jam's worker if it is idle. */
-  admit(jamId: string, command: OutlineEditCommand): OutlineEditRecord {
+  /**
+   * Queues an admitted command and starts the jam's worker if it is idle.
+   *
+   * `provenance` is how an edit that nobody wrote by hand still says where it
+   * came from: a free-text direction carries the room's own words and the
+   * reason its beat was chosen. Audit only — the queue never reads it.
+   */
+  admit(
+    jamId: string,
+    command: OutlineEditCommand,
+    provenance: { said?: string; chosenBecause?: string } = {},
+  ): OutlineEditRecord {
     const queue = this.queue(jamId);
     const record: OutlineEditRecord = {
       id: randomUUID(),
@@ -131,6 +163,8 @@ export class OutlineEditQueue {
       ...(command.intent === "reroll" && command.reason ? { reason: command.reason } : {}),
       mechanism: command.mechanism,
       ...(command.authorId ? { authorId: command.authorId } : {}),
+      ...(provenance.said ? { said: provenance.said } : {}),
+      ...(provenance.chosenBecause ? { chosenBecause: provenance.chosenBecause } : {}),
       status: "queued",
       queuedAt: this.now().toISOString(),
     };
@@ -323,6 +357,19 @@ function lockedError(minEditablePortionIndex: number): OutlineEditError {
   };
 }
 
+/**
+ * The aim a record carries, so a replayed direction answers the same question
+ * the first request did rather than making the caller reconstruct it.
+ */
+function targetOf(record: OutlineEditRecord): DirectionTarget | null {
+  if (record.intent !== "set" || !record.summary) return null;
+  return {
+    beatIndex: record.beatIndex,
+    summary: record.summary,
+    ...(record.chosenBecause ? { reason: record.chosenBecause } : {}),
+  };
+}
+
 function cascadeError(error: unknown): OutlineEditError {
   if (error instanceof OutlineWriterError) {
     return { code: error.code, safeMessage: error.message, retryable: error.retryable };
@@ -354,6 +401,18 @@ export function createOutlineRouter(
     try {
       const config = resolveNebiusConfig(process.env);
       return config ? (script, edit) => runCascade(config, script, edit) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function resolveTargeting(): TargetingRunner | null {
+    if (options.target !== undefined) return options.target;
+    try {
+      const config = resolveNebiusConfig(process.env);
+      return config
+        ? (script, direction, candidates) => runTargeting(config, script, direction, candidates)
+        : null;
     } catch {
       return null;
     }
@@ -468,6 +527,119 @@ export function createOutlineRouter(
     }
     const record = queue.admit(jamId, command.data);
     response.status(202).json({ edit: record });
+  });
+
+  /**
+   * One free-text direction, aimed at the beat it is about.
+   *
+   * This is the Director composer's path, and the difference from
+   * `/outline/edits` is only where the beat number comes from: there a person
+   * names it, here a model chooses it from the beats that can still change.
+   * Everything after the choice is identical — the same queue, the same
+   * cascade, the same commit, the same delivery to the open streams — because
+   * a direction that is not an ordinary edit by the time it lands would be a
+   * second way for the story to change, and there is only one.
+   *
+   * The choice is made here rather than in the worker so the room is told what
+   * its words were aimed at in the answer to its own request. The worker
+   * re-reads the lock boundary at the front of the queue either way, so a beat
+   * that closes while the edit waits fails visibly rather than rewriting
+   * something the provider already has.
+   */
+  router.post("/api/jams/:id/outline/directions", async (request, response) => {
+    const jamId = request.params.id;
+    const command = outlineDirectionCommandSchema.safeParse(request.body);
+    if (!command.success) {
+      sendError(response, 400, "invalid_command", "That direction is not valid.", false);
+      return;
+    }
+    const current = await store.getCurrentScriptRevision(jamId);
+    if (!current) {
+      sendError(response, 404, "not_found", "This jam has no script on this server.", false);
+      return;
+    }
+    // A replay is answered before any refusal, for the reason the edit route
+    // states: a retried request performs nothing, so the state it would now be
+    // refused for is not its business.
+    const replay = queue.find(jamId, command.data.requestId);
+    if (replay) {
+      response.status(200).json({ edit: replay, target: targetOf(replay) });
+      return;
+    }
+    const aim = resolveTargeting();
+    if (!aim || !resolveCascade()) {
+      sendError(
+        response,
+        503,
+        "generation_disabled",
+        "Directions are disabled: live providers are not configured on this server.",
+        false,
+      );
+      return;
+    }
+    const aimed = command.data.beatIndex;
+    if (aimed !== undefined && aimed >= portionCount(current.script)) {
+      sendError(response, 400, "invalid_command", "That beat does not exist in the current script.", false);
+      return;
+    }
+    const boundary = guard(jamId);
+    const open = openBeats(current.script, boundary.minEditablePortionIndex);
+    // A room that aimed at a beat keeps its aim: the model is then only being
+    // asked what that beat should now read, not where the words belong.
+    const candidates = aimed === undefined ? open : open.filter((beat) => beat.portionIndex === aimed);
+    if (candidates.length === 0) {
+      response.status(409).json({
+        error: {
+          ...lockedError(boundary.minEditablePortionIndex),
+          lockedIndex: boundary.minEditablePortionIndex - 1,
+          stateVersion: boundary.stateVersion,
+        },
+      });
+      return;
+    }
+    if (
+      command.data.expectedRevision !== undefined &&
+      command.data.expectedRevision !== current.revision
+    ) {
+      response.status(409).json({
+        error: {
+          code: "stale_state_version",
+          safeMessage: `The outline has moved on to revision ${current.revision}; read it again before directing it.`,
+          retryable: true,
+        },
+        revision: current.revision,
+      });
+      return;
+    }
+    if (queue.waiting(jamId) >= MAX_QUEUED_EDITS_PER_JAM) {
+      sendError(response, 409, "queue_full", "Too many edits are waiting for this jam; try again shortly.", true);
+      return;
+    }
+
+    let target: DirectionTarget;
+    try {
+      target = await aim(current.script, command.data.body, candidates);
+    } catch (error) {
+      const failure = cascadeError(error);
+      // Nothing is queued when the beat could not be chosen. Aiming at the
+      // opening beat instead is exactly the behaviour this route replaces.
+      sendError(response, 502, failure.code, failure.safeMessage, failure.retryable);
+      return;
+    }
+
+    const record = queue.admit(
+      jamId,
+      {
+        intent: "set",
+        beatIndex: target.beatIndex,
+        summary: target.summary,
+        requestId: command.data.requestId,
+        mechanism: "direction",
+        ...(command.data.authorId ? { authorId: command.data.authorId } : {}),
+      },
+      { said: command.data.body, ...(target.reason ? { chosenBecause: target.reason } : {}) },
+    );
+    response.status(202).json({ edit: record, target });
   });
 
   router.get("/api/jams/:id/outline/edits", async (request, response) => {

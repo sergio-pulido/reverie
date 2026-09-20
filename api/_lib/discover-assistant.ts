@@ -107,7 +107,7 @@ function parseJson(raw: string): unknown {
 
 const SHAPE_CORRECTION = "Correction required: your previous reply was not a single JSON object in the required shape";
 const DECISION_SHAPE =
-  'Reply again with exactly {"dimensions":[{"dimension","value","confidence","quote","explicit"}],"setConstraints":[{"slot","minutes" or "year","quote"}],"removeConstraints":[slot names: "runtime.max", "year.min" or "year.max"],"acknowledgement","question"}, listing only what the NEW message changes.';
+  'Reply again with exactly {"dimensions":[{"dimension","value","confidence","quote","explicit"}],"subject": the viewer\'s own words for what the film is about or null,"setConstraints":[{"slot","minutes" or "year","quote"}],"removeConstraints":[slot names: "runtime.max", "year.min" or "year.max"],"acknowledgement","question"}, listing only what the NEW message changes.';
 
 /**
  * Turn 1: what the viewer said, as a turn the engine has already accepted against `state`.
@@ -138,7 +138,7 @@ export function interpretMessage(
       return {
         ok: false,
         code: grounding ? "ASSISTANT_UNGROUNDED" : "ASSISTANT_UNUSABLE",
-        correction: `Correction required: your previous reply was refused. ${error.message} Every quote must be an exact substring of the viewer's new message.`,
+        correction: `Correction required: your previous reply was refused. ${error.message} Every quote must be an exact substring of the viewer's new message, and every word of the subject must be a word of that message.`,
       };
     }
   }, now, signal);

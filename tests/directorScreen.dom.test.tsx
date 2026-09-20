@@ -114,6 +114,18 @@ describe("the stage, in its three states", () => {
     assert.equal(playButton().disabled, true);
   });
 
+  it("offers nothing until the jam has said whether it is already playing", async () => {
+    // The moment between opening the screen and the server answering. A jam
+    // that is already running a take hands this screen its stream, so Play
+    // here would be an offer to open — and pay for — a second one.
+    server = await openDirector({ holdAttach: true });
+    await settle();
+
+    assert.equal(playButton().disabled, true);
+    assert.match(playButton().textContent ?? "", /Joining/);
+    assert.match(text(".director-stage-line"), /Looking for what this jam is playing/);
+  });
+
   it("generating shows the live element, the seconds produced and the beat being made", async () => {
     server = await openDirector({
       offsetSeconds: 12,

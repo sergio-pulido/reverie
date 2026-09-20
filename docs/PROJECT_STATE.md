@@ -2473,6 +2473,27 @@ the code it quotes sit together again.
   directly above the boundary.
 - The endpoint itself was not exercised from here. It is not on this branch, and the receipts for
   it are in the `POST /api/evaluate` entry above.
+## 2026-09-20 — Entering a playing room hands over the take (RV-29)
+
+- An `attachOnly` session request now joins whatever take the room is running, not only one
+  opened under the caller's own configuration (`ledger.findByJam` in
+  `apps/server/directorSessions.ts`, used by the attach path in `apps/server/director.ts`).
+  Starting is unchanged: a deliberate Play still keys on its configuration, so one stream per
+  distinct configuration still holds.
+- Both director screens hold Play back — disabled, reading "Joining…" — until the server has
+  said whether the room is playing, so the window right after opening a room no longer offers
+  a press that would open a second paid take.
+- Tests: `tests/directorDelivery.test.ts` covers an arrival under a different configuration
+  joining the running take and a Play press still opening its own; `tests/jamLifecycle.dom.test.tsx`
+  and `tests/directorScreen.dom.test.tsx` cover the screens. The first was confirmed to fail
+  against the old attach path before the fix.
+- `pnpm test` 1397/1397 and `npx tsc --noEmit` clean in this worktree, with RV-27 (PR #22)
+  merged in. That slice rewrote `src/lib/hlsPlayback.ts` to wait for a first segment and to
+  trust MSE over `canPlayType`, which is the other half of a room handing over its film:
+  this entry is about being given the right session, that one about the frame then playing.
+- **Not verified:** nothing here ran against a real take or a real provider. The joining half
+  is covered by route tests with a fake peer and by DOM tests with a stubbed server; whether
+  two browsers in one room now see the same film was not observed.
 
 ## 2026-09-20 — A take stops when the film has been watched out (RV-28)
 

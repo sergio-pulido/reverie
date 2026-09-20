@@ -56,6 +56,11 @@ export type ServerOptions = {
   recordingDurable?: boolean;
   /** An attach-only poll finds a stream another screen already opened. */
   attachExisting?: boolean;
+  /**
+   * Never answers the arrival's attach: a server that has been asked what the
+   * jam is playing and has not said yet.
+   */
+  holdAttach?: boolean;
   /** Refuses to open a session with this code. */
   refuse?: { status: number; code: string; message: string };
 };
@@ -104,6 +109,7 @@ export function fakeServer(options: ServerOptions = {}): FakeServer {
     }
     if (url.endsWith("/director/session") && method === "POST") {
       const body = typeof init?.body === "string" ? JSON.parse(init.body) : {};
+      if (body.attachOnly && current.holdAttach) return new Promise<Response>(() => {});
       if (body.attachOnly && !current.attachExisting) {
         return json(
           {

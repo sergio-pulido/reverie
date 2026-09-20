@@ -3,11 +3,17 @@ import type { JamScript } from "./script";
 /**
  * Which beat of the outline a live stream is on, and which ones are closed.
  *
- * The rule is the player's rule, deliberately: the beat being generated and
- * the one after it are closed, and editing resumes two beats ahead. A live
- * stream generates ahead of playback, so by the time a viewer sees beat N the
- * provider is already committed to N+1 — blocking it is what gives the room
- * time to react to a change instead of discovering it on screen.
+ * A beat is closed because **it has been handed to the provider**, and for no
+ * other reason. The script is not given to fal all at once: `configure` takes
+ * the opening chunk and each later chunk is handed the next beats, so at any
+ * moment there is an exact number of seconds fal has been told about, and the
+ * first beat past it is the first one an edit may still touch. That number is
+ * `committedThroughSeconds` below.
+ *
+ * Where there is no stream to ask — a preview, a fixture — the old prediction
+ * stands in: the beat being generated and the one after it are closed, and
+ * editing resumes two beats ahead. It is a guess about what fal was given,
+ * which is precisely why the stream no longer uses it.
  *
  * See `lockedPortionIndex` / `minEditablePortionIndex` in ./playback, which
  * express the same window for stored portions.
@@ -57,9 +63,37 @@ export function currentBeatIndex(
 export function beatWindow(
   offsets: readonly number[],
   scriptOffsetSeconds: number | null,
+  /**
+   * Seconds of script that have actually been handed to the provider.
+   *
+   * This is the honest answer to "which beats can still change", and it is a
+   * RECORD rather than a prediction: a beat is closed because it was sent, not
+   * because of where the stream has got to. Null for a caller with no stream
+   * to ask — a preview, a fixture — which falls back to the rule below.
+   */
+  committedThroughSeconds: number | null = null,
 ): DirectorBeatWindow {
   const count = offsets.length;
   const current = currentBeatIndex(offsets, scriptOffsetSeconds);
+  if (committedThroughSeconds !== null) {
+    // The first beat that has NOT been sent is the first one an edit may still
+    // touch. Everything below it is with the provider.
+    let minEditable = count;
+    for (let index = 0; index < count; index += 1) {
+      if (offsets[index] >= committedThroughSeconds) {
+        minEditable = index;
+        break;
+      }
+    }
+    const committed = minEditable - 1;
+    return {
+      currentBeatIndex: current,
+      // The beat behind the boundary, when it is not the one being generated:
+      // "locked" names a beat that is spoken for but not yet on screen.
+      lockedBeatIndex: committed >= 0 && committed > (current ?? -1) ? committed : null,
+      minEditableBeatIndex: minEditable,
+    };
+  }
   if (current === null) {
     // Configured but not yet playing. The opening beat went to the provider
     // with the configure message, so it is already committed — the same shape
@@ -78,6 +112,29 @@ export function beatWindow(
   };
 }
 
+/**
+ * Seconds of script that must be in the provider's hands for the beat being
+ * generated AND the one after it to be closed.
+ *
+ * The room's own rule, and the one the screen states: you cannot change what
+ * is being made, nor the thing straight after it, because by the time you saw
+ * the one you are watching the next was already being planned. Under the
+ * hand-over that rule has to be *made* true rather than asserted — a beat is
+ * closed only because it was sent — so this is what the stream hands over at
+ * a minimum, whatever the chunk length happens to be.
+ *
+ * `Infinity` when the film has no such beat left: within two beats of the end
+ * there is nothing further to protect, and the caller caps it at the runtime.
+ */
+export function twoBeatsAhead(
+  offsets: readonly number[],
+  scriptOffsetSeconds: number | null,
+): number {
+  // Before the first chunk the provider is on the opening beat.
+  const next = (currentBeatIndex(offsets, scriptOffsetSeconds) ?? 0) + 2;
+  return next < offsets.length ? offsets[next] : Number.POSITIVE_INFINITY;
+}
+
 /** True when an edit to `beatIndex` would land on a closed beat. */
 export function isBeatLocked(
   window: DirectorBeatWindow,
@@ -89,6 +146,7 @@ export function isBeatLocked(
 export function beatWindowForScript(
   script: JamScript,
   scriptOffsetSeconds: number | null,
+  committedThroughSeconds: number | null = null,
 ): DirectorBeatWindow {
-  return beatWindow(beatOffsets(script), scriptOffsetSeconds);
+  return beatWindow(beatOffsets(script), scriptOffsetSeconds, committedThroughSeconds);
 }

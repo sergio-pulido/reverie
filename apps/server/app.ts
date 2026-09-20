@@ -103,12 +103,13 @@ export function createApiApp(
     stateVersion: 0,
   });
   app.use(createJamsRouter(store, guard));
-  // The outline queue sends a landed beat to the same streams the director
-  // holds, so one edited phrase drives the script and the stream alike.
+  // The outline queue does not push a landed beat anywhere: a beat reaches the
+  // provider when it closes to editing, and the stream reads the story itself
+  // at that moment. The window is here so the panel can show the same boundary
+  // the queue enforces.
   app.use(
     createOutlineRouter(store, guard, {
-      window: (jamId) => streams.beatWindow(jamId),
-      streamsFor: (jamId) => streams.streamsFor(jamId),
+      window: (jamId: string) => streams.beatWindow(jamId),
     }),
   );
   app.use(createSessionsRouter(store));

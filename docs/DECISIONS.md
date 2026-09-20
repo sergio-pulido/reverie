@@ -57,6 +57,70 @@ fifteen-second beat, and no beat of the finished room is missing; the other stop
 the ceiling with the same narrator configured and asserts nothing was bought and only the
 opening loop ever reached the provider.
 
+## 2026-09-20 — The script reaches fal a chunk at a time, and only once a beat can no longer change (RV-33)
+
+RV-32 made a direction land on the beat it is about and rewrite the story from there. The room
+saw the change on the timeline, and **the film went on playing the old version.** The reason was
+not the edit path: `configure` had handed fal the entire script at session open, so every beat had
+been planned from before anybody could change it, and nothing re-sent them.
+
+**So the whole script no longer goes up front.** `configure` carries the beats of the opening
+window — one chunk at the longest length the model produces, which is what fal generates before it
+has told us anything — and each chunk is followed by a `prompt` carrying the beats of the chunk
+after the one being generated. fal's `prompt` takes a `script` as well as text
+(`script_mode: "append" | "replace"`, versions incrementing by one), which is what makes a
+hand-over possible at all.
+
+**A beat is sent exactly when it closes, and closed exactly because it was sent.** That is the
+whole idea, and it removes a fiction: the lock window used to be arithmetic — the beat being
+generated and the one after it — while fal in fact held the entire film. `minEditableBeatIndex` is
+now the first beat past `committedThroughSeconds`, the seconds actually handed over. Every beat
+the provider has is one nobody can still change; every beat that can still change is one the
+provider has not seen. An edit therefore cannot land on a beat fal holds, and the next hand-over
+reads the story as it stands, so the picture follows the room.
+
+**Run fal dry and it wraps to the top of the script rather than waiting.** Measured, session
+`mu9vnsrb-1` (2026-09-20): configured with the first 30 seconds of a 60-second film, it reported
+chunks at script offsets 0, 10, 20 — **and then 0 again**. The beats handed over at 30s and 45s
+were accepted (`prompt_applied` v2, v3) but arrived after it had already wrapped, so the room
+watched its opening thirty seconds twice and never saw the beats it had edited. The planner also
+runs ahead of the offset it reports: it had consumed 30s of script while reporting 20. So the
+hand-over lead is `DIRECTOR_HANDOVER_LEAD_SECONDS` — forty seconds, four reported chunks at the
+ten-second chunk fal chose — and it is a measurement, not a preference. Starving the provider is
+not a slow degradation; it silently re-renders the opening.
+
+**What that lead costs the room is real and must not be glossed.** On the default sixty-second
+film of fifteen-second beats, three of the four beats are already with fal when the take starts,
+so only the last one can still be directed during it. A longer film pays the same forty seconds
+once and keeps the rest editable — eight beats of fifteen seconds leaves five. Everything is
+editable before Play, and an edit that lands then is in the beats `configure` carries.
+
+**Beat length is what sets how much of the film is closed, which is why the default moved to
+fifteen seconds** — the top of the model's band, at both ends of it. A beat shorter than a chunk
+cannot be directed in practice: the provider is a chunk ahead, so by the time anyone could ask for
+a change that beat is long gone. At fifteen seconds a beat is a chunk, and the two beats the room
+is guaranteed are a real half-minute of film.
+
+**The window is wider than it was, and that is the true price.** One chunk of lead over a
+ten-second chunk closes about four five-second beats, where the old rule claimed two. The cost was
+always being paid — under the old shape every beat was committed from the first second — the
+window simply did not say so. `append` with `replan: false` is what keeps the hand-over a
+hand-over: the beats queue behind what is planned instead of cutting into it, which is the verb a
+change of direction uses.
+
+**The outline queue now pushes nothing.** Delivering a landed beat to the streams about to render
+it was the workaround for a script that could not be updated; with the hand-over it would send the
+same beat twice, once as a steering prompt that busts the planned queue. The record's
+`direction: { sent, refused, skipped }` goes with it. A free-text direction to a running take
+still exists and is unchanged — that is a *change* of direction, `replan: true`, and it is a
+different act from handing over the next page of the same script.
+
+**Unprobed, and it needs one paid take to settle:** whether fal is content with an opening script
+of one chunk rather than the whole film, and whether an appended beat arrives in time to be
+planned for the chunk it belongs to. `invalid_initial_script` is a fatal code, so a refusal would
+be visible immediately rather than silently degrading. Nothing here was measured against the
+provider.
+
 ## 2026-09-20 — A direction names no beat: the story chooses one, and the cascade carries it (RV-32)
 
 The Director composer used to send what was said straight to fal as a steering prompt. That is

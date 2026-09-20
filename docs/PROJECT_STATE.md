@@ -2681,6 +2681,67 @@ own.
   by a second probe with `FAL_KEY` empty: loading the screen posts only `attachOnly` sessions,
   so a page load never opens a paid take.
 
+## 2026-09-20 — A beat reaches the provider when it locks, not at configure (RV-33)
+
+- **The bug this fixes:** an edit landed, the timeline showed it, and the film kept playing the
+  old story. `configure` had given fal the whole script at session open, so every beat was planned
+  from before the room could change it and nothing re-sent them.
+- `configure` now carries only the opening window's beats (`DIRECTOR_MAX_CHUNK_SECONDS`, the
+  longest chunk the model makes). Each `chunk` is followed by a `prompt` carrying the beats of the
+  chunk after the one being generated, `script_mode: "append"`, `replan: false`, with the version
+  incremented as fal's API prescribes. Recorded on the trail as `beats_sent`.
+- Every hand-over reads the CURRENT revision (`DirectorStream.readScript`, wired to
+  `store.getCurrentScriptRevision`), so an edit that lands mid-take is in the beats that have not
+  gone yet. Hand-overs are serialized behind one promise so two chunks cannot send the same beats.
+- `beatWindow` takes `committedThroughSeconds` and derives the boundary from it: the first beat
+  past what was actually sent. The old arithmetic (`current + 2`) remains only for callers with no
+  stream to ask — a preview, a fixture — and is documented as the guess it is.
+- **The window is wider than before**: one chunk of lead over a ten-second chunk closes about four
+  five-second beats, against the two the old rule claimed. The cost was always being paid; the
+  window just did not say so.
+- **The lead is measured, not chosen: `DIRECTOR_HANDOVER_LEAD_SECONDS` = 40.** Session
+  `mu9vnsrb-1` was configured with 30s of a 60s film and reported offsets 0, 10, 20, **0** — fal
+  wraps to the top of the script when it runs out, rather than waiting, so the room watched its
+  opening twice while the beats it had edited (accepted as prompt versions 2 and 3) arrived too
+  late to matter. Its planner runs ahead of what it reports: 30s of script consumed at a reported
+  offset of 20.
+- **The cost, stated:** on the default 60-second film that lead closes three of four beats at
+  Play, leaving only the last one directable during a take. A 120-second film pays the same 40
+  seconds and keeps five of eight. Everything is editable before Play.
+- **Never narrower than two beats, either.** The hand-over is the longer of "the chunk being
+  generated plus the next" and "the beat being generated plus the next" (`twoBeatsAhead`), so the
+  room's own rule holds whatever a chunk turns out to be: at Play, beats 1 and 2 are both closed
+  even on a film whose beats are as long as a chunk. Capped at the film's runtime.
+- **A beat is 15 seconds by default**, at both ends of the band (`DEFAULT_PORTION_MIN_SECONDS`,
+  `DEFAULT_PORTION_MAX_SECONDS` 5 → 15), so the default 60-second film is four beats rather than
+  twelve. Fewer, longer beats means fewer seams, and it is what makes a beat worth directing: a
+  five-second beat is shorter than a chunk, so the provider is already past it before a change
+  could matter. `buildDefaultFormatScript` is now 2x2x15s; `expectedPortions` of the default
+  format is 4.
+- **A beat being generated is no longer offerable to the composer.** It stays selectable — Review
+  reads a beat back whatever its state — but the Direct button is disabled and the note names the
+  beat and its state, instead of sending something the screen already knows the server refuses.
+- Fixed a rendering bug this change introduced: before the first chunk the screen marked the LAST
+  beat handed over as `generating`. The provider starts at the top of the film, so the opening
+  beat is the one being made; `lockedBeatIndex` is now several ahead of it and is not that answer.
+- The outline queue no longer pushes a landed beat to open streams, and `OutlineEditRecord`
+  loses `direction: { sent, refused, skipped }`. With the hand-over, a push would send the same
+  beat twice — the second time as a steering prompt that busts fal's planned queue. The free-text
+  direction route (`/direct`, `replan: true`) is unchanged: a change of direction is a different
+  act from handing over the next page of the same script.
+- Verified: `pnpm test` 1447/1447, `npx tsc --noEmit` clean, `pnpm build` clean. New coverage in
+  `tests/directorRoutes.test.ts` (hand-over timing against the frontier, the window following what
+  was sent, a mid-take edit reaching the next hand-over, nothing sent twice, past the last beat,
+  both opening beats closed on a film of chunk-length beats), `tests/director.test.ts` (the
+  configure window, script slicing), `tests/directorTimeline.test.ts` (what Play looks like) and
+  `tests/directorScreen.dom.test.tsx` (neither a generating nor a locked beat can be aimed at).
+- **Not verified, and it needs one paid take:** whether fal accepts an opening script of one chunk
+  rather than the whole film, and whether an appended beat arrives in time for the chunk it
+  belongs to. A refusal would be the fatal `invalid_initial_script`, so it would be visible
+  immediately rather than degrading quietly. The API shape comes from
+  https://fal.ai/models/minimax/h3-max/director/api — `prompt` takes `script` and `script_mode`,
+  versions increment by one — and was read, not measured.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

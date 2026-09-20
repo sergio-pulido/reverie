@@ -187,7 +187,6 @@ export function OutlinePanel({
         <p>
           {edit.intent === "set" ? `“${edit.summary}”` : "Asked for something else."}
           {edit.error ? ` ${edit.error.safeMessage}` : ""}
-          {edit.direction && edit.direction.sent > 0 ? ` Sent to the live stream.` : ""}
         </p>
       </li>)}
     </ul>}

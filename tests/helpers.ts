@@ -28,7 +28,7 @@ export function buildScript(
   };
 }
 
-/** 3 scenes × 4 portions × 5s = 60s: exactly DEFAULT_SCRIPT_FORMAT. */
+/** 2 scenes × 2 portions × 15s = 60s: exactly DEFAULT_SCRIPT_FORMAT. */
 export function buildDefaultFormatScript(): JamScript {
-  return buildScript(5, 3, 4);
+  return buildScript(15, 2, 2);
 }

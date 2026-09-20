@@ -20,6 +20,16 @@ export type DirectorAuditKind =
   | "direction_applied"
   | "direction_rejected"
   | "chunk_received"
+  /**
+   * Beats of the script handed to the provider mid-session.
+   *
+   * The script is not given all at once: each chunk is followed by the beats
+   * of the chunk after it, read from the story as it stands right then. This
+   * is the entry that says which beats fal was given and when — and therefore
+   * which version of them it was given, since a beat below the boundary can no
+   * longer change.
+   */
+  | "beats_sent"
   | "provider_error"
   /**
    * The provider has generated the whole film. NOT an ending: generation runs

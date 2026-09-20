@@ -6,6 +6,7 @@ import {
   directionTurns,
   firstBlockedBeat,
   isBeatClosed,
+  type BeatState,
   type TimelineBeat,
 } from "../core/directorTimeline";
 import { budgetSpent, formatUsd } from "../core/directorSpend";
@@ -94,13 +95,12 @@ export function DirectorScreen({ slug }: { slug: string | null }) {
   // provider holds the whole film; no outline means this server has no story
   // to rewrite at all.
   const openBeat = beats.find((beat) => !isBeatClosed(beat.state)) ?? null;
-
-  // Choosing a beat is two things at once: Review reads it back, and the
-  // composer aims at it. The reading survives the beat closing — a locked
-  // beat is still worth looking at, and Review says direction at it will be
-  // refused — but the aim does not: once the beat is with the provider, what
-  // is said goes unaimed, and the story chooses the open beat it is about.
-  const aimedBeat = selected !== null && beats[selected] && !isBeatClosed(beats[selected].state) ? selected : null;
+  // A beat that has gone to the provider cannot be changed, so nothing can be
+  // aimed at it. It stays selectable — Review reads a beat back whatever its
+  // state — but the composer will not send at it, rather than letting the
+  // server refuse what the screen already knows is refused.
+  const aimedBeat = selected === null ? null : beats[selected] ?? null;
+  const aimClosed = aimedBeat !== null && isBeatClosed(aimedBeat.state);
   // Playing and stopping the stream belong to whoever can open this jam: the
   // take is the room's, not one person's. The room's playback clock is a
   // different thing — the database lets only the host move it — so it keeps
@@ -268,11 +268,12 @@ export function DirectorScreen({ slug }: { slug: string | null }) {
           <DirectorComposer
             mode={mode}
             onDirect={story.direct}
-            targetBeat={aimedBeat}
+            targetBeat={selected}
             onClearTarget={() => setSelected(null)}
             notes={composerNotes({
               live: session.live,
               storyAvailable: story.available,
+              aimClosed: aimClosed ? { number: aimedBeat.number, state: aimedBeat.state } : null,
               aiming: story.aiming,
               openBeatNumber: openBeat?.number ?? null,
               hasBeats: beats.length > 0,
@@ -280,7 +281,7 @@ export function DirectorScreen({ slug }: { slug: string | null }) {
               remainingUsd: session.spend.remainingUsd,
               budgetUsd: session.spend.budgetUsd,
             })}
-            blocked={!story.available || openBeat === null}
+            blocked={!story.available || openBeat === null || aimClosed}
             cellProps={cellProps}
           />
           <DeliverablesDrawer
@@ -434,6 +435,7 @@ function startRefusal({
 function composerNotes({
   live,
   storyAvailable,
+  aimClosed,
   aiming,
   openBeatNumber,
   hasBeats,
@@ -443,6 +445,8 @@ function composerNotes({
 }: {
   live: boolean;
   storyAvailable: boolean;
+  /** The aimed beat, when it has closed and so cannot be directed. */
+  aimClosed: { number: number; state: BeatState } | null;
   aiming: boolean;
   /** The first beat that can still change, one-based, or null when none can. */
   openBeatNumber: number | null;
@@ -460,6 +464,10 @@ function composerNotes({
     notes.push("This film has no beats yet, so there is nothing to aim a direction at.");
   } else if (openBeatNumber === null) {
     notes.push("Every beat is with the provider. Nothing in this film can still change.");
+  } else if (aimClosed) {
+    notes.push(
+      `Beat ${aimClosed.number} is ${BEAT_STATE_MEANING[aimClosed.state]}, so nothing can be aimed at it. Choose beat ${openBeatNumber} or later, or aim at the stream.`,
+    );
   } else if (aiming) {
     notes.push("Working out which beat this is about…");
   } else if (live) {

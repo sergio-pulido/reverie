@@ -5,7 +5,7 @@ import {
   ScriptDraftError,
 } from "../src/core/scriptDraft";
 import { totalDurationSeconds } from "../src/core/script";
-import { buildScript } from "./helpers";
+import { buildDefaultFormatScript, buildScript } from "./helpers";
 
 // The 4-minute format these rescaling tests exercise is no longer the default,
 // so they state it. Its portion band sits inside the model band, which keeps
@@ -34,7 +34,9 @@ test("keeps an on-target draft unchanged in total", () => {
 });
 
 test("keeps an on-target draft unchanged under the 60-second default", () => {
-  const script = finalizeScriptDraft(buildScript(5, 3, 4));
+  // On target means on the default FORMAT's target: 15-second portions, which
+  // is what the band now asks for at both ends.
+  const script = finalizeScriptDraft(buildDefaultFormatScript());
   assert.equal(totalDurationSeconds(script), 60);
 });
 

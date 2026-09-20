@@ -106,9 +106,6 @@ export function DirectionColumn({
                       reads as wrong can be judged rather than guessed at. */}
                   {ask.chosenBecause && <p className="director-turn-why">{ask.chosenBecause}</p>}
                   {ask.error && <p className="director-turn-why">{ask.error.safeMessage}</p>}
-                  {ask.direction && ask.direction.sent > 0 && (
-                    <p className="director-turn-why">Sent to the running stream.</p>
-                  )}
                 </article>
               </li>
             );

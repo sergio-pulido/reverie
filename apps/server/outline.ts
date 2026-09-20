@@ -60,17 +60,6 @@ export type TargetingRunner = (
   candidates: readonly Beat[],
 ) => Promise<DirectionTarget>;
 
-/** The slice of a live stream the queue needs: which jam, where it is, and one direction. */
-export interface OutlineStream {
-  readonly jamId: string;
-  /** Where this stream stands, so only the beat it is about to render is directed. */
-  readonly beats: DirectorBeatWindow;
-  direct(request: { body: string; authorId?: string; beatIndex?: number }): {
-    accepted: boolean;
-    refusal?: string;
-  };
-}
-
 export interface OutlineRouterOptions {
   /**
    * How a cascade is computed. `undefined` resolves the provider per request
@@ -86,8 +75,6 @@ export interface OutlineRouterOptions {
   target?: TargetingRunner | null;
   /** The strictest open stream's window, for the panel. Defaults to nothing locked. */
   window?: (jamId: string) => DirectorBeatWindow;
-  /** The jam's open streams, so a landed beat can be sent as direction. */
-  streamsFor?: (jamId: string) => OutlineStream[];
   now?: () => Date;
 }
 
@@ -112,7 +99,6 @@ export class OutlineEditQueue {
     private readonly store: JamStore,
     private readonly guard: PlaybackGuard,
     private readonly cascade: CascadeRunner,
-    private readonly streamsFor: (jamId: string) => OutlineStream[] = () => [],
     private readonly now: () => Date = () => new Date(),
   ) {}
 
@@ -276,7 +262,10 @@ export class OutlineEditQueue {
         record.revision = landed.revision;
         record.status = "landed";
         record.finishedAt = this.now().toISOString();
-        record.direction = this.deliver(record, landed.script);
+        // Nothing is pushed to the open streams, deliberately. A beat only
+        // reaches fal when it closes to editing, and this edit landed on a
+        // beat that had not closed — so the stream will read this revision
+        // when it hands that beat over. See apps/server/directorStream.ts.
         return;
       } catch (error) {
         if (error instanceof StaleRevisionError && attempt < COMMIT_ATTEMPTS) {
@@ -295,51 +284,6 @@ export class OutlineEditQueue {
         throw error;
       }
     }
-  }
-
-  /**
-   * Sends the edited beat's new phrase to the streams that are about to render
-   * it.
-   *
-   * ONLY to those. A direction is a steering prompt carrying `replan`, not a
-   * positional instruction: the provider re-plans what it generates next from
-   * whatever it is told. So sending a beat the stream will not reach for
-   * another three minutes does not schedule that beat — it makes the stream
-   * render it now, out of order. A stream is addressed only when the edited
-   * beat is the one it would generate next, which the lock window already
-   * names: the two closed beats are the one on screen and the one with the
-   * provider, so the first editable beat is exactly the imminent one.
-   *
-   * The honest consequence, which no code here can fix: a beat edited further
-   * ahead does not reach an already-open stream at all. The script went to the
-   * provider once, in the `configure` message at session open, and nothing
-   * re-sends it. The commit is durable either way; the stream is what misses.
-   *
-   * Best-effort on top of a commit that already stands: a refusal is recorded
-   * and never fails the edit, and with no stream open nothing is wrong.
-   */
-  private deliver(
-    record: OutlineEditRecord,
-    script: JamScript,
-  ): { sent: number; refused: number; skipped: number } {
-    const body = getPortionAt(script, record.beatIndex)?.portion.summary;
-    const outcome = { sent: 0, refused: 0, skipped: 0 };
-    if (!body) return outcome;
-    for (const stream of this.streamsFor(record.jamId)) {
-      if (record.beatIndex !== stream.beats.minEditableBeatIndex) {
-        outcome.skipped += 1;
-        continue;
-      }
-      let accepted = false;
-      try {
-        accepted = stream.direct({ body, authorId: record.authorId, beatIndex: record.beatIndex }).accepted;
-      } catch {
-        accepted = false;
-      }
-      if (accepted) outcome.sent += 1;
-      else outcome.refused += 1;
-    }
-    return outcome;
   }
 
   private fail(record: OutlineEditRecord, error: OutlineEditError): void {
@@ -392,7 +336,6 @@ export function createOutlineRouter(
 ): Router {
   const router = express.Router();
   const window = options.window ?? (() => NOTHING_LOCKED);
-  const streamsFor = options.streamsFor ?? (() => []);
 
   // Resolved per request so the process picks up configuration changes the
   // way the jams router does; `null` is an explicit "no provider".
@@ -428,7 +371,6 @@ export function createOutlineRouter(
       }
       return cascade(script, edit);
     },
-    streamsFor,
     options.now,
   );
 

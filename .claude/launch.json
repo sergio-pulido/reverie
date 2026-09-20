@@ -50,6 +50,19 @@
         "apps/server/index.ts"
       ],
       "port": 4347
+    },
+    {
+      "name": "reverie-critic",
+      "runtimeExecutable": "/usr/bin/env",
+      "runtimeArgs": [
+        "PORT=4357",
+        "node",
+        "--env-file-if-exists=.env.local",
+        "--import",
+        "tsx",
+        "apps/server/index.ts"
+      ],
+      "port": 4357
     }
   ]
 }

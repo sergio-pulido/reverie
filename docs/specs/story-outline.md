@@ -1,12 +1,13 @@
 # The story outline
 
-**Status: implemented and verified offline; no provider call has ever been made.** The outline
-projection, the cascade and its provider wiring, the beat fill-in, the per-jam edit queue, the
-outline routes, the store commit and the client panel are built (RV-22) and covered by tests that
-inject the completion instead of calling a model. The routes were also exercised against the real
-local host with providers off. **No cascade and no fill-in has been run against Nebius from this
-repository**, so the quality of a rewritten tail is specified and unobserved;
-`docs/PROJECT_STATE.md` carries the dated receipt when one is run.
+**Status: implemented, tested offline, and probed live on 2026-09-20.** The outline projection,
+the cascade and its provider wiring, the beat fill-in, the per-jam edit queue, the outline routes,
+the store commit and the client panel are built (RV-22) and covered by tests that inject the
+completion. A real run against Nebius on the local Docker stack then produced beats with the
+script, cascaded a `set` and a `reroll` coherently, and exercised the replay and stale-revision
+refusals — the receipt, with what was observed and what was not, is in `docs/PROJECT_STATE.md`.
+**Delivery into a live director stream remains unobserved:** no session was opened, because one
+bills by the second from a 60-second minimum.
 
 ## Why an outline exists
 

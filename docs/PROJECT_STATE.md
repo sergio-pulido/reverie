@@ -1350,10 +1350,31 @@ open a PR, merge the PR. The previous split between a "primary agent" pushing di
   /api/jams/:id/outline` serves the beats with nothing locked and no stream open, an edit is
   refused `503 generation_disabled`, a command without a `requestId` is refused `400`, and an
   unknown jam is `404`.
-- **Not verified:** no cascade and no beat fill-in has ever been run against Nebius from this
-  repository, so every claim about the quality of a rewritten tail is specification, not
-  observation. Delivery into a live director stream is exercised only against a fake stream. The
-  route authorization gap is unchanged (no script route on the Express host checks the caller).
+- **Probed live on 2026-09-20**, against the local Docker stack (`docker compose up --build
+  --wait`, `reverie-local`) with Nebius configured from `.env.local`. This is the first cascade
+  this repository has ever run against a model:
+  - **Beats arrive with the script.** `POST /api/jams` (generate, default 20s/5s format) answered
+    `201` in 4.1s with `outline: { complete: true }` and a phrase on all four portions — so the
+    scriptwriter's `summary` request is honoured in the same completion and the fill-in call was
+    not needed.
+  - **A `set` edit cascaded coherently.** Rewriting beat 1 to "he loses his lantern in the
+    current" landed as revision 2 in 2.0s. Beat 0 was untouched, all four durations were
+    unchanged, and the tail re-derived *around the loss*: the next beat became "Finds door by
+    faint bioluminescence". That the model reasoned from the removed lantern is the coherence the
+    cascade exists for, observed rather than assumed.
+  - **A `reroll` replaced a rejected beat.** "He finds a barnacled door standing upright" with the
+    reason "too predictable" became "He spots a human figure motionless on the seabed", and the
+    tail followed, in 2.6s.
+  - **The envelope held.** A replayed `requestId` answered `200` with the same edit id and
+    `landed` rather than editing again; an edit carrying `expectedRevision: 1` against revision 3
+    was refused `409 stale_state_version` with the current revision attached; the ledger listed
+    both landed edits newest first.
+- **Still not verified:** delivery into a live director stream. No director session was opened, so
+  nothing was sent to a provider that bills by the second and `direction` read
+  `{ sent: 0, refused: 0, skipped: 0 }` throughout. The lock window was therefore open the whole
+  run (`minEditableBeatIndex: 0`), so `portion_locked` was not exercised live. The route
+  authorization gap is unchanged: no script or outline route on the Express host checks the
+  caller.
 
 ## 2026-09-19 — The director stream is delivered live to the whole room (RV-19)
 

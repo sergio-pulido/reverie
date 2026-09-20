@@ -363,7 +363,12 @@ function Composer({ placeholder, maxLength, disabled, label, onSubmit }: {
   }
   return <form className="contribution-form" onSubmit={submit}>
     <label className="sr-only" htmlFor={`composer-${label}`}>{placeholder}</label>
-    <textarea id={`composer-${label}`} value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={placeholder} maxLength={maxLength} disabled={disabled} />
+    <textarea id={`composer-${label}`} value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={placeholder} maxLength={maxLength} disabled={disabled} onKeyDown={(event) => {
+      // Enter sends, as in any chat; Shift+Enter keeps a line break for the rare long one.
+      if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+      event.preventDefault();
+      event.currentTarget.form?.requestSubmit();
+    }} />
     <button className="button button-primary" type="submit" disabled={disabled}>{label} <span>↗</span></button>
   </form>;
 }

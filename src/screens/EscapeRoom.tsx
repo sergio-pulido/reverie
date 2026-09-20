@@ -295,6 +295,6 @@ function mediaLabel(media: SegmentView): string {
 
 function loopPlaceholder(loop: SegmentView): string {
   if (loop.message) return loop.message;
-  if (loop.status === "generating") return "The room is being filmed for the first time.";
+  if (loop.status === "generating") return "Filming the room for the first time — about ten seconds.";
   return "There is no footage of this room yet.";
 }

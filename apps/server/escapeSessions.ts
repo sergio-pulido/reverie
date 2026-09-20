@@ -256,7 +256,15 @@ export class EscapeRooms {
     if (!winner) return "no_proposals";
 
     const before = room.state;
-    const outcome = resolveProposal(room.scenario, before, winner.body);
+    const resolved = resolveProposal(room.scenario, before, winner.body);
+    // Words that reach nothing the world models are not a refusal any more:
+    // they are a glance. The character looks, the camera follows, and nothing
+    // in the world changes. The rules still decide every change of state; a
+    // glance only decides what is looked at. A failed action keeps its
+    // author-written reason, because that is the game telling the room why.
+    const outcome: EscapeOutcome = resolved.kind === "impossible"
+      ? { kind: "advanced", actionId: "glance", tell: winner.body, shot: winner.body, seconds: this.limits.loopSeconds, changes: [] }
+      : resolved;
     room.state = applyOutcome(room.scenario, before, outcome);
 
     const beat: Beat = {
@@ -410,7 +418,7 @@ export class EscapeRooms {
     // afterwards must be the world as it now is, not the untouched room it
     // was, or the move reads as undone. Only when the move stayed in this
     // location: a move into another room has that room's own loop coming.
-    if (beat.segment.status === "ready" && before.at === room.state.at) {
+    if (beat.segment.status === "ready" && before.at === room.state.at && outcome.changes.length > 0) {
       this.track(this.holdAfter(room, room.state.at, shot));
     }
   }

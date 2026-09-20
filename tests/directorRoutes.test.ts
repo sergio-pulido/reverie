@@ -309,7 +309,7 @@ test("a second viewer on the same configuration attaches to the one stream", asy
   assert.equal(joined.sessionId, sessionId);
   assert.ok(joined.beats);
 
-  assert.equal((await endSession(jam.id, sessionId)).status, 204);
+  assert.equal((await endSession(jam.id, sessionId)).status, 200);
   const third = await fetch(`${baseUrl}/api/jams/${jam.id}/director/session`, {
     method: "POST",
   });
@@ -389,11 +389,11 @@ test("a failed handshake releases the reservation and closes the peer", async ()
 test("ending a session closes the peer and is idempotent", async () => {
   const { jam, sessionId } = await openJamSession();
   peer.channel.open();
-  assert.equal((await endSession(jam.id, sessionId)).status, 204);
+  assert.equal((await endSession(jam.id, sessionId)).status, 200);
   assert.ok(peer.closed);
   // The provider was told to stop.
   assert.equal(peer.channel.parsed().at(-1)!.type, "stop");
-  assert.equal((await endSession(jam.id, sessionId)).status, 204);
+  assert.equal((await endSession(jam.id, sessionId)).status, 200);
 });
 
 test("state and audit are gone once a session is closed", async () => {

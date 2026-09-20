@@ -1,3 +1,4 @@
+import type { FalBudget } from "./falBudget";
 import express, { type Router } from "express";
 import { z } from "zod";
 import { sendError, type JamStore } from "./jams";
@@ -129,6 +130,8 @@ export interface DirectorRouterOptions {
   limits?: DirectorSessionLimits;
   /** Supplied so several routers reserve against one shared fal budget. */
   ledger?: DirectorSessionLedger;
+  /** The process-wide fal budget a ledger built here reserves against. */
+  budget?: FalBudget;
   recordings?: DirectorRecordingStore;
   index?: DirectorIndexStore;
   registry?: DirectorStreamRegistry;
@@ -155,7 +158,12 @@ export function createDirectorRouter(
 ): Router {
   const router = express.Router();
   const limits = options.limits ?? resolveDirectorLimits(process.env);
-  const ledger = options.ledger ?? new DirectorSessionLedger(limits, options.now);
+  // A process with no configured FAL_ASSET_BUDGET_USD leaves the ledger on its
+  // own limits rather than imposing a ceiling of zero over them. A configured
+  // one is shared, so every feature debits the same total.
+  const ledger =
+    options.ledger ??
+    new DirectorSessionLedger(limits, options.now, options.budget?.totalUsd ? options.budget : undefined);
   const recordings = options.recordings ?? resolveDirectorRecordingStore();
   const index = options.index ?? resolveDirectorIndexStore();
   const streams = options.registry ?? new DirectorStreamRegistry();

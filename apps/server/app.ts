@@ -94,7 +94,7 @@ export function createApiApp(
     registry: streams,
     index: directorIndex,
     recordings: directorRecordings,
-    ledger: new DirectorSessionLedger(resolveDirectorLimits(process.env), undefined, budget),
+    budget,
   }));
   app.use(createDirectorArchiveRouter(store, {
     index: directorIndex,

@@ -24,6 +24,7 @@ import { TIMELINE_ROW, Timeline } from "./Timeline";
 import { TransportBar, TRANSPORT_ROW } from "./TransportBar";
 import { useDirectorFilm } from "./useDirectorFilm";
 import { useDirectorSession } from "./useDirectorSession";
+import { useDirectorStory } from "./useDirectorStory";
 import { usePlaybackClock } from "./usePlaybackClock";
 
 /**
@@ -48,7 +49,11 @@ export function DirectorScreen({ slug }: { slug: string | null }) {
 
   const configuration = useMemo(() => (jamId ? readJamConfiguration(jamId) : null), [jamId]);
   const session = useDirectorSession(jamId, configuration);
-  const script = jam?.script ?? null;
+  // The story is read again while the screen is open, because direction now
+  // rewrites it: the beats on the timeline are the current revision's, not the
+  // ones this screen opened with.
+  const story = useDirectorStory(jamId);
+  const script = story.script ?? jam?.script ?? null;
   const runtimeSeconds = script ? totalDurationSeconds(script) : 0;
   const clock = usePlaybackClock(jamId, runtimeSeconds);
 
@@ -85,6 +90,10 @@ export function DirectorScreen({ slug }: { slug: string | null }) {
   const generatingBeat = beats.find((beat) => beat.state === "generating") ?? null;
   const playingBeat = beats.find((beat) => beat.state === "playing") ?? null;
   const blockedBeat = firstBlockedBeat(beats);
+  // A direction has to have somewhere to land. Everything closed means the
+  // provider holds the whole film; no outline means this server has no story
+  // to rewrite at all.
+  const openBeat = beats.find((beat) => !isBeatClosed(beat.state)) ?? null;
   // Playing and stopping the stream belong to whoever can open this jam: the
   // take is the room's, not one person's. The room's playback clock is a
   // different thing — the database lets only the host move it — so it keeps
@@ -157,6 +166,7 @@ export function DirectorScreen({ slug }: { slug: string | null }) {
         </Notice>
       )}
       {session.failure && <Notice>{session.failure}</Notice>}
+      {story.failure && <Notice>{story.failure}</Notice>}
       {session.state.error && <Notice>{session.state.error}</Notice>}
 
       <div
@@ -223,6 +233,7 @@ export function DirectorScreen({ slug }: { slug: string | null }) {
             playheadSeconds={playheadSeconds}
             highlighted={highlighted}
             selected={selected}
+            changed={story.changed}
             onHighlight={setHighlighted}
             onSelect={setSelected}
             cellProps={cellProps}
@@ -239,6 +250,7 @@ export function DirectorScreen({ slug }: { slug: string | null }) {
 
         <div className="director-column-direction">
           <DirectionColumn
+            asks={story.edits}
             turns={turns}
             beats={beats}
             highlighted={highlighted}
@@ -248,17 +260,20 @@ export function DirectorScreen({ slug }: { slug: string | null }) {
           />
           <DirectorComposer
             mode={mode}
-            onDirect={session.direct}
+            onDirect={story.direct}
             targetBeat={selected}
             onClearTarget={() => setSelected(null)}
             notes={composerNotes({
               live: session.live,
-              cannotStart,
+              storyAvailable: story.available,
+              aiming: story.aiming,
+              openBeatNumber: openBeat?.number ?? null,
+              hasBeats: beats.length > 0,
               blockedBeatNumber: blockedBeat?.number ?? null,
               remainingUsd: session.spend.remainingUsd,
               budgetUsd: session.spend.budgetUsd,
             })}
-            blocked={!session.live}
+            blocked={!story.available || openBeat === null}
             cellProps={cellProps}
           />
           <DeliverablesDrawer
@@ -340,8 +355,9 @@ function Legend() {
 /**
  * Review's per-beat tools.
  *
- * Re-directing a beat is real: the server takes a direction with a beat index
- * and refuses it when the beat has closed. Variants are not — nothing in this
+ * Re-directing a beat is real: a direction carrying a beat index is aimed at
+ * that beat instead of at the one it is most about, and the server refuses it
+ * when the beat has closed. Variants are not — nothing in this
  * build generates a second take of a beat, keeps one, or chooses between
  * them — so the panel says that rather than drawing an empty carousel.
  */
@@ -362,9 +378,9 @@ function ReviewTools({ beat, live }: { beat: TimelineBeat | null; live: boolean 
           <p className="director-zone-note">
             {isBeatClosed(beat.state)
               ? "This beat is already with the provider. Direction aimed at it will be refused; the beats after it can still change."
-              : live
-                ? "Direction sent while this beat is chosen is aimed at it."
-                : "The stream is stopped. Play it to change this beat."}
+              : `Direction sent while this beat is chosen lands here rather than on the beat it is most about, and every beat after it is rewritten to follow.${
+                  live ? "" : " The stream is stopped, so the next take is what plays it."
+                }`}
           </p>
         </>
       )}
@@ -398,27 +414,55 @@ function startRefusal({
 /**
  * What the composer says under the field.
  *
- * Two different facts, and both can hold at once: whether anything can be sent
- * at all, and what the budget will no longer pay for. Collapsing them into one
- * line is how "the budget is out" ends up hidden behind "the stream is
- * stopped", which is the one thing the viewer most needs told.
+ * Several different facts, and more than one can hold at once: whether there
+ * is anywhere for a direction to land, what the stream is doing, and what the
+ * budget will no longer pay for. Collapsing them into one line is how "the
+ * budget is out" ends up hidden behind "the stream is stopped", which is the
+ * one thing the viewer most needs told.
+ *
+ * "The stream is stopped" is no longer a reason nothing can be said. A
+ * direction changes the story first and the picture second, so with no take
+ * running it still lands — on the beats the next take will play.
  */
 function composerNotes({
   live,
-  cannotStart,
+  storyAvailable,
+  aiming,
+  openBeatNumber,
+  hasBeats,
   blockedBeatNumber,
   remainingUsd,
   budgetUsd,
 }: {
   live: boolean;
-  cannotStart: string | null;
+  storyAvailable: boolean;
+  aiming: boolean;
+  /** The first beat that can still change, one-based, or null when none can. */
+  openBeatNumber: number | null;
+  hasBeats: boolean;
   blockedBeatNumber: number | null;
   remainingUsd: number;
   budgetUsd: number;
 }): string[] {
   const notes: string[] = [];
-  if (!live) {
-    notes.push(cannotStart ?? "The stream is stopped. Play it, and what you say reaches it.");
+  if (!storyAvailable) {
+    notes.push(
+      "This server holds no outline for the film, so there is nothing to direct. Scripts live in the process that generated them.",
+    );
+  } else if (!hasBeats) {
+    notes.push("This film has no beats yet, so there is nothing to aim a direction at.");
+  } else if (openBeatNumber === null) {
+    notes.push("Every beat is with the provider. Nothing in this film can still change.");
+  } else if (aiming) {
+    notes.push("Working out which beat this is about…");
+  } else if (live) {
+    notes.push(
+      `What you say is aimed at the beat it is most about, beat ${openBeatNumber} or later, and every beat after it is rewritten to follow from it.`,
+    );
+  } else {
+    notes.push(
+      `The stream is stopped, so this changes the story rather than the picture: from beat ${openBeatNumber} on, the next take plays what you ask for.`,
+    );
   }
   if (budgetUsd <= 0) {
     notes.push("No director budget is configured on this server, so no beat can be generated.");

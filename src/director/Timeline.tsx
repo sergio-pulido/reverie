@@ -14,6 +14,14 @@ type TimelineProps = {
   highlighted: number | null;
   /** The beat a direction is aimed at, or null for "wherever the stream is". */
   selected: number | null;
+  /**
+   * Beats whose phrase has just been rewritten, marked for a moment.
+   *
+   * A cascade changes several beats at once and changes only their words, so
+   * without this the row reads exactly as it did a second earlier and the
+   * room cannot tell that what it asked for has landed.
+   */
+  changed: ReadonlySet<number>;
   onHighlight: (beatIndex: number | null) => void;
   onSelect: (beatIndex: number | null) => void;
   cellProps: (row: string, index: number) => Record<string, unknown>;
@@ -40,6 +48,7 @@ export function Timeline({
   playheadSeconds,
   highlighted,
   selected,
+  changed,
   onHighlight,
   onSelect,
   cellProps,
@@ -107,6 +116,7 @@ export function Timeline({
                 data-state={beat.state}
                 data-beat={beat.portionIndex}
                 data-linked={highlighted === beat.portionIndex ? "" : undefined}
+                data-changed={changed.has(beat.portionIndex) ? "" : undefined}
                 aria-pressed={selected === beat.portionIndex}
                 onMouseEnter={() => onHighlight(beat.portionIndex)}
                 onMouseLeave={() => onHighlight(null)}
@@ -130,7 +140,9 @@ export function Timeline({
                 </span>
                 <span className="director-beat-foot">
                   <span className="director-beat-duration">{beat.durationSeconds}s</span>
-                  <span className="director-beat-state">{BEAT_STATE_LABEL[beat.state]}</span>
+                  <span className="director-beat-state">
+                    {changed.has(beat.portionIndex) ? "Rewritten" : BEAT_STATE_LABEL[beat.state]}
+                  </span>
                 </span>
                 {/* Where inside this beat the viewer is. Only the beat being
                     watched draws one, so the row has exactly one playhead. */}

@@ -5,6 +5,8 @@ import { initialDirectorState, type DirectorState } from "../core/directorProtoc
 import { unopenedSpend, type DirectorSpend } from "../core/directorSpend";
 import type { SessionSettings } from "../core/session";
 import {
+  attachDirectorSession,
+  directorPlaylistSrc,
   directorRecordingSrc,
   DirectorSessionError,
   endDirectorSession,
@@ -14,7 +16,9 @@ import {
   sendDirection,
   startDirectorSession,
   watchDirectorStream,
+  type OpenedDirectorSession,
 } from "../lib/directorSession";
+import { attachHlsStream } from "../lib/hlsPlayback";
 
 /**
  * One person's live Director session.
@@ -27,6 +31,7 @@ import {
 
 const POLL_MS = 2_000;
 const RENEW_MS = 30_000;
+const ATTACH_MS = 3_000;
 
 /** Until the server answers, a budget of nothing: it is what cannot be disproved. */
 const UNKNOWN_SPEND: DirectorSpend = unopenedSpend({
@@ -77,16 +82,19 @@ export function useDirectorSession(
   const [recordingDurable, setRecordingDurable] = useState(true);
   const [recording, setRecording] = useState<string | null>(null);
   const [attached, setAttached] = useState(false);
+  const [viewerId, setViewerId] = useState<string | null>(null);
+  const [liveDelivery, setLiveDelivery] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const video = useRef<HTMLVideoElement | null>(null);
   const detach = useRef<(() => void) | null>(null);
-  const open = useRef<string | null>(null);
+  const open = useRef<{ sessionId: string; viewerId: string | null } | null>(null);
+  const starting = useRef(false);
   const live = sessionId !== null;
 
   useEffect(() => {
-    open.current = sessionId;
-  }, [sessionId]);
+    open.current = sessionId ? { sessionId, viewerId } : null;
+  }, [sessionId, viewerId]);
 
   /** The furthest the stream got, remembered so a finished film still says so. */
   const remember = useCallback((window: DirectorBeatWindow | null) => {
@@ -95,6 +103,50 @@ export function useDirectorSession(
     if (reached === null || reached === undefined) return;
     setProducedThrough((furthest) => (furthest === null ? reached : Math.max(furthest, reached)));
   }, []);
+
+  const adopt = useCallback((opened: OpenedDirectorSession) => {
+    setSessionId(opened.sessionId);
+    setViewerId(opened.viewerId ?? null);
+    setLiveDelivery(opened.liveDelivery ?? false);
+    setState(opened.state);
+    setSpend(opened.spend);
+    setAttached(opened.attached);
+    setRecordingDurable(opened.recordingDurable);
+    setProducedThrough(null);
+    remember(opened.beats);
+  }, [remember]);
+
+  // Every screen joins the shared stream if one already exists, but this call
+  // can never open a paid session. Only the host's explicit Start does that.
+  useEffect(() => {
+    if (!jamId || sessionId) return;
+    let cancelled = false;
+    let joining = false;
+    const join = async () => {
+      if (joining || starting.current) return;
+      joining = true;
+      try {
+        const opened = await attachDirectorSession(jamId, configuration);
+        if (cancelled) {
+          void endDirectorSession(jamId, opened.sessionId, opened.viewerId).catch(
+            () => undefined,
+          );
+          return;
+        }
+        adopt(opened);
+      } catch {
+        // `no_stream` is the ordinary answer before the host starts.
+      } finally {
+        joining = false;
+      }
+    };
+    void join();
+    const poll = setInterval(() => void join(), ATTACH_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(poll);
+    };
+  }, [adopt, configuration, jamId, sessionId]);
 
   // What this server will spend, read before anything is spent on it.
   useEffect(() => {
@@ -133,18 +185,33 @@ export function useDirectorSession(
     };
     void tick();
     const poll = setInterval(() => void tick(), POLL_MS);
-    const renew = setInterval(() => renewDirectorSession(jamId, sessionId), RENEW_MS);
+    const renew = setInterval(
+      () => renewDirectorSession(jamId, sessionId, viewerId ?? undefined),
+      RENEW_MS,
+    );
     return () => {
       cancelled = true;
       clearInterval(poll);
       clearInterval(renew);
     };
-  }, [jamId, sessionId, remember]);
+  }, [jamId, sessionId, viewerId, remember]);
+
+  // HLS is the room-wide delivery path where the server has enabled it.
+  useEffect(() => {
+    const element = video.current;
+    if (!element || !jamId || !sessionId || !liveDelivery) return;
+    const attachment = attachHlsStream(
+      element,
+      directorPlaylistSrc(jamId, sessionId),
+      { onFailure: setFailure },
+    );
+    return () => attachment.detach();
+  }, [jamId, liveDelivery, sessionId]);
 
   // Watched as it is generated rather than after it. The browser peers with
   // our server, which already holds the provider connection.
   useEffect(() => {
-    if (!jamId || !sessionId) return;
+    if (!jamId || !sessionId || liveDelivery) return;
     let cancelled = false;
     void watchDirectorStream(jamId, sessionId, (stream) => {
       if (video.current) video.current.srcObject = stream;
@@ -163,31 +230,31 @@ export function useDirectorSession(
       detach.current = null;
       if (video.current) video.current.srcObject = null;
     };
-  }, [jamId, sessionId]);
+  }, [jamId, liveDelivery, sessionId]);
 
   // A stream left open keeps billing, so it is closed when this unmounts.
   useEffect(
     () => () => {
       const running = open.current;
-      if (jamId && running) void endDirectorSession(jamId, running).catch(() => undefined);
+      // Unmount is one viewer leaving, never authority to stop the room.
+      if (jamId && running?.viewerId) {
+        void endDirectorSession(jamId, running.sessionId, running.viewerId).catch(
+          () => undefined,
+        );
+      }
     },
     [jamId],
   );
 
   const start = useCallback(async () => {
     if (!jamId) return;
+    starting.current = true;
     setBusy(true);
     setFailure(null);
     setRecording(null);
     try {
       const opened = await startDirectorSession(jamId, configuration);
-      setSessionId(opened.sessionId);
-      setState(opened.state);
-      setSpend(opened.spend);
-      setAttached(opened.attached);
-      setRecordingDurable(opened.recordingDurable);
-      setProducedThrough(null);
-      remember(opened.beats);
+      adopt(opened);
     } catch (error) {
       setFailure(
         error instanceof DirectorSessionError
@@ -195,9 +262,10 @@ export function useDirectorSession(
           : "The live director could not be started.",
       );
     } finally {
+      starting.current = false;
       setBusy(false);
     }
-  }, [configuration, jamId, remember]);
+  }, [adopt, configuration, jamId]);
 
   const stop = useCallback(async () => {
     if (!jamId || !sessionId) return;
@@ -209,6 +277,8 @@ export function useDirectorSession(
       // Ending is idempotent server-side; nothing useful to say here.
     } finally {
       setSessionId(null);
+      setViewerId(null);
+      setLiveDelivery(false);
       setBeats(null);
       setBusy(false);
     }

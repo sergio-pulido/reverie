@@ -24,6 +24,7 @@
     "@supabase/supabase-js": "^2.116.0",
     "@vonage/client-sdk-video": "2.35.2",
     "express": "4.22.3",
+    "hls.js": "^1.7.3",
     "qrcode.react": "4.2.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",

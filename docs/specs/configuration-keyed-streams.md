@@ -1,7 +1,10 @@
 # Configuration-keyed generated streams
 
-**Status: intended, not implemented.** This records a product and cost-control design that the
-current code does not yet contain. No per-configuration generation, cap or attach flow exists.
+**Status: partly implemented, for the live director only.** The live director generates one
+stream per distinct configuration and viewers attach to it. The stored-portion playback path
+still serves one stream per jam, and the cap's *visible* half — showing the room's active
+configurations and choosing one — does not exist. See "Implementation status" below for the
+line-by-line position.
 
 ## Problem
 
@@ -61,15 +64,42 @@ never fork the script or split the room.
 
 ## Implementation status
 
-**Nothing in this spec is implemented.** One seam exists: the player normalizes a session's
-overrides into a configuration key (`configurationKey`, `src/core/portionPlayback.ts` — language
-tag lowercased, ambientation trimmed and its whitespace collapsed) and asks for its clip under
-that key, so a configuration-keyed address can land without moving the player. The key is not
-sent to the server, because the server serves one stream per jam; the player states on screen
-that everyone shares it. That is a normalization choice and a place to change, not the feature.
-Everything below is still true. There is no configuration key, stream registry, cache,
-per-configuration generation, cap, active-configuration listing, or attach endpoint/UI. See the
-register in `docs/specs/intended-vs-implemented.md`. The existing `MAX_SESSIONS_PER_JAM = 32`
-(`apps/server/sessions.ts:12`) caps how many sessions a jam holds and does **not** cap
-configurations — do not mistake one for the other.
+Split, because the two playback paths are in different places.
 
+**The live director implements the core of this spec.**
+
+- Streams are keyed by configuration: `<jamId>:<configurationKey>`, held by the session ledger
+  (`apps/server/directorSessions.ts`), not one stream per participant.
+- `POST /api/jams/:id/director/session` takes an optional `configuration`. A configuration that
+  already has a stream returns **200 with `attached: true` and the same `sessionId`** instead of
+  refusing; a different configuration opens its own stream, still bounded by concurrency and
+  budget. Two sessions with the same configuration therefore receive the same stream.
+- Configuration keys are normalized in one place (`configurationKey`, `src/core/portionPlayback.ts`
+  — language tag lowercased, ambientation trimmed and its whitespace collapsed) so cosmetic
+  differences cannot multiply paid streams.
+- Everyone on a configuration is *delivered* the same stream, not merely told they share one:
+  one HLS playlist and one set of fMP4 segments per configuration, fetched over plain HTTP
+  (RV-19, `docs/DECISIONS.md`). Segment addresses are per session, so the shared stream is shared
+  in fact and not only in accounting.
+- Viewers on a shared stream are counted, so it outlives any one of them leaving and is settled
+  when the last one does.
+
+**Not implemented, and still open.**
+
+- The **visible** half of the cap. `maxConcurrentSessions` bounds how many streams may run at
+  once and refuses `too_many_sessions` beyond it; what the spec asks for is that a participant
+  whose configuration is not active then sees the room's **active configurations and attaches to
+  one**. There is no active-configuration listing and no such choice. A full cap today is a typed
+  refusal, not a shared decision.
+- Eviction or replacement policy when a configuration goes unused.
+- Whether attaching rewrites the participant's session settings or only selects a stream.
+- How this composes with script versioning and the editable-copy flow.
+- The **stored-portion** playback path is unchanged: the player normalizes its configuration into
+  a key and asks for its clip under it, but the server serves one generated stream per jam, and
+  the key is deliberately not sent as a query parameter. `MAX_SESSIONS_PER_JAM = 32`
+  (`apps/server/sessions.ts:12`) caps how many sessions a jam holds and does **not** cap
+  configurations — do not mistake one for the other.
+
+**Nothing on the provider path is probed.** No Director session has been opened with a valid key,
+so "one paid stream per configuration" is how the code is built, not a measured claim about what
+fal bills. See the register in `docs/specs/intended-vs-implemented.md`.

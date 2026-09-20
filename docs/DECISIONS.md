@@ -1,5 +1,54 @@
 # Decisions
 
+## 2026-09-20 — The broadcast review closes every viewer and muxer lifetime (RV-19)
+
+Reviewing the integrated broadcast branch found that its accounting model was stricter than its
+runtime. The ledger reserved a bounded session and described idle reclaim, but nothing called the
+reclaim function unless another session request happened, and the configured duration ceiling was
+never an ending condition. A final tab disappearing with no later traffic could therefore leave a
+provider stream running beyond both its audience and the amount reserved for it. The container now
+runs an unreferenced thirty-second sweep; it closes idle sessions and closes every session at its
+hard duration limit even while a viewer keeps renewing. The browser's detach request uses fetch
+keepalive so ordinary navigation normally settles immediately, while the sweep remains the
+server-owned fallback for crashes and suspended tabs.
+
+The same review closed four lifetime and authority ambiguities:
+
+- A stream is marked `opening` before the durable index write, not only around the provider
+  handshake. The index has a ten-second timeout and viewers poll every three seconds, so the old
+  gap could still release a valid reservation before the handshake began.
+- Ending a session stops the HLS segmenter as well as the peer and archive recorder. This releases
+  its RTP listeners, terminates its worker within the bounded shutdown grace, flushes the tail and
+  finishes every sink.
+- Invalid viewer JSON is a `400 invalid_command`. It can never be interpreted as the absent
+  `viewerId` that means the host's deliberate whole-room stop.
+- Playlist, init and media-segment reads bind the session id to the jam id in the URL, as every
+  other director route already does.
+
+Auto-attach is also treated as a server mutation now. Only one poll may be in flight per screen,
+polling pauses while the host starts, and a response that arrives after unmount immediately
+detaches the viewer id it allocated. This covers navigation and React's development remount rather
+than leaving a phantom viewer billed until reclaim. The finished recording is rendered once; the
+integration had accidentally left both the old and new player branches in the DOM.
+
+The later `/director/:slug` screen merged from `main` follows the same contract. It auto-attaches
+without opening a paid stream, renews and detaches its own viewer id, selects HLS when the server
+does, and treats unmount as one viewer leaving rather than a whole-room stop. Its Stop and every
+path into direction (button, Enter, or a Direct-mode voice transcript) remain host-only. Keeping
+the newer screen on the old single-viewer contract would have reintroduced the exact spend and
+authority bugs this review closes.
+
+Finally, recording and live delivery now select one media pipeline. With HLS enabled, the fMP4
+segmenter fans the same numbered pieces to the live window and, when recording is enabled, the MP4
+archive sink. With HLS disabled, the established WebM piece recorder owns the archive. This
+supersedes the integrated branch state that independently instantiated both muxers while still
+claiming one timeline. Codec preference follows that choice: HLS/fMP4 offers H.264 first, while a
+recording-only WebM session offers VP8 first. Both remain in the offer as fallbacks, so enabling
+the HLS feature does not silently make the default recording-only deployment negotiate a codec
+its archive cannot mux.
+
+No provider claim changes: H.264 muxing and a real fal stream remain unprobed.
+
 ## 2026-09-20 — Two ways to reach a film, and neither pretends to be the other
 
 Reverie now has both a conversation (`/discover`) and a catalogue (`/catalog`). The tempting move
@@ -333,7 +382,6 @@ been half the real ceiling. Both now reserve against a shared `FalBudget`.
 It has to reach the provider — that is the generation the person consented to — but it does not
 have to become an address that anyone holding the link can fetch, and inline means the only
 copies are ours and the provider's, for the length of the request.
-
 ## 2026-09-20 — The account menu shows the real anonymous session, not a fabricated identity
 
 The top bar now ends in an avatar with a menu behind it. The obvious way to build that surface is
@@ -642,6 +690,139 @@ outside the critical section and committed atomically inside it, refused with `p
 the boundary moved meanwhile. A cascade in a fast-playing room can therefore be paid for and
 discarded, which is preferred over a half-rewritten story or a room frozen for the length of a
 provider call.
+
+## 2026-09-19 — The room watches one stream over HTTP, and the muxer stays off the main thread (RV-19)
+
+Session sharing already worked: a second viewer on the same configuration received the same
+`sessionId`. There was no way to watch it. The stream is now **delivered as HLS with fMP4
+segments** — the container writes segments and a playlist, every viewer fetches them over
+ordinary HTTP.
+
+**Why HLS and not a second peer connection.** The problem was never sockets, it was *per-viewer*
+sockets. There should be exactly one long-lived connection in the system — container to fal — and
+viewers should need none. HLS gives that: no persistent per-viewer connection, no per-viewer
+state, segments are immutable and cacheable, and fan-out is free, which is the entire point of
+multiplexing. An SFU (werift can do it) would have reinstated a long-lived connection per viewer
+and put the room back where it started. The cost is latency — roughly 1-6 seconds against
+WebRTC's sub-second — and for a room watching a film together rather than a video call that is
+the right trade. If sub-second ever becomes a product requirement, the SFU is the route and it is
+a different design, not a tuning change.
+
+**The peer was only ever offering VP8, and nobody had noticed.** `directorStream.ts` built a bare
+`new RTCPeerConnection()`, and werift 0.24.4 defaults to **VP8 alone** for video. Dumping the
+offer SDP locally — free, no provider call — showed `a=rtpmap:98 VP8/90000` and nothing else. So
+fal could not have sent H.264 whatever it supports, and a paid probe "to discover the codec"
+would have discovered a constraint we had imposed on ourselves. This matters because
+`Mp4Container` accepts `mp4SupportedCodecs = ["avc1", "opus"]` — H.264 and Opus — so VP8 cannot
+go into fMP4 at all. The offer now advertises both codecs and puts the selected container's codec
+first: **H.264 for HLS/fMP4, VP8 for recording-only WebM**. A provider that cannot do the preferred
+codec can still connect, while a negotiated codec the selected muxer cannot carry produces no
+segments and a typed `unsupported_codec`, never a playlist of undecodable bytes.
+
+**Muxing runs in a worker thread, because the stop path must survive the media path.** A real
+480p session with a recorder attached drove Node to 99% CPU and stalled the event loop:
+`/api/health` stopped answering and so did `POST .../director/session/:sessionId/end`, the route
+that closes the paid session. It had to be killed, which drops the peer without telling fal to
+stop, against a provider ceiling of 900 seconds. A server that cannot answer is a server that
+cannot stop spending. So `SegmentMuxer` takes serialized RTP and emits fMP4 segments with no
+knowledge of peers, tracks or HTTP, and runs in a worker; the main thread's whole per-packet cost
+is serializing a packet and posting it. A worker that dies stops live delivery and touches
+neither the recording nor the route that settles the session. Stopping waits at most two seconds
+for the muxer's last segments and then terminates it: the tail of the film is worth a moment, the
+route that ends the spend is worth more.
+
+**One segmenter, two sinks, one timeline.** Durable recording and live delivery both want the
+inbound track, and two independent muxers would have produced two numberings for one session —
+the audit trail refers to segments by index, so the record would describe one timeline while the
+archive held another. `DirectorStream` owns `onTrack` alone and fans it to consumers; there is
+one segmenter, and it fans finished segments to sinks. RTCP does not cross the worker boundary,
+so the muxer uses the RTP clock rather than NTP; both tracks come from one generated source on
+one clock, so what is given up is absolute wall-clock alignment, which nothing here uses.
+
+**Viewers are counted, and that is a spend control.** A shared stream cannot answer "is anyone
+still watching?" from a single timestamp. With one clock per session, any one viewer's keepalive
+held the stream open for a room that had emptied, and the last viewer leaving did not end it —
+it stopped being renewed and was reclaimed ninety seconds later, billing the whole silence. Each
+viewer now checks in under an id **the server issues** (a client-chosen id could collide and make
+two people look like one, ending a stream somebody was still watching). Leaving is this viewer
+leaving, not ending the session; the session settles when the last one goes, and a reclaimed
+session now tells the router to stop the stream it was paying for.
+
+**Arriving in a room that is streaming shows the film, and only its owner directs it.** Opening a
+jam attaches to whatever is running for that configuration — there is no button to press to see
+what the room is already watching. The attach is explicitly *attach-only* (`attachOnly` on `POST
+.../director/session`): it joins a stream or answers a retryable `no_stream`, and it can never
+open one. That separation is a spend control, not a convenience — starting bills a sixty-second
+minimum, so walking into a room must not be able to start a paid session, and a participant who
+arrives before the host presses start is early rather than wrong. Everyone but the host is given
+no controls at all rather than disabled ones, which would read as something they could earn.
+The host's explicit **Stop** ends the stream for the room and names no viewer; the host merely
+closing the screen only detaches them, so the film survives the person paying for it stepping
+away and ends when the last viewer leaves.
+
+**Reviewing the branch after the rebase found a regression the tests could not see.** The rebase
+kept the rule that capture is opt-in behind `REVERIE_DIRECTOR_RECORD`, but expressed it as a
+default inside `DirectorStream` — and the router passes an explicit consumer list, so the default
+never applied and the WebM recorder was built for every session. That is the exact main-thread
+muxing that pinned a real session at 99% CPU. The flag now decides whether the recorder exists
+at all, where the router builds the list, which is the only place such a rule can be checked. The
+same review made the segmenter coherent with the archive being built on it: it used to exist
+only when HLS delivery was on, so a server that archives without delivering live would have wired
+a sink that never received a byte. **Segments are muxed whenever any sink wants them**, and
+`createSegmentSinks` on the router is the per-session seam an archive plugs into; no sinks, no
+muxer. A muxer thread dying is reported as `worker_failed`, distinct from `unsupported_codec`,
+because those are different facts and conflating them sends someone to codec negotiation for a
+bug in the worker. And the delivery routes are now exercised with bytes through a test-injected
+live sink — until then every segment request in the suite answered 404 for a reason unrelated to
+the route, so `segment/:sequence.m4s` had never been shown to parse.
+
+**A review of the finished branch found six bugs, three of them introduced by auto-attach, and
+every one of them about spend or about who is watching rather than about pixels.** Recorded
+because the shape recurs: *making the room join automatically turned a rare race into a certainty.*
+
+- **A three-second join poll landed inside the handshake window.** Between `ledger.open` and
+  `streams.set` there is a fal round trip plus up to five seconds of ICE gathering, during which a
+  session is in the ledger but not in the stream map — which is exactly what an orphaned
+  reservation looks like. The poll took the "ledger and stream map disagree" branch and released
+  the session the host was opening, leaving fal billing a stream the server no longer tracked,
+  `renew` answering `404`, reclaim unable to find it, and the configuration unheld so the next
+  Start bought a second stream. A stream key is now marked *opening* across the handshake and a
+  poll that arrives is told `stream_starting` (retryable). Before auto-attach that branch was
+  effectively unreachable; the feature made it routine.
+- **A participant closing a tab ended the stream for the room.** The unmount path sent `/end`
+  with no viewer id, which is the host's outright stop. No participant held a session before
+  auto-attach, so nobody but the host ever reached it. Leaving is now always a detach.
+- **Two liveness rules disagreed.** The relay's last peer closing ended the session from its own
+  set alone, while `/end` consulted that set *and* the counted viewers, so a single ICE flap could
+  settle a session counted viewers were watching. Both ask `stillWatched` now. This changes what
+  RV-16's "last viewer leaving stops the session" test describes — opening a session also counts
+  its opener — so that test detaches the opener before asserting the relay peers are the last of
+  the audience, preserving the spend guarantee it was written for.
+- **`renew` refreshed the session clock before validating the viewer id**, so a backgrounded tab
+  renewing with an id already dropped as stale held a viewerless session open through the very
+  fallback meant to reclaim it, billing indefinitely. The check precedes the refresh.
+- **The segmenter discarded its RTP unsubscribers**, so a stopped or dead muxer kept receiving
+  every packet of the session, serialized on the main thread for nowhere.
+- **`viewerId` was the only participant-supplied body in the router read by hand** rather than
+  through a schema — the one field that decides whether a paid session keeps running.
+
+The two spend races are covered by tests verified to fail with the fixes reverted, which is the
+only evidence that a regression test for a race is worth anything.
+
+**Live delivery is off by default** (`REVERIE_DIRECTOR_HLS`), alongside recording's own
+`REVERIE_DIRECTOR_RECORD`. It stays off until a real session demonstrates that `/end` answers
+while the worker is mid-segment.
+
+**Not probed.** No Director session has been opened with a valid key on this branch. Which codec
+fal answers now that H.264 is actually offered, what its keyframe cadence is — which sets segment
+length and therefore live latency — and whether segment start times correspond to the `chunk`
+messages' `chunk_index`/`script_offset_seconds` are all unknown and are not claimed. The
+handshake shape itself was proven elsewhere (`/start-session` answers `text/event-stream`, the
+SDP arriving as the first `data:` frame).
+
+Verified: `pnpm typecheck`, `pnpm test` (526/526), `pnpm build`. The worker tests spawn the real
+muxer thread. No synthetic H.264 was fed through it — producing valid encoded frames without a
+provider is not something a test can honestly do — so muxing of real frames is unexercised.
 
 ## 2026-09-19 — Viewers watch the live stream by RTP relay, not by waiting for a recording (RV-16)
 

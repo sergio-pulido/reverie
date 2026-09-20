@@ -103,6 +103,15 @@ describe("the stage, in its three states", () => {
     assert.equal(document.querySelector('[data-testid="director-recording"]'), null);
   });
 
+  it("joins the room's existing stream without pressing Start", async () => {
+    server = await openDirector({ attachExisting: true });
+    await settle();
+
+    assert.equal(document.querySelector(".director-stage")?.getAttribute("data-phase"), "generating");
+    assert.match(text(".director-zone-note"), /joined a stream this jam already had open/);
+    assert.equal(startButton().disabled, true);
+  });
+
   it("generating shows the live element, the seconds produced and the beat it is on", async () => {
     server = await openDirector({
       offsetSeconds: 12,

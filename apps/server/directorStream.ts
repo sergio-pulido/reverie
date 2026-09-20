@@ -1,4 +1,8 @@
-import { RTCPeerConnection, type MediaStreamTrack } from "werift";
+import {
+  RTCPeerConnection,
+  RTCRtpCodecParameters,
+  type MediaStreamTrack,
+} from "werift";
 import {
   directorServerMessageSchema,
   initialDirectorState,
@@ -51,6 +55,8 @@ export interface DirectorStreamOptions {
   startSession?: typeof startDirectorSession;
   /** Injected in tests; defaults to a real werift peer. */
   createPeer?: () => DirectorPeer;
+  /** Prefer H.264 for fMP4 delivery; recording-only sessions prefer VP8/WebM. */
+  preferH264?: boolean;
   now?: () => Date;
   /**
    * Notified as each audit entry is recorded, so the trail can be written
@@ -105,8 +111,64 @@ export interface DirectorControlChannel {
   stateChanged: { subscribe(listener: (state: string) => void): unknown };
 }
 
-function createWeriftPeer(): DirectorPeer {
-  return new RTCPeerConnection() as unknown as DirectorPeer;
+/**
+ * The codecs this server will accept from fal, in preference order.
+ *
+ * This is not a default worth inheriting: werift offers **VP8 only** unless
+ * told otherwise, so an unconfigured peer silently forecloses H.264 — and
+ * H.264 (`avc1`) with Opus is the whole of what fMP4 can carry, while the
+ * recording-only path writes VP8 WebM. Both stay in the offer; the selected
+ * container decides which one leads, and an unsupported fallback is refused
+ * by the muxer rather than being emitted under the wrong container label.
+ */
+export const DIRECTOR_VIDEO_CODECS = [
+  new RTCRtpCodecParameters({
+    mimeType: "video/H264",
+    clockRate: 90_000,
+    rtcpFeedback: [
+      { type: "nack" },
+      { type: "nack", parameter: "pli" },
+      { type: "goog-remb" },
+    ],
+    // packetization-mode=1 is what the depacketizer's marker-bit rule assumes;
+    // the baseline profile is the one every browser can decode.
+    parameters: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f",
+  }),
+  new RTCRtpCodecParameters({
+    mimeType: "video/VP8",
+    clockRate: 90_000,
+    rtcpFeedback: [
+      { type: "nack" },
+      { type: "nack", parameter: "pli" },
+      { type: "goog-remb" },
+    ],
+  }),
+];
+
+/**
+ * Keep both supported codecs in every offer, but lead with the one the active
+ * media pipeline can actually mux. A recording-only server writes WebM and
+ * therefore must not accidentally negotiate H.264 merely because the HLS
+ * path also exists in this module.
+ */
+export function directorVideoCodecs(preferH264: boolean): RTCRtpCodecParameters[] {
+  return preferH264
+    ? DIRECTOR_VIDEO_CODECS
+    : [DIRECTOR_VIDEO_CODECS[1], DIRECTOR_VIDEO_CODECS[0]];
+}
+
+export const DIRECTOR_AUDIO_CODECS = [
+  new RTCRtpCodecParameters({
+    mimeType: "audio/opus",
+    clockRate: 48_000,
+    channels: 2,
+  }),
+];
+
+function createWeriftPeer(preferH264: boolean): DirectorPeer {
+  return new RTCPeerConnection({
+    codecs: { video: directorVideoCodecs(preferH264), audio: DIRECTOR_AUDIO_CODECS },
+  }) as unknown as DirectorPeer;
 }
 
 export class DirectorStream {
@@ -158,7 +220,8 @@ export class DirectorStream {
 
   /** Negotiates with fal and starts recording. Throws DirectorError on refusal. */
   async open(): Promise<void> {
-    const connection = (this.options.createPeer ?? createWeriftPeer)();
+    const connection = this.options.createPeer?.()
+      ?? createWeriftPeer(this.options.preferH264 ?? true);
     this.connection = connection;
     this.state = { ...this.state, status: "connecting" };
 

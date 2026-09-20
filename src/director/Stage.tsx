@@ -102,7 +102,7 @@ export function Stage({
             type="button"
             className="button button-quiet"
             onClick={() => void session.stop()}
-            disabled={!session.live || session.busy}
+            disabled={!canDrive || !session.live || session.busy}
             {...cellProps(STAGE_ROW, 1)}
           >
             Stop

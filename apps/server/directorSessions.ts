@@ -66,6 +66,17 @@ export type SessionRefusal =
 export interface OpenSession {
   sessionId: string;
   /**
+   * Viewer id to the last time that viewer checked in.
+   *
+   * A stream is shared, so "is anyone still watching?" cannot be answered by a
+   * single timestamp: with one clock, any one viewer's renewal keeps the stream
+   * alive for a room that has emptied, and the last viewer leaving does not end
+   * it — it stops being renewed and is reclaimed 90 seconds later, billing the
+   * whole time. Counting viewers is what makes the shared stream's lifetime
+   * match the audience it actually has.
+   */
+  viewers: Map<string, number>;
+  /**
    * `<jamId>:<configurationKey>`. One paid stream per distinct configuration
    * in a room, not one per viewer — everyone on the same configuration shares
    * it (docs/specs/configuration-keyed-streams.md).
@@ -79,6 +90,7 @@ export interface OpenSession {
 export class DirectorSessionLedger {
   private readonly sessions = new Map<string, OpenSession>();
   private readonly settlers = new Map<string, (actualUsd: number) => void>();
+  private readonly closedListeners = new Set<(sessionId: string) => void>();
   private counter = 0;
   private readonly budget: FalBudget;
 
@@ -88,6 +100,21 @@ export class DirectorSessionLedger {
     budget?: FalBudget,
   ) {
     this.budget = budget ?? new FalBudget(limits.budgetUsd);
+  }
+
+  /**
+   * Called whenever a session settles or is reclaimed, so every owner can
+   * release the provider stream and media workers attached to this ledger.
+   * A subscription rather than a constructor callback keeps an injected,
+   * process-wide ledger usable by the router that owns those resources.
+   */
+  onClosed(listener: (sessionId: string) => void): () => void {
+    this.closedListeners.add(listener);
+    return () => this.closedListeners.delete(listener);
+  }
+
+  private notifyClosed(sessionId: string): void {
+    for (const listener of this.closedListeners) listener(sessionId);
   }
 
   /** Worst-case cost of a session that runs to its allowed limit. */
@@ -136,17 +163,75 @@ export class DirectorSessionLedger {
       startedAt: at,
       lastSeenAt: at,
       reservedUsd,
+      viewers: new Map(),
     };
     this.settlers.set(session.sessionId, settle);
     this.sessions.set(session.sessionId, session);
     return session;
   }
 
-  /** Keeps a live session from being reclaimed as abandoned. */
-  renew(sessionId: string): boolean {
+  /**
+   * Registers one viewer on a stream and returns the id it checks in under.
+   *
+   * Viewers are identified by the server, not by the browser: an id a client
+   * chose could collide with another viewer's and make two people look like
+   * one, which would end a stream somebody was still watching.
+   */
+  attach(sessionId: string): string | undefined {
+    const session = this.sessions.get(sessionId);
+    if (!session) return undefined;
+    this.counter += 1;
+    const at = this.now();
+    const viewerId = `v${at.toString(36)}-${this.counter.toString(36)}`;
+    session.viewers.set(viewerId, at);
+    session.lastSeenAt = at;
+    return viewerId;
+  }
+
+  /**
+   * Stops counting one viewer, and reports whether anyone is left.
+   *
+   * The last viewer leaving is the signal to settle: waiting for the idle
+   * timeout instead would bill 90 seconds of a stream nobody is watching.
+   */
+  detach(sessionId: string, viewerId: string): { remaining: number } | undefined {
+    const session = this.sessions.get(sessionId);
+    if (!session) return undefined;
+    session.viewers.delete(viewerId);
+    return { remaining: session.viewers.size };
+  }
+
+  /** How many viewers are currently counted on a session. */
+  viewerCount(sessionId: string): number {
+    return this.sessions.get(sessionId)?.viewers.size ?? 0;
+  }
+
+  /**
+   * Keeps a live session from being reclaimed as abandoned.
+   *
+   * A viewer id renews that viewer specifically; without one this only refreshes
+   * the session, which is what a caller with no viewer of its own — the server
+   * itself, sending a direction — should do.
+   */
+  renew(sessionId: string, viewerId?: string): boolean {
     const session = this.sessions.get(sessionId);
     if (!session) return false;
-    session.lastSeenAt = this.now();
+    const at = this.now();
+    if (viewerId !== undefined) {
+      // An unknown viewer id is not re-admitted here: attaching is what admits
+      // a viewer, and silently recreating one would resurrect a viewer that
+      // was dropped as stale.
+      //
+      // The session clock is refreshed only AFTER that check, and the order is
+      // the whole point. A backgrounded tab whose timer was throttled past the
+      // cutoff keeps calling renew with an id that has been dropped; bumping
+      // `lastSeenAt` first would let those calls hold a viewerless session
+      // open through the very fallback that exists to reclaim it, and bill for
+      // it indefinitely.
+      if (!session.viewers.has(viewerId)) return false;
+      session.viewers.set(viewerId, at);
+    }
+    session.lastSeenAt = at;
     return true;
   }
 
@@ -179,6 +264,7 @@ export class DirectorSessionLedger {
     this.settlers.get(session.sessionId)?.(this.billedUsd(ranSeconds));
     this.settlers.delete(session.sessionId);
     this.sessions.delete(session.sessionId);
+    this.notifyClosed(session.sessionId);
   }
 
   /**
@@ -187,14 +273,35 @@ export class DirectorSessionLedger {
    * fal actually stopped generating, and guessing low would understate spend.
    */
   expireIdle(): void {
-    const cutoff = this.now() - SESSION_IDLE_TIMEOUT_MS;
+    const at = this.now();
+    const cutoff = at - SESSION_IDLE_TIMEOUT_MS;
     for (const session of [...this.sessions.values()]) {
-      if (session.lastSeenAt > cutoff) continue;
-      // Settled at the full reservation, not at elapsed time: the server cannot
-      // know fal stopped generating, and guessing low would understate spend.
-      this.settlers.get(session.sessionId)?.(session.reservedUsd);
-      this.settlers.delete(session.sessionId);
-      this.sessions.delete(session.sessionId);
+      // The configured ceiling is a real spend limit, not only the number used
+      // to reserve budget. An actively renewing viewer cannot extend a paid
+      // session past the amount the ledger committed for it.
+      if (at - session.startedAt >= this.limits.maxSessionSeconds * 1000) {
+        this.settlers.get(session.sessionId)?.(session.reservedUsd);
+        this.settlers.delete(session.sessionId);
+        this.sessions.delete(session.sessionId);
+        this.notifyClosed(session.sessionId);
+        continue;
+      }
+      for (const [viewerId, seenAt] of [...session.viewers]) {
+        if (seenAt <= cutoff) session.viewers.delete(viewerId);
+      }
+      // One viewer still checking in keeps the stream, because somebody is
+      // still watching it. A session with none falls back to its own clock,
+      // which covers the moment between opening and the first viewer attaching.
+      if (session.viewers.size > 0) continue;
+      if (session.lastSeenAt <= cutoff) {
+        // Settled at the full reservation, not at elapsed time: the server
+        // cannot know fal stopped generating, and guessing low would
+        // understate spend.
+        this.settlers.get(session.sessionId)?.(session.reservedUsd);
+        this.settlers.delete(session.sessionId);
+        this.sessions.delete(session.sessionId);
+        this.notifyClosed(session.sessionId);
+      }
     }
   }
 

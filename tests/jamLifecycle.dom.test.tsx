@@ -46,6 +46,18 @@ function serve(
         { status: 200, headers: { "content-type": "application/json" } },
       );
     }
+    if (url.endsWith(`/api/jams/${JAM}/director/session`)) {
+      return new Response(
+        JSON.stringify({
+          error: {
+            code: "no_stream",
+            safeMessage: "Nobody is streaming this configuration yet.",
+            retryable: true,
+          },
+        }),
+        { status: 404, headers: { "content-type": "application/json" } },
+      );
+    }
     return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
   return () => {
@@ -90,6 +102,11 @@ describe("the room shows where it is in its life", () => {
         '[data-testid="jam-director-recording"]',
       );
       assert.ok(player, "a finished room shows a player");
+      assert.equal(
+        document.querySelectorAll('[data-testid="jam-director-recording"]').length,
+        1,
+        "the finished recording is rendered once",
+      );
       assert.match(player.getAttribute("src") ?? "", /\/director\/archive\/sess-1\/video$/);
 
       // And starting again is not on offer: the server would refuse it.
@@ -124,6 +141,53 @@ describe("the room shows where it is in its life", () => {
       );
     } finally {
       restore();
+    }
+  });
+
+  it("detaches a viewer allocated after the screen has unmounted", async () => {
+    const original = globalThis.fetch;
+    let answerAttach!: (response: Response) => void;
+    const attachResponse = new Promise<Response>((resolve) => {
+      answerAttach = resolve;
+    });
+    const detached: unknown[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(typeof input === "string" ? input : input.toString());
+      if (url.endsWith(`/api/jams/${JAM}`)) {
+        return new Response(JSON.stringify({ jam: { lifecycle: "live" } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.endsWith(`/api/jams/${JAM}/director/session`) && init?.method === "POST") {
+        return attachResponse;
+      }
+      if (url.endsWith("/director/session/session-late/end")) {
+        detached.push(JSON.parse(String(init?.body)));
+        return new Response(JSON.stringify({ lifecycle: "playing" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response("{}", {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      await render(<JamDirector jamId={JAM} canDrive={false} configuration={DEFAULT_CONFIGURATION} />);
+      await cleanup();
+      answerAttach(
+        new Response(JSON.stringify({ sessionId: "session-late", viewerId: "viewer-late" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+      await settle();
+      assert.deepEqual(detached, [{ viewerId: "viewer-late" }]);
+    } finally {
+      globalThis.fetch = original;
     }
   });
 });

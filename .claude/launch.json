@@ -63,6 +63,19 @@
         "apps/server/index.ts"
       ],
       "port": 4367
+    },
+    {
+      "name": "reverie-landing-truth",
+      "runtimeExecutable": "/usr/bin/env",
+      "runtimeArgs": [
+        "PORT=4397",
+        "node",
+        "--env-file-if-exists=.env.local",
+        "--import",
+        "tsx",
+        "apps/server/index.ts"
+      ],
+      "port": 4397
     }
   ]
 }

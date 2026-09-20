@@ -1,5 +1,46 @@
 # Decisions
 
+## 2026-09-20 — A take ends when the film has been WATCHED to its end, not generated to it (RV-28)
+
+fal does not stop at the last beat. The script reaches it once, at `configure`, and after that
+the stream runs until it is told to stop, so the film's selected length is a boundary only this
+side enforces. The question is which end it is, and the first answer here was wrong in a way
+worth keeping written down.
+
+**Generation finishing is not an ending, and ending on it showed four rooms nothing.** The
+first build stopped the take when `generatedSeconds` reached the script's runtime. Measured
+against fal on 2026-09-20, four takes ran like this: `session_opened` at 11:52:06, the first
+chunk at 11:52:14.8, the second and final chunk at 11:52:23.788 — and `session_closed` at
+11:52:23.790, **one millisecond later**. A 20-second film was generated in 17 seconds of wall
+clock, and the teardown landed before hls.js had a playable segment. The provider runs ahead of
+the viewer by design; keying a stop on its progress ends the take before anybody has seen the
+film it just paid for.
+
+**So the stop is keyed on seconds PLAYED, and on nothing else** — not time since Play, which
+says nothing about what was seen, and not the provider's frontier. `playedToEnd` compares the
+media element's own `currentTime` against the film's length, with a quarter-second tolerance
+because an element can stall a hair short and the playhead is sampled four times a second. A
+null playhead — paused, nothing decoded, no element — is never an end.
+
+**That puts the trigger in the browser, which is where the only honest reading of it lives.**
+The server cannot see what a viewer has watched. It keeps the ceilings that do not need a
+viewer: `maxSessionSeconds`, the idle reclaim, and the viewer refcount. The browser sends the
+same whole-room stop a person's Stop sends, so settle, archive close and the `playing` → `ended`
+transition stay on one path.
+
+**The cost of waiting is real and deliberately accepted.** The provider keeps generating past
+the last beat while the viewer catches up, and `maxSessionSeconds` is what bounds it. Stopping
+generation early without tearing down delivery would be better, and is not attempted here:
+what fal does to a session after `{"type":"stop"}` is unprobed, and if it closes the connection
+the live window dies with it — which is the bug this entry is about.
+
+**The trail keeps both moments.** `film_generated` records that the whole film exists, with
+which reading crossed first: `generatedSeconds`, or the frontier `script_offset_seconds` as a
+backstop — the frontier being the START offset of the chunk being generated, so it crosses a
+chunk late. `session_closed` carries the reason when the caller gives one, from a closed enum
+rather than free text, so a take that was watched out can be told from one somebody pressed
+Stop on.
+
 ## 2026-09-20 — A finished film is read from the deployment, and the archive says why it is empty (RV-25)
 
 The archive routes were written to be portable -- plain reads of Supabase and Storage, with

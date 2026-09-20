@@ -20,12 +20,14 @@ import { formatUsd, type DirectorSpend } from "../core/directorSpend";
 import { formatClock } from "../core/clock";
 import type { SessionSettings } from "../core/session";
 import { attachHlsStream, type HlsAttachment } from "../lib/hlsPlayback";
+import { playedToEnd } from "../core/directorCompletion";
 import {
   attachDirectorSession,
   directorPlaylistSrc,
   directorRecordingSrc,
   DirectorSessionError,
   endDirectorSession,
+  type StopReason,
   readDirectorBudget,
   readDirectorSession,
   renewDirectorSession,
@@ -45,6 +47,8 @@ const POLL_MS = 2_000;
 const RENEW_MS = 30_000;
 /** How often a room that is not yet streaming checks whether it has started. */
 const ATTACH_MS = 3_000;
+/** Four times a second: often enough to catch the end without a frame loop. */
+const PLAYHEAD_MS = 250;
 
 /**
  * The live director: one continuous MiniMax H3 Max stream the room directs.
@@ -90,6 +94,11 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
   const [budget, setBudget] = useState<DirectorBudget | null>(null);
   /** Where a take stops itself; the budget route says so before the first one. */
   const [maxSeconds, setMaxSeconds] = useState<number | null>(null);
+  /** The film's own length: where playback, and so the take, ends. */
+  const [filmSeconds, setFilmSeconds] = useState<number | null>(null);
+  /** Set when this screen stopped a take it had watched to the end of the film. */
+  const [playedOut, setPlayedOut] = useState(false);
+
   /** The relay could not be attached: the take runs, this screen cannot show it. */
   const [relayFailure, setRelayFailure] = useState<string | null>(null);
   // The room's life, as the server holds it. Read on mount so a reopened tab
@@ -122,6 +131,12 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
     setDurable(opened.recordingDurable);
     setSpend(opened.spend);
     setMaxSeconds(opened.maxSessionSeconds);
+    setFilmSeconds(opened.filmSeconds ?? null);
+    // A new take has not been watched out, and the trail belongs to the take:
+    // a new one starts with an empty log rather than inheriting the last one's
+    // directions.
+    setPlayedOut(false);
+    setAudit([]);
   }, []);
 
   /** Goes to a moment of the finished film, in the film that is already open. */
@@ -311,6 +326,7 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
         if (cancelled) return;
         setBudget(current);
         setMaxSeconds((known) => known ?? current.maxSessionSeconds);
+        setFilmSeconds((known) => known ?? current.filmSeconds ?? null);
         setSpend((known) => known ?? current.spend);
       })
       .catch(() => {
@@ -321,6 +337,18 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
       cancelled = true;
     };
   }, [jamId]);
+
+  /**
+   * Drops a session this screen is no longer watching, and shows what the room
+   * has instead — the recording of that take, and a play button that opens the
+   * next one. The trail is kept: it is how the room says which take that was,
+   * and why it ended.
+   */
+  const letGo = useCallback(() => {
+    setSessionId(null);
+    setViewerId(null);
+    void readRoom().catch(() => undefined);
+  }, [readRoom]);
 
   // Polling is the surface until Realtime events land, matching the player.
   useEffect(() => {
@@ -337,13 +365,9 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
       } catch (error) {
         if (cancelled) return;
         // Somebody else stopped it, or the server reclaimed it. This screen is
-        // now polling a session that no longer exists, so it lets go of it and
-        // shows what the room actually has — the recording of that take, and a
-        // play button that opens the next one.
+        // now polling a session that no longer exists.
         if (error instanceof DirectorSessionError && error.code === "not_found") {
-          setSessionId(null);
-          setViewerId(null);
-          void readRoom().catch(() => undefined);
+          letGo();
         }
       }
     };
@@ -358,7 +382,7 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
       clearInterval(poll);
       clearInterval(renew);
     };
-  }, [jamId, readRoom, sessionId, viewerId]);
+  }, [jamId, letGo, sessionId, viewerId]);
 
   // Watch it as it is generated rather than waiting for the recording. The
   // browser peers with our server, which is already holding the provider
@@ -437,7 +461,14 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
     }
   }, [adopt, configuration, jamId]);
 
-  const stop = useCallback(async () => {
+  /**
+   * The take ended because the film had been watched to its end, not because
+   * anybody pressed Stop. Said out loud, because a player that swaps itself to
+   * a recording with no explanation reads as a fault.
+   */
+  const endedAtFilmLength = !live && playedOut;
+
+  const stop = useCallback(async (reason?: StopReason) => {
     if (!sessionId) return;
     setBusy(true);
     setFailure(null);
@@ -446,7 +477,7 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
       // viewer is what closing the screen does; this is the deliberate end of
       // the take, and anybody in the room may send it. The room stays: it can
       // be played again, and this take keeps its own recording.
-      const stopped = await endDirectorSession(jamId, sessionId);
+      const stopped = await endDirectorSession(jamId, sessionId, undefined, reason);
       setLifecycle(stopped.lifecycle);
       // The pieces land as the muxer finishes them, so this reads what is there
       // now — and re-reads the shelf, because the take that just stopped is a
@@ -468,6 +499,37 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
       setBusy(false);
     }
   }, [jamId, readRoom, sessionId]);
+
+  /**
+   * Stops a take the room has watched to the end of the film.
+   *
+   * The position is the live element's own clock, read four times a second —
+   * `timeupdate` alone stops firing when a live stream stalls, and a reading
+   * kept from the last event would sit still and be mistaken for a film that
+   * had stopped advancing. Whichever element is carrying the take is the one
+   * asked: HLS where the server delivers it, the relay otherwise.
+   *
+   * It is keyed on seconds PLAYED and on nothing else. Keyed on the provider's
+   * progress, four takes ended 1ms after their last chunk — a 20-second film
+   * is generated in about 17 seconds of wall clock, well before hls.js has a
+   * playable segment — and every one of those rooms saw nothing at all.
+   */
+  useEffect(() => {
+    if (!live || busy || playedOut || filmSeconds === null) return;
+    const read = () => {
+      const element = liveDelivery ? screen.current : video.current;
+      // A paused element, or one with nothing decoded, has played nothing.
+      if (!element || element.paused || element.readyState < 2) return;
+      const at = element.currentTime;
+      if (!Number.isFinite(at)) return;
+      if (!playedToEnd(at, filmSeconds)) return;
+      setPlayedOut(true);
+      void stop("played_to_end").catch(() => undefined);
+    };
+    read();
+    const tick = setInterval(read, PLAYHEAD_MS);
+    return () => clearInterval(tick);
+  }, [live, busy, playedOut, filmSeconds, liveDelivery, stop]);
 
   return <div className="player-card" aria-label="Live director">
     <div className="panel-heading">
@@ -543,6 +605,17 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
     )}
     {playbackFailure ? <Notice tone="alert">{playbackFailure}</Notice> : null}
     {relayFailure ? <Notice tone="status">{relayFailure}</Notice> : null}
+    {/*
+      * A take nobody stopped, stopped. Said here because the alternative is a
+      * room where the player quietly swaps to a recording and the reader is
+      * left to work out whether that was the film being watched out or the
+      * stream failing.
+      */}
+    {endedAtFilmLength ? (
+      <Notice tone="status">
+        This take played to the end of the film and stopped itself. Play opens a new one.
+      </Notice>
+    ) : null}
 
     <p className="form-note" aria-live="polite" data-testid="jam-director-status">
       {statusLine(state, live, busy, lifecycle)}
@@ -596,7 +669,7 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
       * before a take, the session snapshot during one.
       */}
     <p className="form-note" data-testid="jam-director-cost">
-      {costLine({ budget, spend, maxSeconds, live })}
+      {costLine({ budget, spend, maxSeconds, filmSeconds, live })}
     </p>
 
     {/*
@@ -749,19 +822,20 @@ function costLine({
   budget,
   spend,
   maxSeconds,
+  filmSeconds,
   live,
 }: {
   budget: DirectorBudget | null;
   spend: DirectorSpend | null;
   maxSeconds: number | null;
+  filmSeconds: number | null;
   live: boolean;
 }): string {
   if (!spend) return "Reading what this server will spend…";
   if (spend.budgetUsd <= 0) {
     return "No director budget is configured on this server, so nothing can be generated here.";
   }
-  const stopsItself =
-    maxSeconds === null ? "" : ` It stops itself after ${formatClock(maxSeconds)}.`;
+  const stopsItself = stopLine(maxSeconds, filmSeconds);
   if (live) {
     return `This take has cost ${formatUsd(spend.sessionUsd)} so far · ${formatUsd(spend.remainingUsd)} left of ${formatUsd(spend.budgetUsd)}.${stopsItself}`;
   }
@@ -775,6 +849,25 @@ function costLine({
     ? " This server has no live director configured, so Play will be refused."
     : "";
   return `Play opens a paid session: ${minimum} minimum for the first ${spend.minBilledSeconds}s.${stopsItself}${commitment} ${formatUsd(spend.remainingUsd)} left of ${formatUsd(spend.budgetUsd)}.${configured}`;
+}
+
+/**
+ * Where this take will stop without anybody pressing anything.
+ *
+ * Two ceilings, and the take reaches whichever is nearer: the film's own
+ * length, which is what the room asked for, and the session ceiling, which is
+ * a spend control. Naming only the session ceiling was how a room came to
+ * expect two minutes of a one-minute film — and naming only the film's length
+ * would hide the take that gets cut off before its last beat.
+ */
+function stopLine(maxSeconds: number | null, filmSeconds: number | null): string {
+  if (filmSeconds !== null && (maxSeconds === null || filmSeconds <= maxSeconds)) {
+    return ` It stops itself at the end of the film, after ${formatClock(filmSeconds)}.`;
+  }
+  if (maxSeconds === null) return "";
+  return filmSeconds === null
+    ? ` It stops itself after ${formatClock(maxSeconds)}.`
+    : ` It stops itself after ${formatClock(maxSeconds)}, before the end of this ${formatClock(filmSeconds)} film.`;
 }
 
 /**

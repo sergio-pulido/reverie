@@ -2474,6 +2474,39 @@ the code it quotes sit together again.
 - The endpoint itself was not exercised from here. It is not on this branch, and the receipts for
   it are in the `POST /api/evaluate` entry above.
 
+## 2026-09-20 — A take stops when the film has been watched out (RV-28)
+
+- A director take now ends when a viewer has **played** to the end of the film — the script's
+  own total runtime — instead of running until somebody presses Stop. The rule is
+  `playedToEnd` in `src/core/directorCompletion.ts`, read off the media element's `currentTime`
+  four times a second on both screens, with a 0.25s tolerance.
+- **The first build of this was wrong and was probed against fal before it shipped.** It ended
+  the take when the provider had generated the film's runtime. Four real takes:
+  `session_opened` 11:52:06, first chunk 11:52:14.8, last chunk 11:52:23.788,
+  `session_closed` 11:52:23.790 — a 20s film generated in 17s of wall clock and torn down 1ms
+  after the last chunk, before hls.js had a playable segment. Every one of those rooms saw
+  nothing. Generation runs ahead of playback by design, so it can never be the stop.
+- The server no longer ends a take on its own progress. It records `film_generated` (the whole
+  film exists, and which reading crossed first) and keeps only the ceilings that need no
+  viewer: `maxSessionSeconds`, the idle reclaim, the viewer refcount.
+- `POST .../session/:id/end` accepts `reason` from a closed enum (`played_to_end`) and records
+  it on `session_closed`, so a take that was watched out can be told from a pressed Stop.
+- `filmSeconds` is answered by `GET .../director/budget` and both session responses; the room
+  says where a take ends before Play is pressed.
+- **Accepted cost:** the provider keeps generating past the last beat while the viewer catches
+  up, bounded by `maxSessionSeconds` (120s). Halting generation without tearing down delivery
+  is the better shape and is not attempted: what fal does after `{"type":"stop"}` is unprobed.
+- Verified: `pnpm test` 1411/1411, `npx tsc --noEmit` clean, `pnpm build` clean. Coverage in
+  `tests/directorCompletion.test.ts` (both rules, the stream over a fake peer, the recorded
+  stop reason), `tests/directorRoutes.test.ts` (generation ends nothing, the reason is
+  recorded, an unknown reason is refused), and a DOM test per screen driving a real playhead.
+- **Not verified since the change:** no paid session has been opened against the rewritten
+  trigger. The four takes above were the previous build. What is proven is the diagnosis, not
+  the fix.
+- One existing test changed on purpose: "spend follows the seconds the stream actually
+  generated" runs against a two-minute film, because `buildJam()` in `tests/directorRoutes.test.ts`
+  now takes `(portionSeconds, portionsPerScene)` and portions cap at 15s.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

@@ -8,6 +8,7 @@ import type { DirectorBeatWindow } from "../src/core/directorBeats";
 import type { DirectorSpend } from "../src/core/directorSpend";
 import { initialDirectorState, type DirectorState } from "../src/core/directorProtocol";
 import { beatWindowForScript } from "../src/core/directorBeats";
+import { totalDurationSeconds } from "../src/core/script";
 import { buildScript } from "./helpers";
 
 /**
@@ -129,6 +130,7 @@ export function fakeServer(options: ServerOptions = {}): FakeServer {
           attached: Boolean(body.attachOnly),
           liveDelivery: false,
           maxSessionSeconds: 120,
+          filmSeconds: totalDurationSeconds(current.jam?.script ?? SCRIPT),
           recordingDurable: current.recordingDurable,
           state: state(),
           beats: beats(),

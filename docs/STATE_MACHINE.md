@@ -11,7 +11,10 @@ other than the default, so every room read DRAFT for its whole life — includin
 generated script that were playing. A jam is **live the moment it exists**, and how far along
 it is now is a different question with its own answer: the `live | playing | ended` lifecycle
 the server owns (`src/core/jamLifecycle.ts`), which is what the registry and the room badge
-both read. The status column below stays for archival states nothing has implemented yet; the
+both read. A take moves a room to `playing`, and three things move it back out: anybody in the
+room pressing Stop, the last viewer leaving, and — since RV-28 — a viewer watching to the end of
+the film, which the browser detects and sends as the same whole-room stop, on the same teardown
+path as the other two. The status column below stays for archival states nothing has implemented yet; the
 UI does not render it.
 
 - **lobby**: invitees choose a name and wait for host admission.

@@ -15,7 +15,12 @@ import {
   type DirectorAuditEntry,
   type DirectorAuditListener,
 } from "../../src/core/directorAudit";
-import type { JamScript } from "../../src/core/script";
+import { totalDurationSeconds, type JamScript } from "../../src/core/script";
+import {
+  completionDetail,
+  completionSignal,
+  type CompletionSignal,
+} from "../../src/core/directorCompletion";
 import {
   beatOffsets,
   beatWindow,
@@ -63,6 +68,14 @@ export interface DirectorStreamOptions {
    * somewhere that outlives this process. The in-memory trail is unaffected.
    */
   onAudit?: DirectorAuditListener;
+  /**
+   * Called once, when the provider has generated the whole film.
+   *
+   * Not an ending. Generation finishes long before the film has been watched,
+   * so this exists to be recorded and reported, not to tear anything down —
+   * ending a take here is exactly the bug that showed a room nothing at all.
+   */
+  onFilmGenerated?: (signal: CompletionSignal) => void;
 }
 
 export interface DirectionRequest {
@@ -177,6 +190,8 @@ export class DirectorStream {
   private connection: DirectorPeer | null = null;
   private control: DirectorControlChannel | null = null;
   private stopped = false;
+  /** Reported once: the film is generated in one chunk, not repeatedly. */
+  private generated = false;
   /** Inbound tracks, kept so viewers can be forwarded a copy. */
   private readonly inbound: MediaStreamTrack[] = [];
   private readonly trackListeners: ((track: MediaStreamTrack) => void)[] = [];
@@ -203,6 +218,11 @@ export class DirectorStream {
       const index = this.trackListeners.indexOf(listener);
       if (index >= 0) this.trackListeners.splice(index, 1);
     };
+  }
+
+  /** True once the provider has generated the whole film it was asked for. */
+  get filmGenerated(): boolean {
+    return this.generated;
   }
 
   /** The jam this stream belongs to, for callers holding many streams. */
@@ -303,14 +323,20 @@ export class DirectorStream {
     return { accepted: true, promptVersion, beats };
   }
 
-  /** Stops the stream, finalizes the recording and stores it. */
-  async stop(): Promise<void> {
+  /**
+   * Stops the stream, finalizes the recording and stores it.
+   *
+   * `reason` is recorded when the caller has one. A take that ended because
+   * the film had been watched to its end is not the same event as one somebody
+   * pressed Stop on, and the trail is the only place that difference survives.
+   */
+  async stop(reason?: string): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
     if (this.control?.readyState === "open") {
       this.control.send(JSON.stringify({ type: "stop" }));
     }
-    this.audit.record({ kind: "session_closed" });
+    this.audit.record({ kind: "session_closed", ...(reason ? { detail: reason } : {}) });
     await this.teardown();
   }
 
@@ -371,6 +397,37 @@ export class DirectorStream {
       default:
         break;
     }
+
+    this.reportFilmGenerated();
+  }
+
+  /**
+   * Says, once, that the provider has generated the whole film.
+   *
+   * Read after every control message rather than only after a chunk, because
+   * the two readings that answer it are carried on different messages.
+   *
+   * A stream that is already stopping reports nothing: there is nobody left to
+   * tell, and the take is on its way out.
+   */
+  private reportFilmGenerated(): void {
+    if (this.generated || this.stopped) return;
+    const reading = {
+      runtimeSeconds: totalDurationSeconds(this.options.script),
+      generatedSeconds: this.state.generatedSeconds,
+      scriptOffsetSeconds: this.state.scriptOffsetSeconds,
+    };
+    const signal = completionSignal(reading);
+    if (!signal) return;
+    this.generated = true;
+    this.audit.record({
+      kind: "film_generated",
+      detail: completionDetail(signal, reading),
+      ...(this.state.scriptOffsetSeconds === null
+        ? {}
+        : { scriptOffsetSeconds: this.state.scriptOffsetSeconds }),
+    });
+    this.options.onFilmGenerated?.(signal);
   }
 
   /**

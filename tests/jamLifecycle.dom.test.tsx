@@ -1,4 +1,5 @@
 import { cleanup, click, render, settle } from "./render";
+import { act } from "react";
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { JamDirector } from "../src/screens/JamDirector";
@@ -75,6 +76,17 @@ function serve(
   return () => {
     globalThis.fetch = original;
   };
+}
+
+/**
+ * Waits out one turn of the screen's playhead interval, which is how it learns
+ * the element has moved — it re-reads rather than waiting to be told, because
+ * `timeupdate` stops firing on a stalled live stream.
+ */
+async function tick(): Promise<void> {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  });
 }
 
 function text(selector: string): string {
@@ -529,6 +541,184 @@ describe("the room shows where it is in its life", () => {
         document.querySelector<HTMLButtonElement>('[data-testid="jam-director-play"]')?.disabled,
         false,
         "and the next take is one press away",
+      );
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("says a take will stop at the end of the film, not at the session ceiling", async () => {
+    // Two ceilings, and the room is told the one it will actually reach. The
+    // session ceiling is a spend control; the film's length is what the room
+    // asked for, and on any film shorter than the ceiling it is what ends the
+    // take.
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(typeof input === "string" ? input : input.toString());
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+      if (url.endsWith(`/api/jams/${JAM}`)) return json({ jam: { lifecycle: "live" } });
+      if (url.endsWith("/director/budget")) {
+        return json({
+          configured: true,
+          maxSessionSeconds: 120,
+          filmSeconds: 20,
+          spend: {
+            budgetUsd: 20,
+            usdPerSecond: 0.08,
+            minBilledSeconds: 60,
+            sessionUsd: 0,
+            remainingUsd: 20,
+          },
+        });
+      }
+      if (url.endsWith(`/api/jams/${JAM}/director/session`)) {
+        return json(
+          { error: { code: "no_stream", safeMessage: "Nobody is streaming.", retryable: true } },
+          404,
+        );
+      }
+      return json({});
+    }) as typeof fetch;
+
+    try {
+      await render(<JamDirector jamId={JAM} configuration={DEFAULT_CONFIGURATION} />);
+      await settle();
+      const cost = text('[data-testid="jam-director-cost"]');
+      assert.match(cost, /stops itself at the end of the film, after 0:20/);
+      assert.doesNotMatch(cost, /stops itself after 2:00/);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("stops a take once the room has PLAYED to the end of the film, and says so", async () => {
+    // Nobody presses Stop here. The trigger is the seconds the room has
+    // actually watched — never time since Play, and never the provider's
+    // progress: keyed on generation, four measured takes ended 1ms after
+    // their last chunk and showed nothing at all.
+    const original = globalThis.fetch;
+    let lifecycle = "playing";
+    let sessionOpen = true;
+    const ends: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(typeof input === "string" ? input : input.toString());
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+      if (url.endsWith(`/api/jams/${JAM}`)) return json({ jam: { lifecycle } });
+      if (url.endsWith("/end")) {
+        ends.push(typeof init?.body === "string" ? init.body : "");
+        sessionOpen = false;
+        lifecycle = "ended";
+        return json({ lifecycle });
+      }
+      if (url.endsWith(`/api/jams/${JAM}/director/session`) && init?.method === "POST") {
+        if (!sessionOpen) {
+          return json(
+            { error: { code: "no_stream", safeMessage: "Nobody is streaming.", retryable: true } },
+            404,
+          );
+        }
+        return json({
+          sessionId: "sess-2",
+          viewerId: "viewer-2",
+          attached: true,
+          liveDelivery: false,
+          recordingDurable: true,
+          maxSessionSeconds: 120,
+          filmSeconds: 20,
+          lifecycle,
+          state: {
+            status: "streaming",
+            appliedPromptVersion: 1,
+            sentPromptVersion: 1,
+            chunksReceived: 2,
+            generatedSeconds: 20,
+            scriptOffsetSeconds: 10,
+            endedReason: null,
+            error: null,
+          },
+          beats: null,
+        });
+      }
+      if (url.endsWith("/director/session/sess-2")) {
+        return json({
+          state: {
+            status: "streaming",
+            appliedPromptVersion: 1,
+            sentPromptVersion: 1,
+            chunksReceived: 2,
+            generatedSeconds: 20,
+            scriptOffsetSeconds: 10,
+            endedReason: null,
+            error: null,
+          },
+          beats: null,
+          audit: [
+            { at: "2026-09-20T09:00:00.000Z", kind: "session_opened" },
+            {
+              at: "2026-09-20T09:00:17.000Z",
+              kind: "film_generated",
+              detail: "20s generated of a 20s film",
+            },
+          ],
+          droppedAuditEntries: 0,
+          spend: {
+            budgetUsd: 20,
+            usdPerSecond: 0.08,
+            minBilledSeconds: 60,
+            sessionUsd: 4.8,
+            remainingUsd: 15.2,
+          },
+        });
+      }
+      if (url.endsWith("/director/archive")) return json({ durable: true, sessions: [{ id: "sess-2" }] });
+      if (/\/director\/archive\/[^/]+$/.test(url)) {
+        return json({
+          durable: true,
+          session: { complete: true, container: "webm" },
+          segments: [{ segmentIndex: 0, startSeconds: 0, durationSeconds: 20 }],
+          durationSeconds: 20,
+        });
+      }
+      return json({});
+    }) as typeof fetch;
+
+    try {
+      await render(<JamDirector jamId={JAM} configuration={DEFAULT_CONFIGURATION} />);
+      await settle(4);
+
+      // The whole film has been generated — the trail says so — and the take
+      // is still running, because nothing has been watched.
+      assert.equal(ends.length, 0, "the take survives its own generation finishing");
+      assert.equal(badge(), "PLAYING");
+
+      const relay = document.querySelector<HTMLVideoElement>('[data-testid="jam-director-relay"]');
+      assert.ok(relay, "the live element is on the screen");
+      Object.defineProperty(relay, "paused", { value: false, configurable: true });
+      Object.defineProperty(relay, "readyState", { value: 4, configurable: true });
+
+      // Part-watched: still running.
+      Object.defineProperty(relay, "currentTime", { value: 12, configurable: true });
+      await tick();
+      assert.equal(ends.length, 0, "a film half watched is not a film watched out");
+
+      // Watched to the end: the take stops itself, and says why.
+      Object.defineProperty(relay, "currentTime", { value: 20, configurable: true });
+      await tick();
+      await settle(4);
+
+      assert.equal(ends.length, 1, "stopped exactly once");
+      assert.deepEqual(JSON.parse(ends[0]), { reason: "played_to_end" });
+      const notices = [...document.querySelectorAll(".notice")].map((node) => node.textContent ?? "");
+      assert.ok(
+        notices.some((notice) => /played to the end of the film and stopped itself/.test(notice)),
+        "the room is told why the take ended",
+      );
+      assert.equal(
+        document.querySelector<HTMLButtonElement>('[data-testid="jam-director-play"]')?.disabled,
+        false,
+        "a finished film does not retire the room",
       );
     } finally {
       globalThis.fetch = original;

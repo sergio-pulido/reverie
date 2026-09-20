@@ -15,9 +15,10 @@ built on them rather than on the published schema.
 
 **The model overshoots, by a tenth of a second or two, and not proportionally.** So a clip's
 length is read from the file (`src/core/mediaDuration.ts`, the `moov`/`mvhd` header) rather than
-assumed from the request, and it is the measured number that the panel shows and that the cut
-back to the loop is timed against. A room that trusted the request would drift a little further
-out of true on every beat.
+assumed from the request, and the measured number is what the panel reports. The cut back to the
+loop is driven by the element's own `ended` event and never by a timer, so the overshoot cannot
+clip a beat short however far it drifts — which is what "the beat durations fit what the model
+returns" has to mean when the two numbers are not the same.
 
 **A fifteen-second beat takes about twenty-five seconds to become playable — longer than the
 beat itself.** The idle loop is therefore not a nicety; it is the only thing between the room and

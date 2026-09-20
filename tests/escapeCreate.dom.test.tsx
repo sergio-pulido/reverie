@@ -177,5 +177,6 @@ for (const way of ["director", "jam", "escape"] as const) {
 it("import labels promise import, not generation", async () => {
   await render(show({ way: "director", sourceKind: "import-script" }));
   assert.equal(submit().textContent, "Import and open Director↗");
-  assert.match(document.querySelector(".form-note")?.textContent ?? "", /imported screenplay/);
+  const notes = [...document.querySelectorAll(".form-note")].map((note) => note.textContent ?? "").join(" ");
+  assert.match(notes, /imported screenplay/);
 });

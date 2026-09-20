@@ -153,7 +153,12 @@ test("the winning proposal is resolved and filmed; the losers are discarded", as
     const filmed = rooms.snapshot("jam-2", "a")!.beats.at(-1)!;
     assert.equal(filmed.media.status, "ready");
     assert.equal(filmed.media.seconds, 15.104);
-    assert.equal(fal.submitted.at(-1)?.duration, 15);
+    const durations = fal.submitted.map((job) => job.duration);
+    assert.ok(durations.includes(15), "the beat itself was filmed as a fifteen-second take");
+    // The room changed, so once the beat is in the can a short hold of the
+    // new state is filmed and becomes the loop; the last thing bought is
+    // that hold, not the beat.
+    assert.equal(fal.submitted.at(-1)?.duration, 5, "the after-state hold is the last take bought");
   } finally {
     fal.restore();
   }

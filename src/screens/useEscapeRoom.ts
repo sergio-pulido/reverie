@@ -34,7 +34,7 @@ export interface EscapeRoomActions {
   settle: () => Promise<void>;
 }
 
-export function useEscapeRoom(jamId: string): {
+export function useEscapeRoom(jamId: string | null): {
   state: EscapeRoomState;
   failure: string | null;
   busy: boolean;
@@ -45,6 +45,8 @@ export function useEscapeRoom(jamId: string): {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    // No room yet means nothing to ask; the state stays unknown until there is one.
+    if (jamId === null) return;
     let cancelled = false;
     const read = async () => {
       try {
@@ -95,18 +97,18 @@ export function useEscapeRoom(jamId: string): {
     async (body: string, authorName: string) => {
       const said = body.trim();
       if (!said) return;
-      await act(async () => (await proposeAction(jamId, { body: said, authorName })).snapshot);
+      await act(async () => (await proposeAction(jamId!, { body: said, authorName })).snapshot);
     },
     [act, jamId],
   );
 
   const vote = useCallback(
-    (proposalId: string) => act(() => voteForProposal(jamId, proposalId)),
+    (proposalId: string) => act(() => voteForProposal(jamId!, proposalId)),
     [act, jamId],
   );
 
   const settle = useCallback(
-    () => act(async () => (await settleTurn(jamId)).snapshot),
+    () => act(async () => (await settleTurn(jamId!)).snapshot),
     [act, jamId],
   );
 

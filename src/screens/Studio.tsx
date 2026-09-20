@@ -34,6 +34,9 @@ export function Studio({ slug, onLeave }: { slug: string; onLeave: () => void })
   const inviteToggle = useRef<HTMLButtonElement | null>(null);
   const [chatWidth, setChatWidth] = useChatWidth();
   const jamId = state.snapshot?.jam.id ?? null;
+  // Asked here, above both columns, because in an escape room the conversation on the left is
+  // how the room plays: a line sent to the room is the character's next move.
+  const escape = useEscapeRoom(jamId);
   // Hooks run before the early returns below.
   const configuration = useMemo(() => (jamId ? readJamConfiguration(jamId) : null), [jamId]);
   // One register for the room: the live stage and the film read the same rows, so the two
@@ -83,14 +86,22 @@ export function Studio({ slug, onLeave }: { slug: string; onLeave: () => void })
       ? <WaitingLobby jamId={jam.id} onAdmitted={actions.refresh} />
       : <section className="studio-grid" style={{ "--chat-width": `${chatWidth}%` } as CSSProperties}>
           <aside className="conversation-panel">
-            <div className="panel-heading"><div><p className="eyebrow">STORY CONVERSATION</p><h2>What should happen next?</h2></div><span className="local-badge">{CONNECTION_LABEL[state.connection]}</span></div>
+            <div className="panel-heading"><div><p className="eyebrow">STORY CONVERSATION</p><h2>{escape.state.status === "present" ? `What does ${escape.state.snapshot.characterName} do?` : "What should happen next?"}</h2></div><span className="local-badge">{CONNECTION_LABEL[state.connection]}</span></div>
             <div className="contribution-list" aria-live="polite">
               {messages.length === 0 && <p>No lines yet. The first one sets the tone.</p>}
               {messages.map((message) => <article className={`contribution ${message.author_id === self.user_id ? "host" : "director"}`} key={message.id}>
                 <span>{authorName(members, message.author_id)}</span><p>{message.body}</p>
               </article>)}
             </div>
-            <Composer placeholder="Say something to the room…" maxLength={500} disabled={!contributionAllowed} label="Send" onSubmit={actions.sendMessage} />
+            <Composer placeholder={escape.state.status === "present" ? "Say what happens next, in your own words…" : "Say something to the room…"} maxLength={500} disabled={!contributionAllowed} label="Send" onSubmit={async (body) => {
+              await actions.sendMessage(body);
+              // In an escape room the line is also the proposal, and the host's line settles the
+              // turn at once: one message, one move, one shot. Anybody else's line waits for the
+              // host to close the vote, exactly as a proposal made on the panel does.
+              if (escape.state.status !== "present" || escape.state.snapshot.ended) return;
+              await escape.actions.propose(body, self.display_name);
+              if (isHost) await escape.actions.settle();
+            }} />
             <ChatResizer width={chatWidth} onChange={setChatWidth} />
           </aside>
 
@@ -105,6 +116,7 @@ export function Studio({ slug, onLeave }: { slug: string; onLeave: () => void })
               members={members}
               proposals={proposals}
               onPropose={actions.addProposal}
+              escape={escape}
             />
 
             <LiveStage jamId={jam.id} userId={self.user_id} members={members} canJoin={contributionAllowed} register={register} />
@@ -146,6 +158,7 @@ function Story({
   members,
   proposals,
   onPropose,
+  escape,
 }: {
   jamId: string;
   isHost: boolean;
@@ -156,8 +169,8 @@ function Story({
   members: readonly JamMember[];
   proposals: readonly JamProposal[];
   onPropose: (body: string) => void | Promise<void>;
+  escape: ReturnType<typeof useEscapeRoom>;
 }) {
-  const escape = useEscapeRoom(jamId);
 
   // The jam's own screen is what a room gets unless an escape room proves it is
   // one. Asking is an addition to this screen, so a probe that has not answered

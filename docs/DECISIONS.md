@@ -151,6 +151,127 @@ that beat is **blocked** on the timeline, marked differently from the other
 four states, and the composer says so on a line of its own: being told the
 stream is stopped must not hide being told the budget is out.
 
+## 2026-09-20 — Probe receipt: what MiniMax H3 actually returns, and what the room is built on
+
+Two live generations through `minimax/h3-max/text-to-video` with a real loop shot from a
+shipped scenario, on 2026-09-20, via `scripts/probe-escape-segment.mts`:
+
+| asked | measured duration | bytes | accepted | completed | playable file |
+| --- | --- | --- | --- | --- | --- |
+| 15s | **15.104s** | 9,795,075 | 523ms | 22.9s | 25.3s |
+| 5s | **5.184s** | 3,792,092 | 488ms | 6.4s | 8.7s |
+
+Both came back as `video/mp4` from `v3b.fal.media`. Two things follow, and the escape room is
+built on them rather than on the published schema.
+
+**The model overshoots, by a tenth of a second or two, and not proportionally.** So a clip's
+length is read from the file (`src/core/mediaDuration.ts`, the `moov`/`mvhd` header) rather than
+assumed from the request, and the measured number is what the panel reports. The cut back to the
+loop is driven by the element's own `ended` event and never by a timer, so the overshoot cannot
+clip a beat short however far it drifts — which is what "the beat durations fit what the model
+returns" has to mean when the two numbers are not the same.
+
+**A fifteen-second beat takes about twenty-five seconds to become playable — longer than the
+beat itself.** The idle loop is therefore not a nicety; it is the only thing between the room and
+a spinner. A location's loop is generated at 5 seconds, which is the model's floor, the cheapest
+and, measured here, the fastest to first frame; a beat is 15. A beat that arrives late is simply
+a longer loop, and one that never arrives leaves the loop running.
+
+At the configured list rate of $0.08 per generated second that is $0.40 a loop and $1.20 a beat,
+so a clean ten-step run of a scenario costs about $14 of the $20 ceiling this project ships with.
+That is why the ceiling ending a session is a designed ending rather than a failure. **The rate
+is a configured estimate, not an invoice this repository has seen**: it is the figure the
+director already used, chosen because list price never understates the bill.
+
+Also verified live, in a browser against the hosted Supabase project, on 2026-09-20: a room
+opened, a proposal in a participant's own words resolved and was filmed, a second proposal was
+discarded, the beat cut in over the loop and handed the screen back when it ended, and a refusal
+was reported in the author's words without spending anything. Not verified: two browsers in one
+room, and any of this on Vercel.
+
+## 2026-09-20 — The rules decide what happened; the model only tells it
+
+An escape room's whole value is that it is coherent — that the key fits the drawer for everyone,
+on every replay, in the same way. So the question "what happened" is answered by a pure module
+(`src/core/escape/rules.ts`) with no network, no React, no clock and no randomness, reading an
+authored scenario, and by nothing else. The model is handed the resolved outcome afterwards and
+writes the prose and the shot. It is never asked a question about the world, so there is nothing
+here for it to get wrong about the world.
+
+That boundary is enforced, not hoped for. An outcome that does not advance returns the very state
+it was given, **by identity**, so "an impossible action changes nothing" is checkable rather than
+intended. An advancing one appends exactly one action id to a log, and the tests search each
+scenario exhaustively over the transitions the rules actually produce, replay every reachable
+goal log to prove it reproduces that same world, and prove that dropping any single step of a
+shortest solution fails to reach the goal.
+
+**Interpretation is a matcher, not a model.** Turning "jam the crank with the file" into an
+action is also a question about this world, so it is answered by the same offline, testable code
+(`src/core/escape/intent.ts`). The cost is real and is stated where it lives: a phrasing nobody
+anticipated does not match, and the room is told so rather than handed something it did not ask
+for. Widening that is an author writing more aliases.
+
+**Every refusal is the author's sentence.** A condition carries the words to say when it does not
+hold, so a room is told "the porch is still filling; the pressure behind the door will not let
+the dogs move" rather than a template. A generic "you cannot do that" is what makes a room feel
+arbitrary, and the format has nowhere to put one.
+
+**Things carry `seen` as well as `known`.** A door two rooms away is not hidden, but nobody has
+been there: it must not appear in the progress panel, and naming it must read as meaningless
+rather than as "it is not here", which would confirm the building has one. This was found by a
+test asserting what the panel lists at the start, and it changed the format.
+
+## 2026-09-20 — Only an outcome that changed the world is filmed
+
+A beat costs $1.20 and a clean run of a scenario is ten or eleven of them against a $20 ceiling.
+A refusal — "the lock still holds", "the bolt will not move by hand" — is the most cinematic
+thing in an escape room and is also the cheapest thing to get wrong about: the scenario authors a
+shot for what happens, not for what does not. So refusals become beats in the record, are shown
+to the room with the sentence their author wrote, and are not generated. The loop keeps the
+screen and the panel says "not filmed".
+
+The alternative was letting the model invent a shot for a failure. That is inside the boundary —
+the rules had already decided it failed — but it would spend a fifth of the budget on the door
+that did not open, and the room would run out before reaching the one that does.
+
+## 2026-09-20 — One spend account for the process, and the queue half of the fal adapter
+
+`FAL_ASSET_BUDGET_USD` is documented as a ceiling on this process. A second feature holding its
+own copy of that number would have meant two features each believing they could spend all of it,
+and the documented ceiling would quietly have become twice what it says. Money now lives in one
+`SpendAccount` (`apps/server/spendLedger.ts`); the director ledger keeps its reservation
+behaviour unchanged and debits that account instead of a private total.
+
+The escape room needs a clip it can **play again** — a location's loop is generated once and
+reused for the rest of the session — and a realtime Director session cannot give you one: it
+produces frames and no file, which is exactly why RV-16 deleted the per-portion queue pipeline
+and said the director was the only video path. That decision stands for the **film**: a Movie Jam
+is still one continuous directed stream. It does not fit a room that has to cut between a
+reusable loop and a rendered action, so the fal adapter regains its queue half
+(`apps/server/providers/falSegments.ts`) for the escape room only. Same provider, same rules: a
+typed spec per model carrying the duration band and request body it actually wants, a
+server-owned allowlist that `FAL_MODEL` selects from, an unknown value refused rather than
+quietly replaced, and no path anywhere that produces something which only looks generated.
+
+## 2026-09-20 — The escape-room routes check who is asking; the rest of this Express host does not
+
+The script, session and director routes on the local Node server carry no authorization — a
+known, recorded gap. The escape-room routes do not repeat it: they move a world a whole room can
+see and they spend from a budget, so identity is Supabase Auth's answer to the presented access
+token and the role is the caller's own `jam_members` row read under Row Level Security with that
+same token. This server holds no service-role key for it and can see no more than the participant
+it is acting for. Opening a room and closing a vote are host-only; proposing and voting need an
+active member; an `authorId` in a request body is rejected outright rather than overruled.
+
+A room is polled by everyone in it every three seconds, and two Supabase calls per participant
+per poll is not a thing to ship. The answer is cached for twenty seconds against a SHA-256 digest
+of the token — the digest, so a long-lived structure never holds a credential. The cost is
+stated where it lives: an admission or a removal takes up to twenty seconds to be felt.
+
+This leaves the host inconsistent, and deliberately so. Bringing the other routes up to this is
+worth doing and is not this slice; what is not worth doing is adding a fourth unauthenticated
+surface because the first three are.
+
 ## 2026-09-20 — The account menu shows the real anonymous session, not a fabricated identity
 
 The top bar now ends in an avatar with a menu behind it. The obvious way to build that surface is

@@ -11,6 +11,7 @@ import {
   DEFAULT_PORTION_MIN_SECONDS,
   DEFAULT_TOTAL_SECONDS,
 } from "./core/script";
+import { openEscapeRoom, readScenarios, type ScenarioCard } from "./lib/escapeRoom";
 import { safeMessageOf } from "./lib/errors";
 import { createJam as createJamRoom, type JamPersistence, type JamRoom, type JamVisibility } from "./lib/jams";
 import {
@@ -106,6 +107,10 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
   const [persistence, setPersistence] = useState<JamPersistence>(hasSupabaseConfiguration() ? "remote" : "preview");
   const [sourceKind, setSourceKind] = useState<SourceKind>("from-scratch");
   const [importedScript, setImportedScript] = useState("");
+  /** The escape rooms this build ships, read from the server, never invented here. */
+  const [scenarios, setScenarios] = useState<readonly ScenarioCard[]>([]);
+  const [scenarioId, setScenarioId] = useState("");
+  const [scenariosNotice, setScenariosNotice] = useState<string | null>(null);
   // Seeded from the format defaults rather than repeated here: when the
   // model's limits moved, a second copy of them in this form is what silently
   // started posting jams the server refuses.
@@ -140,6 +145,24 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
+
+  /** The escape rooms are this server's own data, so they are read when they are needed. */
+  useEffect(() => {
+    if (screen !== "create" || scenarios.length > 0) return;
+    let cancelled = false;
+    void readScenarios()
+      .then((cards) => {
+        if (cancelled) return;
+        setScenarios(cards);
+        setScenarioId((current) => current || (cards[0]?.id ?? ""));
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setScenariosNotice(safeMessageOf(error, "This server did not list any escape rooms."));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [screen, scenarios.length]);
 
   /** A screen with nothing of its own to focus lands on its top bar, so a remote is never lost. */
   useEffect(() => {
@@ -242,7 +265,11 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
     const source: JamSource = sourceKind === "from-scratch"
       ? { kind: "from-scratch", prompt: premise.trim() }
       : { kind: "imported-script", scriptTitle: roomTitle.trim() };
-    const roomPremise = sourceKind === "from-scratch" ? premise.trim() : "A Movie Jam created from an imported script.";
+    const roomPremise = sourceKind === "from-scratch"
+      ? premise.trim()
+      : sourceKind === "escape-room"
+        ? "A Movie Jam played inside an authored escape room."
+        : "A Movie Jam created from an imported script.";
     setIsCreating(true);
     setNotice(null);
     try {
@@ -251,6 +278,14 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
         : await createJamRoom({ id: crypto.randomUUID(), title: roomTitle.trim(), premise: roomPremise.slice(0, 280), visibility });
       setRegisteredRoom(created.jam);
       applyJam(created.jam, created.persistence);
+      // An escape room has no screenplay to write: the world is authored and
+      // the film is whatever the room makes the character do. So it opens the
+      // room and goes straight into it, with no script screen in between.
+      if (sourceKind === "escape-room") {
+        await openEscapeRoom(created.jam.id, scenarioId);
+        navigate("studio", `/jams/${created.jam.slug}`);
+        return;
+      }
       const response = await fetch("/api/jams", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -334,7 +369,7 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
       />;
     }
     if (screen === "create") {
-      return <CreateRoom title={roomTitle} premise={premise} visibility={visibility} sourceKind={sourceKind} importedScript={importedScript} totalSeconds={totalSeconds} portionMinSeconds={portionMinSeconds} portionMaxSeconds={portionMaxSeconds} onTitle={setRoomTitle} onPremise={setPremise} onVisibility={setVisibility} onSourceKind={setSourceKind} onImportedScript={setImportedScript} onTotalSeconds={setTotalSeconds} onPortionMinSeconds={setPortionMinSeconds} onPortionMaxSeconds={setPortionMaxSeconds} onSubmit={createRoom} isCreating={isCreating} notice={notice} />;
+      return <CreateRoom title={roomTitle} premise={premise} visibility={visibility} sourceKind={sourceKind} importedScript={importedScript} scenarios={scenarios} scenarioId={scenarioId} scenariosNotice={scenariosNotice} onScenarioId={setScenarioId} totalSeconds={totalSeconds} portionMinSeconds={portionMinSeconds} portionMaxSeconds={portionMaxSeconds} onTitle={setRoomTitle} onPremise={setPremise} onVisibility={setVisibility} onSourceKind={setSourceKind} onImportedScript={setImportedScript} onTotalSeconds={setTotalSeconds} onPortionMinSeconds={setPortionMinSeconds} onPortionMaxSeconds={setPortionMaxSeconds} onSubmit={createRoom} isCreating={isCreating} notice={notice} />;
     }
     if (screen === "script" && generatedJam) {
       return <ScriptScreen jam={generatedJam} roomTitle={roomTitle} onStudio={() => setLocation((current) => ({ ...current, screen: "studio" }))} />;

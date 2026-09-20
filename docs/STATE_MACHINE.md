@@ -29,6 +29,25 @@ While a scene is `generating`, new inputs continue entering the next queue. One 
 
 **Planned, not implemented.** No step of this lifecycle exists: there is no vote, no acceptance, no story version and no idempotency register. The target contract — the command envelope, the atomic commit, and the rule that an acceptance touching a played or locked portion is refused with `portion_locked` — is `docs/specs/transactional-scene-contract.md`. Note that the **portion** lifecycle (lock, generate, play) *is* implemented and is a different thing: see "Portion playback, locking, and video generation" in `docs/API_CONTRACTS.md`.
 
+## Escape-room turn lifecycle
+
+`collecting → resolved → collecting`, with `finished` as the only exit.
+
+- **collecting**: participants propose actions in their own words and vote. One effective vote
+  each; a second replaces the first.
+- **resolved**: the host closes the vote. The winner is resolved by the scenario's rules into an
+  advance, a refusal or something impossible, becomes a beat, and — if it advanced the world — is
+  generated. Every other proposal is discarded rather than queued, and the next turn opens
+  immediately. Generation runs after the turn has moved on, never inside it.
+- **finished**: the goal's conditions hold, or the process spend ceiling refused a segment. There
+  is no timer: the ceiling that already exists is what stops a session that is not going to
+  finish.
+
+**Implemented** (`apps/server/escapeSessions.ts`, `docs/specs/escape-room-scenario.md`). This is a
+narrower mechanism than the scene lifecycle above and does **not** implement it: an escape room's
+turn and votes live in the escape session on the server, `jam_proposals` remains append-only with
+no vote, and the versioned transactional scene contract is still unbuilt.
+
 ## Media-reference lifecycle
 
 `selected → consented → uploading | live → normalized → available → expired | removed`

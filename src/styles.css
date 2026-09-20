@@ -264,3 +264,15 @@ footer { width: 100%; max-width: 1410px; margin: 0 auto; padding: 24px 48px; bor
 .live-consents li {
   align-items: flex-start;
 }
+
+/* The escape room: the third story source, and the panel it becomes in a jam. */
+.scenario-picker { display: grid; gap: 10px; margin-bottom: 21px; }
+.scenario-card { display: grid; gap: 6px; padding: 14px 16px; text-align: left; border-radius: 6px; border: 1px solid #48506a; background: transparent; color: #c2c4d0; }
+.scenario-card strong { color: #edf0fb; font-size: 15px; }
+.scenario-card span { color: #aeb5c6; font-size: 13px; line-height: 1.5; }
+.scenario-card em { color: #8e94a8; font: 11px "DM Mono", monospace; font-style: normal; letter-spacing: .06em; }
+.scenario-card.active { border-color: #f6f4ee; background: rgba(246, 244, 238, .08); }
+.scenario-card.active strong { color: #fff; }
+.escape-room .queue-card { padding: 20px 0 0; border-top: 1px solid #303a52; }
+.escape-proposals li span em { color: #8e94a8; font-style: normal; font-size: 13px; }
+.escape-progress .roster { max-height: 220px; overflow: auto; }

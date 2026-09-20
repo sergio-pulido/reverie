@@ -21,7 +21,9 @@ import {
   resolveDirectorIndexStore,
   type DirectorIndexStore,
 } from "./directorIndex";
+import { createEscapeRouter } from "./escape";
 import { createSessionsRouter } from "./sessions";
+import { resolveSpendAccount } from "./spendLedger";
 
 /**
  * API wiring shared by the real server and tests. Order matters: the JSON
@@ -72,6 +74,9 @@ export function createApiApp(
   const directorIndex = options.directorIndex ?? resolveDirectorIndexStore();
   const directorRecordings =
     options.directorRecordings ?? resolveDirectorRecordingStore();
+  // FAL_ASSET_BUDGET_USD is a ceiling on this process, so the live director
+  // and the escape room debit one account rather than a copy each.
+  const account = resolveSpendAccount();
   app.use(
     createJamsRouter(store, (jamId) => ({
       minEditablePortionIndex: streams.minEditablePortionIndex(jamId),
@@ -84,11 +89,13 @@ export function createApiApp(
     registry: streams,
     index: directorIndex,
     recordings: directorRecordings,
+    account,
   }));
   app.use(createDirectorArchiveRouter(store, {
     index: directorIndex,
     recordings: directorRecordings,
   }));
+  app.use(createEscapeRouter({ account }));
   app.use("/api", (_request, response) => {
     response.status(404).json({ code: "NOT_FOUND", safeMessage: "API route not found." });
   });

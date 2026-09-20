@@ -372,7 +372,11 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
-        setNotice(`Jam registered, but its script is not ready: ${body?.error?.safeMessage ?? "the script could not be created."}`);
+        // A deployment that serves only the catalogue and Discover has no
+        // studio behind /api/jams at all: say that, rather than blaming the script.
+        setNotice(response.status === 404
+          ? "The live studio is not attached to this deployment: Director, Movie Jam and Escape Room run on the studio server. Discover and the catalogue work here."
+          : `Jam registered, but its script is not ready: ${body?.error?.safeMessage ?? "the script could not be created."}`);
         return;
       }
       const script = body.jam as GeneratedJam;

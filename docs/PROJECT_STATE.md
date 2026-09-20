@@ -1330,9 +1330,14 @@ open a PR, merge the PR. The previous split between a "primary agent" pushing di
 - **An ended room's story is frozen.** Now that a jam carries a lifecycle, an edit to an `ended`
   room is refused `jam_ended` at admission, and one already queued when the room ends fails with
   the same code rather than rewriting a film that was already shot.
-- **Delivery to the director.** After a commit the edited beat's phrase is sent to every open
-  stream of the jam as a direction carrying `beatIndex`; refusals are recorded on the edit and
-  never fail it. No session is opened for it.
+- **Delivery to the director.** After a commit the edited beat's phrase is sent as a direction
+  carrying `beatIndex`, but **only to a stream whose next beat it is** (`minEditableBeatIndex`):
+  a direction steers what the provider generates next, so sending a distant beat would render it
+  out of order rather than schedule it. The consequence, stated rather than hidden: a beat edited
+  further ahead never reaches an already-open stream, because the script went to the provider once
+  at session open and nothing re-sends it. Refusals and skips are recorded on the edit and never
+  fail it. No session is opened for delivery, and a direction adds no charge to a session already
+  billing for time.
 - **Client.** `OutlinePanel` on the script screen and in the Studio: beats with played /
   generating / editable state, "Rewrite" and "Not this" on editable beats, the ledger, and honest
   "no beat yet" and "no script on this server" states. `GET /api/jams/:id/outline` also returns

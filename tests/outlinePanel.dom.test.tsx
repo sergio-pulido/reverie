@@ -127,7 +127,7 @@ describe("the outline panel", () => {
   it("shows what the queue did with each edit, in the server's own words", async () => {
     edits = [
       { id: "b", jamId: JAM, requestId: "r2", intent: "reroll", beatIndex: 3, mechanism: "direct", status: "failed", queuedAt: "2026-09-20T12:00:01.000Z", error: { code: "portion_locked", safeMessage: "That beat is already being generated.", retryable: false } },
-      { id: "a", jamId: JAM, requestId: "r1", intent: "set", beatIndex: 2, summary: "the stair floods", mechanism: "direct", status: "landed", queuedAt: "2026-09-20T12:00:00.000Z", revision: 4, direction: { sent: 1, refused: 0 } },
+      { id: "a", jamId: JAM, requestId: "r1", intent: "set", beatIndex: 2, summary: "the stair floods", mechanism: "direct", status: "landed", queuedAt: "2026-09-20T12:00:00.000Z", revision: 4, direction: { sent: 1, refused: 0, skipped: 0 } },
     ];
     const container = await render(<OutlinePanel jamId={JAM} canEdit />);
     const ledger = Array.from(container.querySelectorAll<HTMLElement>(".outline-edit")).map((entry) => entry.textContent ?? "");

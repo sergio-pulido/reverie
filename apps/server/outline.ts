@@ -44,9 +44,11 @@ import { OutlineWriterError, runCascade } from "./outlineWriter";
 /** Rewrites the story from the edited beat on. Injected in tests; the default calls the provider. */
 export type CascadeRunner = (script: JamScript, edit: OutlineEditIntent) => Promise<JamScript>;
 
-/** The slice of a live stream the queue needs: which jam, and one direction. */
+/** The slice of a live stream the queue needs: which jam, where it is, and one direction. */
 export interface OutlineStream {
   readonly jamId: string;
+  /** Where this stream stands, so only the beat it is about to render is directed. */
+  readonly beats: DirectorBeatWindow;
   direct(request: { body: string; authorId?: string; beatIndex?: number }): {
     accepted: boolean;
     refusal?: string;
@@ -267,15 +269,38 @@ export class OutlineEditQueue {
   }
 
   /**
-   * Sends the edited beat's new phrase to every open stream of the jam.
+   * Sends the edited beat's new phrase to the streams that are about to render
+   * it.
+   *
+   * ONLY to those. A direction is a steering prompt carrying `replan`, not a
+   * positional instruction: the provider re-plans what it generates next from
+   * whatever it is told. So sending a beat the stream will not reach for
+   * another three minutes does not schedule that beat — it makes the stream
+   * render it now, out of order. A stream is addressed only when the edited
+   * beat is the one it would generate next, which the lock window already
+   * names: the two closed beats are the one on screen and the one with the
+   * provider, so the first editable beat is exactly the imminent one.
+   *
+   * The honest consequence, which no code here can fix: a beat edited further
+   * ahead does not reach an already-open stream at all. The script went to the
+   * provider once, in the `configure` message at session open, and nothing
+   * re-sends it. The commit is durable either way; the stream is what misses.
+   *
    * Best-effort on top of a commit that already stands: a refusal is recorded
    * and never fails the edit, and with no stream open nothing is wrong.
    */
-  private deliver(record: OutlineEditRecord, script: JamScript): { sent: number; refused: number } {
+  private deliver(
+    record: OutlineEditRecord,
+    script: JamScript,
+  ): { sent: number; refused: number; skipped: number } {
     const body = getPortionAt(script, record.beatIndex)?.portion.summary;
-    const outcome = { sent: 0, refused: 0 };
+    const outcome = { sent: 0, refused: 0, skipped: 0 };
     if (!body) return outcome;
     for (const stream of this.streamsFor(record.jamId)) {
+      if (record.beatIndex !== stream.beats.minEditableBeatIndex) {
+        outcome.skipped += 1;
+        continue;
+      }
       let accepted = false;
       try {
         accepted = stream.direct({ body, authorId: record.authorId, beatIndex: record.beatIndex }).accepted;

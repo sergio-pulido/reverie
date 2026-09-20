@@ -318,17 +318,41 @@ about where a direction came from, so a beat needs no translation to become one.
 naming a closed beat is refused with `beat_locked`, the stream-side counterpart of the
 `portion_locked` a script edit gets.
 
-As built: **after a cascade commits, the edited beat's new phrase is sent to every open stream of
-that jam** as `direct({ body: summary, beatIndex, authorId })`. Only that one beat is sent, never
-the rewritten tail — the director's `replan` flag means a burst of prompts would cancel down to the
-last one and flood a bounded audit log with text no human asked for. The stream re-plans forward
-from the phrase, which is what the cascade already did to the script. The edit record reports
-`direction: { sent, refused }`; a refusal (`stream_not_ready`, `beat_locked`) is recorded and
-never fails the edit, and with no stream open nothing is sent and nothing is wrong.
+As built: **after a cascade commits, the edited beat's new phrase is sent to the open streams that
+are about to render it** as `direct({ body: summary, beatIndex, authorId })`.
 
-A direction is a control message on a stream that is already billing by wall clock; it adds no
-provider cost of its own. The paid call in this path is the cascade completion, one per edit
-regardless of how many streams are open.
+Two limits on that, and the second is the one that is easy to get wrong.
+
+**Only the edited beat is sent, never the rewritten tail.** The director's `replan` flag means a
+burst of prompts would cancel down to the last one and flood a bounded audit log with text no
+human asked for.
+
+**And only to a stream whose next beat this is.** A direction is a *steering* prompt, not a
+positional one: the provider re-plans what it generates next from whatever it is told. Sending a
+stream a beat it will not reach for another three minutes therefore does not schedule that beat,
+it makes the stream render it now, out of order. A stream is addressed only when the edited beat
+is `minEditableBeatIndex` for that stream — which the lock window already makes the imminent one,
+since the two closed beats are the one on screen and the one with the provider.
+
+The honest consequence: **a beat edited further ahead does not reach an already-open stream at
+all.** The script went to the provider once, in the `configure` message at session open, and
+nothing re-sends it as the stream advances. The commit is durable either way and the outline is
+correct; it is the live stream that will not reflect it. Closing that would mean re-sending a beat
+as it becomes imminent, which nothing does today.
+
+The edit record reports `direction: { sent, refused, skipped }` — `skipped` being a stream this
+edit was not for. A refusal (`stream_not_ready`, `beat_locked`) is recorded and never fails the
+edit, and with no stream open nothing is sent and nothing is wrong.
+
+**What delivery costs.** A direction is a control message on a session that is already billing for
+wall-clock time, so fanning one out to several streams adds no charge per this server's own
+accounting: `DirectorSessionLedger` bills `max(60, seconds) × usdPerSecond` on close, counting
+duration and never prompts, and each of those streams was billing whether or not anyone directed
+it. The paid call in this path is the cascade completion — one per edit, regardless of how many
+streams are open. Two caveats worth stating rather than assuming: that ledger is this repository's
+*model* of fal's billing for the realtime director, which has never been probed with a valid key,
+so a per-prompt charge would change the picture; and a stream that re-plans may generate different
+content, not more of it.
 
 Two constraints from the earlier design still hold:
 

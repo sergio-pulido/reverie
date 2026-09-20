@@ -77,10 +77,16 @@ interface FakeStream extends OutlineStream {
 }
 let streams: FakeStream[] = [];
 
-function fakeStream(jamId: string, accepted = true): FakeStream {
+function fakeStream(jamId: string, accepted = true, imminentBeat = 2): FakeStream {
   const directed: { body: string; beatIndex?: number; authorId?: string }[] = [];
   return {
     jamId,
+    // Where this stream stands: the beat it would generate next.
+    beats: {
+      currentBeatIndex: imminentBeat - 2,
+      lockedBeatIndex: imminentBeat - 1,
+      minEditableBeatIndex: imminentBeat,
+    },
     directed,
     direct(request) {
       directed.push(request);
@@ -253,7 +259,7 @@ test("the landed beat is sent to every open stream of the jam, and to no other j
 
   const response = await post(jam.id, setEdit(2, "the stair floods", { authorId: "someone" }));
   const landed = await settleEdit(jam.id, (await response.json()).edit.id);
-  assert.deepEqual(landed.direction, { sent: 2, refused: 0 });
+  assert.deepEqual(landed.direction, { sent: 2, refused: 0, skipped: 0 });
   for (const stream of mine) {
     assert.deepEqual(stream.directed, [
       { body: "the stair floods", beatIndex: 2, authorId: "someone" },
@@ -269,7 +275,7 @@ test("a stream that refuses the direction is recorded, and the edit still stands
   const landed = await settleEdit(jam.id, (await response.json()).edit.id);
   // Delivery is best-effort on top of a commit that already happened.
   assert.equal(landed.status, "landed");
-  assert.deepEqual(landed.direction, { sent: 0, refused: 1 });
+  assert.deepEqual(landed.direction, { sent: 0, refused: 1, skipped: 0 });
 });
 
 test("with no stream open nothing is sent, and nothing is wrong", async () => {
@@ -277,7 +283,7 @@ test("with no stream open nothing is sent, and nothing is wrong", async () => {
   const response = await post(jam.id, setEdit(0, "she hears nothing at all"));
   const landed = await settleEdit(jam.id, (await response.json()).edit.id);
   assert.equal(landed.status, "landed");
-  assert.deepEqual(landed.direction, { sent: 0, refused: 0 });
+  assert.deepEqual(landed.direction, { sent: 0, refused: 0, skipped: 0 });
 });
 
 test("edits are applied one at a time, each on the result of the one before", async () => {
@@ -565,4 +571,34 @@ test("a room ending under a queued edit fails it rather than rewriting a finishe
   const failed = await settleEdit(jam.id, second.edit.id);
   assert.equal(failed.status, "failed");
   assert.equal(failed.error?.code, "jam_ended");
+});
+
+test("a beat further ahead than the stream's next one is committed but not directed", async () => {
+  const jam = await newJam();
+  // The stream is about to render beat 2; the edit is for beat 3.
+  const stream = fakeStream(jam.id, true, 2);
+  streams = [stream];
+  const response = await post(jam.id, setEdit(3, "the water remembers a name"));
+  const landed = await settleEdit(jam.id, (await response.json()).edit.id);
+
+  assert.equal(landed.status, "landed");
+  // A direction carries `replan` and steers what the stream generates NEXT, so
+  // sending a beat it will not reach for a while would render it out of order.
+  assert.deepEqual(landed.direction, { sent: 0, refused: 0, skipped: 1 });
+  assert.deepEqual(stream.directed, []);
+  const outline = await (await fetch(`${baseUrl}/api/jams/${jam.id}/outline`)).json();
+  assert.equal(outline.beats[3].summary, "the water remembers a name");
+});
+
+test("two streams on different beats: only the one about to render it is told", async () => {
+  const jam = await newJam();
+  const imminent = fakeStream(jam.id, true, 2);
+  const behind = fakeStream(jam.id, true, 3);
+  streams = [imminent, behind];
+  const response = await post(jam.id, setEdit(2, "the stair floods"));
+  const landed = await settleEdit(jam.id, (await response.json()).edit.id);
+
+  assert.deepEqual(landed.direction, { sent: 1, refused: 0, skipped: 1 });
+  assert.deepEqual(imminent.directed, [{ body: "the stair floods", beatIndex: 2, authorId: undefined }]);
+  assert.deepEqual(behind.directed, []);
 });

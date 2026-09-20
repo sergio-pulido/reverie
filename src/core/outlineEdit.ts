@@ -81,8 +81,14 @@ export interface OutlineEditRecord {
   /** The revision the edit landed as. */
   revision?: number;
   error?: OutlineEditError;
-  /** How the edited beat fared as a direction to the jam's open streams. */
-  direction?: { sent: number; refused: number };
+  /**
+   * How the edited beat fared as a direction to the jam's open streams.
+   *
+   * `skipped` is a stream the edit was not for: a direction steers what a
+   * stream generates next, so only the stream about to render this beat is
+   * told about it.
+   */
+  direction?: { sent: number; refused: number; skipped: number };
 }
 
 /** At most this many edits wait per jam; the next is refused with `queue_full`. */

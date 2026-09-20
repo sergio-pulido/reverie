@@ -198,8 +198,9 @@ Edits are processed one at a time per jam. The cascade completion runs outside t
 section; the commit takes it once and lands every rewritten portion as one revision, refusing
 `portion_locked` if the boundary moved meanwhile and `stale_state_version` if the base revision was
 replaced twice. The edit record's `status` is `queued | processing | landed | failed`, with
-`baseRevision`, `revision`, a typed `error`, and `direction: { sent, refused }` for the beat sent to
-open streams after the commit. Durations and structure are never rewritten.
+`baseRevision`, `revision`, a typed `error`, and `direction: { sent, refused, skipped }` for the beat sent
+after the commit to the open streams whose next beat it is — a direction steers what the provider
+generates next, so a beat further ahead is committed without being sent. Durations and structure are never rewritten.
 
 ## The escape room
 

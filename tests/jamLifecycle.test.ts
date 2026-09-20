@@ -20,16 +20,16 @@ test("stopping a playing room ends it", () => {
   assert.equal(stopped.lifecycle, "ended");
 });
 
-test("an ended room is terminal", () => {
-  // Its recording is the artifact; a second session would leave two different
-  // films behind one room URL.
+test("a stopped room plays again", () => {
+  // Anybody in the room can send the stop signal, so a stop that retired the
+  // room would let one misplaced press end it for everyone. The takes do not
+  // collide: each session keeps its own archive entry.
   const restarted = applyLifecycle("ended", "start");
-  assert.equal(restarted.ok, false);
-  assert.equal(restarted.refusal, "already_ended");
-  assert.equal(restarted.lifecycle, "ended");
+  assert.equal(restarted.ok, true);
+  assert.equal(restarted.lifecycle, "playing");
 });
 
-test("stopping twice is refused but leaves the room ended", () => {
+test("stopping twice is refused but leaves the room stopped", () => {
   const again = applyLifecycle("ended", "stop");
   assert.equal(again.ok, false);
   // The refusal still reports where the room actually is, so an idempotent
@@ -50,7 +50,7 @@ test("starting a playing room is refused rather than opening a second stream", (
   assert.equal(again.refusal, "already_playing");
 });
 
-test("only an ended room has something to play back", () => {
+test("only a stopped room has something to play back", () => {
   assert.equal(hasRecording("live"), false);
   assert.equal(hasRecording("playing"), false);
   assert.equal(hasRecording("ended"), true);
@@ -59,5 +59,5 @@ test("only an ended room has something to play back", () => {
 test("each state has a label the room can show", () => {
   assert.equal(lifecycleLabel("live"), "Live");
   assert.equal(lifecycleLabel("playing"), "Playing");
-  assert.equal(lifecycleLabel("ended"), "Ended");
+  assert.equal(lifecycleLabel("ended"), "Stopped");
 });

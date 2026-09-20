@@ -54,7 +54,7 @@ export function ScriptScreen({ jam, roomTitle, onStudio }: ScriptScreenProps) {
         </div>
       </header>
       <SessionPanel jam={jam} session={session} onSession={setSession} />
-      <JamDirector jamId={jam.id} canDrive configuration={configuration} />
+      <JamDirector jamId={jam.id} configuration={configuration} />
       <OutlinePanel jamId={jam.id} canEdit onScript={setScript} />
       {script.scenes.map((scene, sceneIndex) => (
         <article key={sceneIndex} className="jam-scene">

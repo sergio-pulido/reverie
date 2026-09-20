@@ -174,7 +174,7 @@ function Story({
   // The outline belongs to the screenplay path: an escape room has its own
   // turn structure and no beats to steer.
   return <>
-    <JamDirector jamId={jamId} canDrive={isHost} configuration={configuration} />
+    <JamDirector jamId={jamId} configuration={configuration} />
     <OutlinePanel jamId={jamId} canEdit={contributionAllowed} authorId={authorId} />
     <div className="queue-card queue-card-stack">
       <div><p className="eyebrow">UP NEXT</p><h2>Proposal queue</h2></div>

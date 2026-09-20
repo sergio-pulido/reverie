@@ -71,19 +71,34 @@ function badge(): string {
 }
 
 describe("the room shows where it is in its life", () => {
-  it("a new room reads live and offers to start", async () => {
+  it("a new room reads live and offers to play", async () => {
     const restore = serve("live");
     try {
-      await render(<JamDirector jamId={JAM} canDrive configuration={DEFAULT_CONFIGURATION} />);
+      await render(<JamDirector jamId={JAM} configuration={DEFAULT_CONFIGURATION} />);
       assert.equal(badge(), "LIVE");
-      const start = document.querySelector<HTMLButtonElement>(".button-primary");
-      assert.equal(start?.disabled, false);
+      const play = document.querySelector<HTMLButtonElement>('[data-testid="jam-director-play"]');
+      assert.equal(play?.disabled, false);
     } finally {
       restore();
     }
   });
 
-  it("an ended room reads ended and plays its recording instead of restarting", async () => {
+  it("gives everyone in the room the same two signals and the direction box", async () => {
+    // Nobody owns the take. This screen is handed no role at all, which is the
+    // point: the person who joined a jam sees the same controls as the person
+    // who registered it.
+    const restore = serve("live");
+    try {
+      await render(<JamDirector jamId={JAM} configuration={DEFAULT_CONFIGURATION} />);
+      assert.ok(document.querySelector('[data-testid="jam-director-play"]'), "anybody can play");
+      assert.ok(document.querySelector('[data-testid="jam-director-stop"]'), "anybody can stop");
+      assert.ok(document.querySelector(".field input"), "anybody can direct");
+    } finally {
+      restore();
+    }
+  });
+
+  it("a stopped room plays its recording, and can be played again", async () => {
     const restore = serve(
       "ended",
       [{ id: "sess-1" }],
@@ -94,10 +109,10 @@ describe("the room shows where it is in its life", () => {
       ],
     );
     try {
-      await render(<JamDirector jamId={JAM} canDrive configuration={DEFAULT_CONFIGURATION} />);
-      assert.equal(badge(), "ENDED");
+      await render(<JamDirector jamId={JAM} configuration={DEFAULT_CONFIGURATION} />);
+      assert.equal(badge(), "STOPPED");
 
-      // The recording is the artifact of a finished room, so it is offered.
+      // The recording is the artifact of the take that stopped, so it is offered.
       const player = document.querySelector<HTMLVideoElement>(
         '[data-testid="jam-director-recording"]',
       );
@@ -109,9 +124,10 @@ describe("the room shows where it is in its life", () => {
       );
       assert.match(player.getAttribute("src") ?? "", /\/director\/archive\/sess-1\/video$/);
 
-      // And starting again is not on offer: the server would refuse it.
-      const start = document.querySelector<HTMLButtonElement>(".button-primary");
-      assert.equal(start?.disabled, true);
+      // And the room is not retired: the next take is one press away, because
+      // a stop anybody can send must not be able to end the room for good.
+      const play = document.querySelector<HTMLButtonElement>('[data-testid="jam-director-play"]');
+      assert.equal(play?.disabled, false);
 
       // The film is in pieces, so the viewer can go straight to a moment. The
       // piece list arrives on a second read, so the render is given time to settle.
@@ -129,12 +145,12 @@ describe("the room shows where it is in its life", () => {
     }
   });
 
-  it("an ended session with no stored pieces does not render a broken player", async () => {
+  it("a stopped session with no stored pieces does not render a broken player", async () => {
     const restore = serve("ended", [{ id: "sess-empty" }], []);
     try {
-      await render(<JamDirector jamId={JAM} canDrive configuration={DEFAULT_CONFIGURATION} />);
+      await render(<JamDirector jamId={JAM} configuration={DEFAULT_CONFIGURATION} />);
       await settle();
-      assert.equal(badge(), "ENDED");
+      assert.equal(badge(), "STOPPED");
       assert.equal(
         document.querySelector('[data-testid="jam-director-recording"]'),
         null,
@@ -176,7 +192,7 @@ describe("the room shows where it is in its life", () => {
     }) as typeof fetch;
 
     try {
-      await render(<JamDirector jamId={JAM} canDrive={false} configuration={DEFAULT_CONFIGURATION} />);
+      await render(<JamDirector jamId={JAM} configuration={DEFAULT_CONFIGURATION} />);
       await cleanup();
       answerAttach(
         new Response(JSON.stringify({ sessionId: "session-late", viewerId: "viewer-late" }), {

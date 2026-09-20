@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { critiqueRequestSchema, type CritiqueOk } from "../../src/conversation/contract.js";
-import { writeCritiques } from "../_lib/discover-critic.js";
+import { critiqueStep } from "../_lib/discover-funnel.js";
 import {
   abortOnDisconnect,
   admit,
@@ -12,7 +12,6 @@ import {
   readAccessToken,
   readJsonBody,
   resolveProvider,
-  withSlot,
   type DiscoverEndpointOptions,
 } from "../_lib/discover-http.js";
 import { sendJson } from "../_lib/http.js";
@@ -62,10 +61,8 @@ export default async function discoverCritique(request: IncomingMessage, respons
   }
 
   const { picks, withheld } = parsed.data;
-  // A title sent as both a pick and a withheld one would refuse every critique of it.
-  const held = withheld.filter((name) => !picks.some((film) => film.title === name));
   const signal = abortOnDisconnect(response);
-  const result = await withSlot(() => writeCritiques(provider.complete, state, picks, held, options.now, signal));
+  const result = await critiqueStep(provider, state, picks, withheld, { now: options.now, signal });
   if (isUnavailable(result)) {
     sendJson(response, 200, result);
     return;

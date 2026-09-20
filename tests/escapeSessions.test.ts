@@ -103,6 +103,12 @@ test("the winning proposal is resolved and filmed; the losers are discarded", as
     const beat = rooms.settle("jam-2");
     assert.ok(typeof beat !== "string");
     assert.equal(beat.outcome, "advanced");
+    // Said before the narrator is even asked: a snapshot taken during those
+    // seconds must not tell the room a beat about to be filmed was not.
+    assert.equal(
+      rooms.snapshot("jam-2", "a")!.beats.at(-1)!.media.status,
+      "generating",
+    );
     assert.equal(beat.proposal?.authorName, "Ada");
     assert.equal(beat.narrationSource, "scenario", "no narrator configured, so the author speaks");
 

@@ -260,6 +260,11 @@ export class EscapeRooms {
       // Only an outcome that changed the world is filmed. A refusal already
       // carries the author's sentence, and spending a paid segment on it
       // would shorten the session the room is actually trying to finish.
+      //
+      // The status is set here rather than inside the work, because the work
+      // asks the narrator first: a snapshot taken during those few seconds
+      // would otherwise tell the room a beat about to be filmed was not.
+      if (this.fal) beat.segment.status = "generating";
       this.track(this.produceBeat(room, before, outcome, winner.body, beat));
       this.ensureLoop(room);
     }

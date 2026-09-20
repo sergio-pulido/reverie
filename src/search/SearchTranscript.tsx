@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { CatalogueTitle } from "../catalogue/contract";
+import type { Critique } from "../conversation/contract";
 import type { Line } from "../conversation/transcript";
 import type { CardHover } from "./ResultCard";
 import { ResultRow, ResultRowWaiting } from "./ResultRow";
@@ -7,12 +8,12 @@ import type { TurnBlock } from "./results";
 
 type SearchTranscriptProps = {
   blocks: readonly TurnBlock[];
-  /** Answer lines whose films are still on their way. */
+  /** Answer lines still being answered; only those without films yet show they are waiting. */
   waiting: ReadonlySet<number>;
   /** A message is on its way to the assistant. */
   pending: boolean;
   cellProps: (row: string, index: number) => { "data-row": string; "data-index": number; tabIndex: number };
-  onOpen: (title: CatalogueTitle, card: HTMLElement) => void;
+  onOpen: (title: CatalogueTitle, card: HTMLElement, critique: Critique | null) => void;
   hover: CardHover;
   /** What is being said and not yet sent, drawn as the conversation's next line. */
   children?: ReactNode;

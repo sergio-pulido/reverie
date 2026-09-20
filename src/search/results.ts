@@ -23,6 +23,7 @@ export function snapshotOf(shown: ShownShortlist, total: number | null, note: st
     titles,
     pickIds: [...shown.pickIds].filter((id) => ids.has(id)),
     reasons: Object.fromEntries([...shown.reasons].filter(([id]) => ids.has(id))),
+    critiques: {},
     source: shown.source === "assistant" ? "assistant" : "genre",
     note: [note, shown.note].filter((line) => line !== null).join(" ") || null,
     total,
@@ -41,7 +42,7 @@ export function widenedNote(phrase: string): string {
 /** The films a title lookup found, in the catalogue's order, or null when it found none. */
 export function lookupResults(response: CatalogueOk): ResultSet | null {
   if (response.items.length === 0) return null;
-  return { titles: response.items.slice(0, SNAPSHOT_SIZE), pickIds: [], reasons: {}, source: "lookup", note: null, total: response.total };
+  return { titles: response.items.slice(0, SNAPSHOT_SIZE), pickIds: [], reasons: {}, critiques: {}, source: "lookup", note: null, total: response.total };
 }
 
 /** What a row says about itself: whose order it is, and how many films matched in all. */

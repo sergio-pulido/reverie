@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { providerIdOf, type CatalogueTitle } from "../catalogue/contract";
+import type { Critique } from "../conversation/contract";
 import type { SearchRequest } from "../App";
 import { FilmPage } from "../discover/FilmPage";
 import { TMDB_ATTRIBUTION_FALLBACK, TmdbAttribution } from "../discover/TmdbAttribution";
@@ -69,7 +70,7 @@ export function SearchScreen({ film, searchRequest, onOpenFilm, onCloseFilm, onS
   const [spokenDraft, setSpokenDraft] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [preview, setPreview] = useState<{ title: CatalogueTitle; opener: HTMLElement } | null>(null);
+  const [preview, setPreview] = useState<{ title: CatalogueTitle; opener: HTMLElement; critique: Critique | null } | null>(null);
   const [filmSeed, setFilmSeed] = useState<CatalogueTitle | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const voiceRef = useRef<HTMLButtonElement | null>(null);
@@ -104,12 +105,12 @@ export function SearchScreen({ film, searchRequest, onOpenFilm, onCloseFilm, onS
   const pendingShown = speaking || (spokenDraft && draft.trim().length > 0);
   const heard = useVoicePreview(speaking ? voice.partial : draft, search.read, pendingShown);
 
-  const { hover, dwell } = useHoverPreview((title, card) => openPreview(title, card));
+  const { hover, dwell } = useHoverPreview((title, card, critique) => openPreview(title, card, critique));
 
   const openPreview = useCallback(
-    (title: CatalogueTitle, card: HTMLElement) => {
+    (title: CatalogueTitle, card: HTMLElement, critique: Critique | null = null) => {
       dwell.opened(card);
-      setPreview({ title, opener: card });
+      setPreview({ title, opener: card, critique });
     },
     [dwell],
   );
@@ -307,7 +308,15 @@ export function SearchScreen({ film, searchRequest, onOpenFilm, onCloseFilm, onS
         </div>
       )}
       {preview && !filmOpen && (
-        <FilmPreview title={preview.title} attribution={TMDB_ATTRIBUTION_FALLBACK} sheet={narrow} onClose={closePreview} onOpenFilm={openFilmPage} onStartJam={onStartJam} />
+        <FilmPreview
+          title={preview.title}
+          critique={preview.critique}
+          attribution={TMDB_ATTRIBUTION_FALLBACK}
+          sheet={narrow}
+          onClose={closePreview}
+          onOpenFilm={openFilmPage}
+          onStartJam={onStartJam}
+        />
       )}
     </>
   );

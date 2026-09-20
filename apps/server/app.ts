@@ -4,6 +4,7 @@ import catalogue from "../../api/catalogue";
 import catalogueTitle from "../../api/catalogue-title";
 import liveToken from "../../api/live/token";
 import discoverTurn from "../../api/discover/turn";
+import discoverCritique from "../../api/discover/critique";
 import discoverRank from "../../api/discover/rank";
 import voiceTranscribe from "../../api/voice/transcribe";
 import {
@@ -69,6 +70,9 @@ export function createApiApp(
   });
   app.all("/api/discover/rank", (request, response) => {
     void discoverRank(request, response);
+  });
+  app.all("/api/discover/critique", (request, response) => {
+    void discoverCritique(request, response);
   });
   app.all("/api/voice/transcribe", (request, response) => {
     void voiceTranscribe(request, response);

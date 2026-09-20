@@ -17,6 +17,10 @@
   --composer-ground: rgba(20, 26, 48, .72);
   --composer-gap: 18px;
   --card-width: 200px;
+  /* A pick the critic wrote about is a poster and a column of prose side by side. A paragraph
+     down a 200-pixel column is one or two words a line and unreadable from a sofa, so the slot
+     grows sideways instead and the row scrolls, as it already does. */
+  --pick-width: 620px;
   /* What is on screen, and how much of the bottom a phone's keyboard has taken. `useViewport`
      publishes both from the visual viewport; without it the whole screen is assumed. */
   --screen: var(--search-viewport, 100dvh);
@@ -97,6 +101,7 @@
 }
 .search-track::-webkit-scrollbar { display: none; }
 .search-card-slot { flex: none; display: flex; width: var(--card-width); }
+.search-card-slot-noted { width: var(--pick-width); }
 .search-card {
   flex: 1;
   display: flex;
@@ -118,6 +123,25 @@
   border-radius: 10px;
   background: linear-gradient(150deg, #2b3152, #151a2d);
   box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
+}
+.search-card-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+/* The poster keeps its size when the card turns sideways; the prose takes the rest. */
+.search-card-noted { flex-direction: row; gap: 24px; align-items: flex-start; }
+.search-card-noted .search-card-poster { flex: none; width: var(--card-width); }
+.search-card-noted .search-card-body { flex: 1; padding-top: 2px; }
+.search-card-noted .search-card-title { margin-top: 0; }
+/* Why this one, and the one thing against it. What watching it is like is the longest of the
+   three and opens with the film, where there is room for it. */
+.search-card-note { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.search-card-why { font-size: 21px; line-height: 1.38; color: var(--ink); }
+.search-card-against { font-size: 20px; line-height: 1.38; color: #d8c2a4; }
+.search-card-against-label {
+  margin-right: 8px;
+  color: #ffd9a8;
+  font-family: "DM Mono", monospace;
+  font-size: .8em;
+  letter-spacing: .12em;
+  text-transform: uppercase;
 }
 .search-card-art { display: block; width: 100%; height: 100%; object-fit: cover; }
 .search-card-art-empty { display: flex; align-items: center; justify-content: center; padding: 14px; color: #a3aac4; font-size: 18px; text-align: center; }
@@ -455,6 +479,24 @@ button.search-card:hover .search-card-poster { box-shadow: 0 0 0 3px rgba(207, 2
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+.search-preview-note {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0 0 20px;
+  padding-left: 18px;
+  border-left: 3px solid rgba(255, 217, 168, .55);
+}
+.search-preview-note p { margin: 0; }
+.search-preview-note-label {
+  color: #ffd9a8;
+  font-family: "DM Mono", monospace;
+  font-size: 15px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+.search-preview-why, .search-preview-watching { font-size: 22px; line-height: 1.42; }
+.search-preview-against { font-size: 21px; line-height: 1.42; color: #e3cfb4; }
 .search-preview-actions { display: flex; flex-wrap: wrap; gap: 20px; }
 .search-preview-attribution {
   display: flex;
@@ -505,7 +547,10 @@ button.search-card:hover .search-card-poster { box-shadow: 0 0 0 3px rgba(207, 2
 .search-panel .search-preview-attribution { padding: 14px 0 0; }
 
 @media (max-width: 1100px) {
-  .search-shell, .search-layer, .search-overlay { --card-width: 170px; --control-height: 76px; }
+  .search-shell, .search-layer, .search-overlay { --card-width: 170px; --pick-width: 480px; --control-height: 76px; }
+  .search-card-noted { gap: 18px; }
+  .search-card-why { font-size: 19px; }
+  .search-card-against { font-size: 18px; }
   .search-line { max-width: 88%; font-size: 23px; }
   .search-field input { font-size: 24px; }
   .search-send { font-size: 22px; padding: 0 26px; }
@@ -522,6 +567,9 @@ button.search-card:hover .search-card-poster { box-shadow: 0 0 0 3px rgba(207, 2
        reaching for the microphone never lands on the edge of the field. */
     --control-height: 58px;
     --composer-gap: 14px;
+    /* Wide enough that the note's opening is a sentence rather than a stack of single words,
+       and narrow enough that two picks are on a 390-pixel screen at once. */
+    --pick-width: 168px;
   }
 
   /* At rest, high: the heading and the field stand near the top of the screen, so a keyboard
@@ -554,6 +602,24 @@ button.search-card:hover .search-card-poster { box-shadow: 0 0 0 3px rgba(207, 2
   .search-card-title { min-height: 2.5em; margin-top: 6px; font-size: 15px; }
   .search-card-year { font-size: 14px; }
   .search-card-pick { top: 6px; left: 6px; padding: 3px 7px; font-size: 12px; }
+
+  /* A note beside a poster needs a column of prose, and there is none here: at this width the
+     card stays a poster, a little wider, and carries the note's opening lines under it. The rest
+     of the note — what watching it is like, and the reservation — opens with the film. */
+  .search-card-noted { flex-direction: column; gap: 6px; }
+  .search-card-noted .search-card-poster { width: auto; }
+  .search-card-noted .search-card-title { margin-top: 6px; }
+  .search-card-note { gap: 0; margin-top: 4px; }
+  .search-card-why {
+    font-size: 13px;
+    line-height: 1.34;
+    color: var(--muted);
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .search-card-against { display: none; }
 
   .search-pending { margin-top: 36px; }
   .search-pending-text, .search-pending-placeholder { font-size: 20px; }
@@ -628,6 +694,10 @@ button.search-card:hover .search-card-poster { box-shadow: 0 0 0 3px rgba(207, 2
   .search-preview-genres li { font-size: 15px; padding: 5px 12px; }
   /* Four lines: the preview is for triage, and both of its actions belong on the screen with it. */
   .search-preview-synopsis { margin-bottom: 18px; font-size: 16px; -webkit-line-clamp: 4; }
+  .search-preview-note { gap: 8px; margin-bottom: 16px; padding-left: 12px; }
+  .search-preview-note-label { font-size: 12px; }
+  .search-preview-why, .search-preview-watching { font-size: 16px; }
+  .search-preview-against { font-size: 15px; }
   /* The two actions, full width and stacked: a thumb reaches the bottom of the screen, not a row
      of buttons wrapped into a corner. */
   .search-preview-actions { display: grid; gap: 10px; }

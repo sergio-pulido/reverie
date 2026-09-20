@@ -12,10 +12,11 @@ import { applyTurn } from "../../src/preferences/state.js";
 import { INTERPRET_SYSTEM, RANK_SYSTEM, interpretUser, rankUser } from "./discover-prompts.js";
 
 /**
- * The two model calls behind Discover's conversation, each bounded: a token ceiling, a
- * per-attempt timeout inside an overall deadline, and at most one retry. The retry tells the
- * model exactly what was refused. Nothing the model returns is used until the engine accepts
- * it: a decision through `applyTurn`, a ranking through `acceptFullRanking`.
+ * The model calls behind Discover's conversation, each bounded: a token ceiling, a per-attempt
+ * timeout inside an overall deadline, and at most one retry. The retry tells the model exactly
+ * what was refused. Nothing the model returns is used until the engine accepts it: a decision
+ * through `applyTurn`, a ranking through `acceptFullRanking`. The critic is a third call, in
+ * `discover-critic.ts`, built on the same machinery.
  */
 
 /** One provider completion, injectable so every path runs offline in tests. */
@@ -24,8 +25,11 @@ export type Completion = (options: CompletionOptions) => Promise<string>;
 export const ASSISTANT_ATTEMPTS = 2;
 export const INTERPRET_BUDGET = { maxTokens: 700, timeoutMs: 12_000, deadlineMs: 20_000 } as const;
 export const RANK_BUDGET = { maxTokens: 1_200, timeoutMs: 15_000, deadlineMs: 25_000 } as const;
+/** What one call may spend: tokens, a per-attempt timeout, an overall deadline, and its voice. */
+export type Budget = { maxTokens: number; timeoutMs: number; deadlineMs: number; temperature?: number };
 /** Below this much time left, a retry could not finish, so it is not started. */
 const MIN_ATTEMPT_MS = 3_000;
+/** Flat by default: these calls report what was said and what fits, and invent nothing. */
 const TEMPERATURE = 0.2;
 
 export type AssistantResult<T> = { ok: true; value: T; attempts: number } | { ok: false; unavailable: Unavailable };
@@ -43,12 +47,12 @@ export function unavailable(code: UnavailableCode): Unavailable {
   return { status: "unavailable", code, safeMessage: MESSAGES[code] };
 }
 
-type Attempt<T> = { ok: true; value: T } | { ok: false; code: UnavailableCode; correction: string };
+export type Attempt<T> = { ok: true; value: T } | { ok: false; code: UnavailableCode; correction: string };
 
 /** Runs `attempt` up to ASSISTANT_ATTEMPTS times inside `deadlineMs`, feeding back each refusal. */
-async function withRetry<T>(
+export async function withRetry<T>(
   complete: Completion,
-  budget: { maxTokens: number; timeoutMs: number; deadlineMs: number },
+  budget: Budget,
   system: string,
   user: string,
   judge: (raw: string) => Attempt<T>,
@@ -72,7 +76,7 @@ async function withRetry<T>(
         user: correction ? `${user}\n\n${correction}` : user,
         maxTokens: budget.maxTokens,
         timeoutMs: Math.min(budget.timeoutMs, remaining),
-        temperature: TEMPERATURE,
+        temperature: budget.temperature ?? TEMPERATURE,
         signal,
       });
     } catch (error) {
@@ -97,7 +101,7 @@ function providerCode(error: NebiusError): UnavailableCode {
   return "ASSISTANT_UNUSABLE";
 }
 
-function parseJson(raw: string): unknown {
+export function parseJson(raw: string): unknown {
   try {
     return JSON.parse(raw);
   } catch {
@@ -105,7 +109,7 @@ function parseJson(raw: string): unknown {
   }
 }
 
-const SHAPE_CORRECTION = "Correction required: your previous reply was not a single JSON object in the required shape";
+export const SHAPE_CORRECTION = "Correction required: your previous reply was not a single JSON object in the required shape";
 const DECISION_SHAPE =
   'Reply again with exactly {"dimensions":[{"dimension","value","confidence","quote","explicit"}],"subject": the viewer\'s own words for what the film is about or null,"setConstraints":[{"slot","minutes" or "year","quote"}],"removeConstraints":[slot names: "runtime.max", "year.min" or "year.max"],"acknowledgement","question"}, listing only what the NEW message changes.';
 

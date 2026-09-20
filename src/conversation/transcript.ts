@@ -1,5 +1,5 @@
 import type { CatalogueTitle } from "../catalogue/contract";
-import type { TurnResponse } from "./contract";
+import type { Critique, TurnResponse } from "./contract";
 
 /**
  * What the search screen shows of the conversation, and what it says when the assistant cannot
@@ -7,7 +7,9 @@ import type { TurnResponse } from "./contract";
  *
  * A turn is one message from the viewer and everything said back to it. An assistant line can
  * carry the films that turn produced, as a snapshot: once attached it is never replaced, so
- * scrolling back shows what was recommended then, not a re-ranking under a later state.
+ * scrolling back shows what was recommended then, not a re-ranking under a later state. The
+ * critic's notes on those picks land afterwards, into the same snapshot: they are written about
+ * those very films, and they change neither which films are there nor the order they are in.
  */
 
 /** Where a result set's order came from, said on screen so nothing claims more than it did. */
@@ -20,6 +22,8 @@ export type ResultSet = {
   pickIds: readonly string[];
   /** Why a pick is here, by title id, when the assistant said. */
   reasons: Readonly<Record<string, string>>;
+  /** What the critic said about a pick, by title id. Empty until it answers, or if it never does. */
+  critiques: Readonly<Record<string, Critique>>;
   source: ResultSource;
   /** What the row has to say about itself: a refused ranking, or words that found no films. */
   note: string | null;
@@ -127,5 +131,21 @@ export function answerLineOf(conversation: Conversation, turn: number): number |
 export function attachResults(conversation: Conversation, lineId: number, results: ResultSet): Conversation {
   const line = conversation.lines.find(({ id }) => id === lineId);
   if (!line || line.speaker !== "assistant" || line.results) return conversation;
+  return { ...conversation, lines: conversation.lines.map((each) => (each === line ? { ...line, results } : each)) };
+}
+
+/**
+ * Adds the critic's notes to a turn's films, once. The snapshot itself is untouched: the films
+ * and their order stay exactly as they were shown, and a note is only kept for a film already in
+ * the row. A line with no films, or one already noted, takes nothing. Returns the same
+ * conversation when nothing changed.
+ */
+export function attachCritiques(conversation: Conversation, lineId: number, critiques: Readonly<Record<string, Critique>>): Conversation {
+  const line = conversation.lines.find(({ id }) => id === lineId);
+  if (!line?.results || Object.keys(line.results.critiques).length > 0) return conversation;
+  const shown = new Set(line.results.titles.map(({ id }) => id));
+  const kept = Object.entries(critiques).filter(([id]) => shown.has(id));
+  if (kept.length === 0) return conversation;
+  const results: ResultSet = { ...line.results, critiques: Object.fromEntries(kept) };
   return { ...conversation, lines: conversation.lines.map((each) => (each === line ? { ...line, results } : each)) };
 }

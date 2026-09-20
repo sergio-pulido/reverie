@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from "react";
 import type { CatalogueTitle } from "../catalogue/contract";
+import type { Critique } from "../conversation/contract";
 import { FILTER_GROUPS, isApplied, type Refinement } from "../catalogue/refinements";
 import type { ShownShortlist } from "../discover/rankedShortlist";
 import type { PreferenceState } from "../preferences/schema";
@@ -21,7 +22,7 @@ type FilterPanelProps = {
   onChoose: (filter: Refinement) => void;
   onUnchoose: (filter: Refinement) => void;
   onClose: () => void;
-  onOpen: (title: CatalogueTitle, card: HTMLElement) => void;
+  onOpen: (title: CatalogueTitle, card: HTMLElement, critique: Critique | null) => void;
   hover: CardHover;
 };
 

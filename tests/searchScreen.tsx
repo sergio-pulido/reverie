@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { act } from "react";
 import { App } from "../src/App";
 import { CONSTRAINT_IDS, nextTurnId } from "../src/catalogue/refinements";
-import type { RankResponse, TurnResponse } from "../src/conversation/contract";
+import type { CritiqueResponse, RankResponse, TurnResponse } from "../src/conversation/contract";
 import { AssistantProvider, type Assistant } from "../src/discover/AssistantContext";
 import { CatalogueReadProvider } from "../src/discover/CatalogueReadContext";
 import type { Constraint, Evidence } from "../src/preferences/schema";
@@ -34,6 +34,16 @@ function interpret(message: string): Heard {
   return heard;
 }
 
+/** What the test critic writes, so a test can read it back off the screen. */
+export function critiqueOf(candidateId: string) {
+  return {
+    candidateId,
+    why: `Why ${candidateId} and not the others, at length.`,
+    watching: `What watching ${candidateId} is actually like.`,
+    reservation: `The one thing wrong with ${candidateId}, honestly.`,
+  };
+}
+
 /** Rankings wait on this while it is held, so a turn stays waiting for its films. */
 export function rankingGate() {
   let open: () => void = () => undefined;
@@ -47,9 +57,10 @@ export function rankingGate() {
   };
 }
 
-export function fakeAssistant(gate?: ReturnType<typeof rankingGate>) {
+export function fakeAssistant(gate?: ReturnType<typeof rankingGate>, critic: "writes" | "silent" = "writes") {
   const turns: string[] = [];
   const rankings: string[][] = [];
+  const critiqued: { picks: string[]; withheld: string[] }[] = [];
   const client: Assistant = {
     async requestTurn(message, state): Promise<TurnResponse> {
       turns.push(message);
@@ -82,13 +93,29 @@ export function fakeAssistant(gate?: ReturnType<typeof rankingGate>) {
       const ranking = [...titles].reverse().map(({ id }, index) => ({ candidateId: id, utility: 1 - index / 100 }));
       return { status: "ok", source: "nebius", model: "test", stateVersion: state.stateVersion, ranking, reasons: [{ candidateId: ranking[0].candidateId, reason: "The best fit here." }] };
     },
+    async requestCritique(state, picks, withheld): Promise<CritiqueResponse> {
+      critiqued.push({ picks: picks.map(({ id }) => id), withheld: [...withheld] });
+      if (critic === "silent") {
+        return { status: "unavailable", code: "ASSISTANT_TIMEOUT", safeMessage: "The assistant did not answer in time." };
+      }
+      return {
+        status: "ok",
+        source: "nebius",
+        model: "test",
+        stateVersion: state.stateVersion,
+        critiques: picks.map(({ id }) => critiqueOf(id)),
+      };
+    },
   };
-  return { client, turns, rankings };
+  return { client, turns, rankings, critiqued };
 }
 
-export async function openSearch(at: string | Entry[] = "/discover", { unknown = [] as readonly string[], gate }: { unknown?: readonly string[]; gate?: ReturnType<typeof rankingGate> } = {}) {
+export async function openSearch(
+  at: string | Entry[] = "/discover",
+  { unknown = [] as readonly string[], gate, critic }: { unknown?: readonly string[]; gate?: ReturnType<typeof rankingGate>; critic?: "writes" | "silent" } = {},
+) {
   const catalogue = fakeCatalogue({ unknown });
-  const assistant = fakeAssistant(gate);
+  const assistant = fakeAssistant(gate, critic);
   await render(
     <CatalogueReadProvider read={catalogue.read}>
       <AssistantProvider assistant={assistant.client}>

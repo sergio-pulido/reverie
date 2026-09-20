@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { Critique } from "../conversation/contract";
 import { MAX_MESSAGE_CHARS } from "../conversation/decision";
 import {
   EMPTY_CONVERSATION,
   answerLineOf,
   assistantReplied,
+  attachCritiques,
   attachResults,
   lookupAnswered,
   systemSaid,
@@ -103,8 +105,13 @@ export function useConversation({ sessionId, current, say }: Speaker) {
 
   /** A turn's films, attached to its answer once; a later call for the same line changes nothing. */
   const attach = useCallback((lineId: number, results: ResultSet) => commit(attachResults(latest.current, lineId, results)), [commit]);
+  /** The critic's notes on a turn's picks, added to films already on screen, once. */
+  const note = useCallback(
+    (lineId: number, critiques: Readonly<Record<string, Critique>>) => commit(attachCritiques(latest.current, lineId, critiques)),
+    [commit],
+  );
   /** Something the screen has to say about the current turn. */
   const notify = useCallback((text: string) => commit(systemSaid(latest.current, text)), [commit]);
 
-  return { conversation, pending, send, attach, notify };
+  return { conversation, pending, send, attach, note, notify };
 }

@@ -97,7 +97,7 @@ describe("a turn", () => {
     assert.equal(turn.posters.length, 12);
     assert.equal(turn.posters[0], "Comedies 47", "the assistant's order, not the catalogue's");
     const first = cards(0)[0];
-    assert.match(first.getAttribute("aria-label")!, /top pick\. Why it’s here: The best fit here\./);
+    assert.match(first.getAttribute("aria-label")!, /top pick\. Why it’s here: Why cat:2048 and not the others/, "the critic's note, not the ranking's reason");
   });
 
   it("adds a block for a refinement and leaves the earlier block's films as they were", async () => {
@@ -383,5 +383,63 @@ describe("what the film is about", () => {
       /The words \u201ca family with some pets\u201d found no films/,
       "and the strip says the same beside the count",
     );
+  });
+});
+
+describe("the critic's note", () => {
+  const noteOn = (index: number) => cards(0)[index].querySelector(".search-card-note");
+
+  it("writes about the top picks only, and sends the rest of the row as names it may not use", async () => {
+    const { assistant } = await openSearch();
+    await say("something funny");
+    assert.equal(assistant.critiqued.length, 1, "one call for the whole set");
+    const [call] = assistant.critiqued;
+    const shown = turns()[0].posters;
+    assert.equal(call.picks.length, 3, "the top three, never the whole row");
+    assert.equal(call.withheld.length, shown.length - 3);
+    assert.ok(!call.withheld.includes(shown[0]!), "a pick is never in the list it may not name");
+    assert.ok(call.withheld.includes(shown[3]!), "a film it was not given is");
+  });
+
+  it("puts why this one and the one thing against it under the poster it is about", async () => {
+    await openSearch();
+    await say("something funny");
+    const note = noteOn(0)!;
+    assert.match(note.querySelector(".search-card-why")!.textContent!, /Why cat:2048 and not the others/);
+    assert.match(note.querySelector(".search-card-against")!.textContent!, /But.*The one thing wrong with cat:2048/);
+    assert.equal(noteOn(3), null, "a film that is not a pick carries no note");
+  });
+
+  it("opens the whole note, what watching it is like included, with the film", async () => {
+    await openSearch();
+    await say("something funny");
+    await click(cards(0)[0]);
+    const preview = dialog()!;
+    assert.equal(preview.querySelector(".search-preview-note-label")?.textContent, "The critic’s note");
+    assert.match(preview.querySelector(".search-preview-watching")!.textContent!, /What watching cat:2048 is actually like/);
+    assert.match(preview.querySelector(".search-preview-against")!.textContent!, /The one thing wrong with cat:2048/);
+  });
+
+  it("shows the films the moment they are ranked, without waiting for the critic", async () => {
+    const gate = rankingGate();
+    gate.release();
+    const { assistant } = await openSearch("/discover", { gate, critic: "silent" });
+    await say("something funny");
+    assert.equal(turns()[0].posters.length, 12, "the row is full");
+    assert.equal(assistant.critiqued.length, 1, "the critic was asked");
+    assert.equal(noteOn(0), null, "and said nothing, so the row carries no note");
+    assert.ok(
+      !turns()[0].lines.some((line) => /critic/i.test(line ?? "")),
+      "a critique that never arrives is not an error worth a line in the conversation",
+    );
+  });
+
+  it("leaves an earlier turn's note alone when a later turn is answered", async () => {
+    await openSearch();
+    await say("something funny");
+    const before = noteOn(0)!.textContent;
+    await say("from the nineties");
+    assert.equal(noteOn(0)!.textContent, before, "the first answer's note is part of its snapshot");
+    assert.ok(document.querySelectorAll(".search-turn")[1].querySelector(".search-card-note"), "and the new turn has its own");
   });
 });

@@ -24,8 +24,9 @@ const NOT_RANKED: RankingStatus = { phase: "idle" };
  * assistant's turn is applied and anything narrows the results, the turn waits for its films:
  * `waiting` lists such turns, each with the state its reply left, and the screen prepares each one
  * (`TurnFilms`) and hands the ranked films back through `settle`, where they are attached to the
- * turn for good. The engine, its grounding rule and its version guard are the ones every turn has
- * always gone through.
+ * turn for good. A turn stays in `waiting` past its films until the critic has written about its
+ * picks, or has failed to; the posters are on screen throughout. The engine, its grounding rule
+ * and its version guard are the ones every turn has always gone through.
  *
  * The shortlist for the current state is also read live whenever anything narrows the results, for
  * the strip's count and the filter panel, ordered by the scorer: changing a filter never costs a
@@ -35,7 +36,7 @@ export function useSearch() {
   const refinement = useRefinement();
   const { state } = refinement;
   const talk = useConversation({ sessionId: state.sessionId, current: refinement.current, say: refinement.say });
-  const { conversation, attach, notify, send: say, pending } = talk;
+  const { conversation, attach, note, notify, send: say, pending } = talk;
   const read = useCatalogueRead();
   const [waiting, setWaiting] = useState<readonly WaitingTurn[]>([]);
 
@@ -51,13 +52,16 @@ export function useSearch() {
   const { current } = refinement;
   const settle = useCallback(
     (turn: WaitingTurn, outcome: TurnOutcome) => {
-      setWaiting((turns) => turns.filter(({ lineId }) => lineId !== turn.lineId));
+      // The films leave the turn waiting: its critique is still being written. Everything else
+      // is the end of it.
+      if (!("results" in outcome)) setWaiting((turns) => turns.filter(({ lineId }) => lineId !== turn.lineId));
       // Line ids start again in a new session: films for a turn of an ended one go nowhere.
       if (turn.state.sessionId !== current().sessionId) return;
       if ("results" in outcome) attach(turn.lineId, outcome.results);
+      else if ("critiques" in outcome) note(turn.lineId, outcome.critiques);
       else notify(`Films could not be loaded. ${outcome.failure}`);
     },
-    [attach, notify, current],
+    [attach, note, notify, current],
   );
 
   const lookup = useCallback(
@@ -96,7 +100,7 @@ export function useSearch() {
     refinement,
     conversation,
     pending,
-    /** Turns whose films are still on their way, each for the state its reply left. */
+    /** Turns still being answered — films, then the critic — each for the state its reply left. */
     waiting,
     settle,
     check,

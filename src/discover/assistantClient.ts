@@ -2,8 +2,10 @@ import type { z } from "zod";
 import type { CatalogueTitle } from "../catalogue/contract";
 import {
   CONVERSATION_LIMITS,
+  critiqueResponseSchema,
   rankResponseSchema,
   turnResponseSchema,
+  type CritiqueResponse,
   type RankCandidate,
   type RankResponse,
   type TurnResponse,
@@ -79,4 +81,22 @@ export function requestRanking(
 ): Promise<RankResponse | null> {
   const candidates = titles.slice(0, CONVERSATION_LIMITS.maxRankCandidates).map(toRankCandidate);
   return post("/api/discover/rank", { state, candidates }, rankResponseSchema, signal);
+}
+
+/**
+ * The critic's note on the films a ranking picked. `withheld` is the rest of the shortlist by
+ * title: the critic is never shown those films and the server refuses a critique that names one.
+ */
+export function requestCritique(
+  state: PreferenceState,
+  picks: readonly CatalogueTitle[],
+  withheld: readonly string[],
+  signal: AbortSignal,
+): Promise<CritiqueResponse | null> {
+  const body = {
+    state,
+    picks: picks.slice(0, CONVERSATION_LIMITS.maxCritiquePicks).map(toRankCandidate),
+    withheld: withheld.slice(0, CONVERSATION_LIMITS.maxRankCandidates),
+  };
+  return post("/api/discover/critique", body, critiqueResponseSchema, signal);
 }

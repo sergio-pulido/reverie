@@ -25,7 +25,7 @@ const REPLY: TurnOk = {
 };
 
 function results(ids: number[], source: ResultSet["source"] = "assistant"): ResultSet {
-  return { titles: ids.map((id) => title(id)), pickIds: ids.slice(0, 1).map((id) => `cat:${id}`), reasons: {}, source, note: null, total: ids.length };
+  return { titles: ids.map((id) => title(id)), pickIds: ids.slice(0, 1).map((id) => `cat:${id}`), reasons: {}, critiques: {}, source, note: null, total: ids.length };
 }
 
 /** One full exchange: the viewer's message and the assistant's acknowledgement. */

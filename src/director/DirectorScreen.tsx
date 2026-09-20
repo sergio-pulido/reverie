@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Footer, Notice } from "../chrome";
 import { formatClock } from "../core/clock";
 import {
@@ -90,21 +90,17 @@ export function DirectorScreen({ slug }: { slug: string | null }) {
   const generatingBeat = beats.find((beat) => beat.state === "generating") ?? null;
   const playingBeat = beats.find((beat) => beat.state === "playing") ?? null;
   const blockedBeat = firstBlockedBeat(beats);
-
-  // An aim is a promise the stream can keep. A beat picked in Review stays
-  // aimed at while the film runs on, and the moment it goes to the provider
-  // every direction sent at it is refused as locked — the server is right,
-  // and the screen was wrong to keep offering it. The aim lets go the moment
-  // its beat closes, and the next direction lands on the stream.
-  useEffect(() => {
-    if (selected === null) return;
-    const aimed = beats[selected];
-    if (!aimed || isBeatClosed(aimed.state)) setSelected(null);
-  }, [beats, selected]);
   // A direction has to have somewhere to land. Everything closed means the
   // provider holds the whole film; no outline means this server has no story
   // to rewrite at all.
   const openBeat = beats.find((beat) => !isBeatClosed(beat.state)) ?? null;
+
+  // Choosing a beat is two things at once: Review reads it back, and the
+  // composer aims at it. The reading survives the beat closing — a locked
+  // beat is still worth looking at, and Review says direction at it will be
+  // refused — but the aim does not: once the beat is with the provider, what
+  // is said goes unaimed, and the story chooses the open beat it is about.
+  const aimedBeat = selected !== null && beats[selected] && !isBeatClosed(beats[selected].state) ? selected : null;
   // Playing and stopping the stream belong to whoever can open this jam: the
   // take is the room's, not one person's. The room's playback clock is a
   // different thing — the database lets only the host move it — so it keeps
@@ -272,7 +268,7 @@ export function DirectorScreen({ slug }: { slug: string | null }) {
           <DirectorComposer
             mode={mode}
             onDirect={story.direct}
-            targetBeat={selected}
+            targetBeat={aimedBeat}
             onClearTarget={() => setSelected(null)}
             notes={composerNotes({
               live: session.live,

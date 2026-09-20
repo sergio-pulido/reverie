@@ -173,11 +173,30 @@ export const DIRECTOR_AUDIO_CODECS = [
  * only host addresses, and a media server on the internet cannot reach a
  * private one, so ICE never completes and no frame ever arrives.
  */
-const DIRECTOR_ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }];
+const DIRECTOR_STUN = { urls: "stun:stun.l.google.com:19302" };
+
+/**
+ * STUN always; TURN when the environment names one. Behind a symmetric NAT
+ * or a stateful firewall — most event and office networks — a reflexive
+ * address is only reachable by the server that opened it, so the provider's
+ * connectivity checks never land and ICE sits in checking until the provider
+ * gives up. A relay with a public address is the only thing that crosses
+ * that. Read once per peer so a change in the environment takes on restart.
+ */
+function directorIceServers(env: NodeJS.ProcessEnv = process.env) {
+  const url = env.REVERIE_TURN_URL?.trim();
+  if (!url) return [DIRECTOR_STUN];
+  const turn: { urls: string; username?: string; credential?: string } = { urls: url };
+  if (env.REVERIE_TURN_USERNAME) turn.username = env.REVERIE_TURN_USERNAME;
+  if (env.REVERIE_TURN_CREDENTIAL) turn.credential = env.REVERIE_TURN_CREDENTIAL;
+  return [DIRECTOR_STUN, turn];
+}
 
 function createWeriftPeer(preferH264: boolean): DirectorPeer {
+  const iceServers = directorIceServers();
+  console.info("director ice servers", { count: iceServers.length, turn: iceServers.length > 1 });
   return new RTCPeerConnection({
-    iceServers: DIRECTOR_ICE_SERVERS,
+    iceServers,
     codecs: { video: directorVideoCodecs(preferH264), audio: DIRECTOR_AUDIO_CODECS },
   }) as unknown as DirectorPeer;
 }

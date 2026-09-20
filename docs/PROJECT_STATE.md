@@ -1373,6 +1373,99 @@ Nothing about the engine, the turn snapshots, the two preview actions or the rem
 changed. Verified in Chrome at 360×800 and 390×844, and held by DOM tests at 360 that read the
 real stylesheet at that width (`tests/searchPhone.dom.test.tsx`).
 
+## 2026-09-20 — Director archive review hardening (RV-18)
+
+- The live writer and archive reader now share one resolved index and recording store. In
+  fallback mode this matters: two separate in-memory instances made a successfully written
+  archive invisible to the read routes in the same process.
+- Every live-session route scopes a session id to the jam id in its URL. A session id from one
+  room can no longer direct, watch, renew, read, or end another room's stream or completion row.
+- A playing room may keep its existing configuration-keyed streams; it becomes `ended` only
+  when the last one stops, so ending one language cannot strand another paid stream.
+- The WebM muxer refuses H.264 until the fMP4 muxer is selected upstream. It no longer accepts
+  H.264 WebM output that the archive could mislabel as `video/mp4`.
+- Archive writes truncate at the last durable prefix after an init or piece failure, Storage's
+  wrapped 404 is distinguished from unrelated HTTP 400 failures, empty archives do not render a
+  broken player, and the audit identity sequence is explicitly granted to `service_role`.
+- After integrating the latest shell work, logging out now leaves the authenticated shell through
+  an injectable navigation boundary. Production replaces the document with the static `/` landing;
+  raw component tests can verify the route without asking Node to resolve Vite-only landing assets.
+- Verified locally: `pnpm typecheck`; 87/87 affected tests covering the app wiring, archive,
+  worker boundary, routes, lifecycle, and DOM surface; full `pnpm test` 814/814; `pnpm build`.
+
+## 2026-09-20 — Catalog browses the whole catalogue; Discover keeps the conversation
+
+The repository now has two ways to reach a film, and they do not overlap. `/discover` is the
+conversation (RV-15). `/catalog` is browsing: a title search field, the refinement chips, a grid of
+posters that grows as the viewer reaches the end of it, and the TMDB attribution. There is no
+conversation bar and no voice control on it, and nothing on it turns a title down. See
+`docs/DECISIONS.md` for why the two are kept apart.
+
+**What the screen is made of** (`src/catalog/`):
+
+- `CatalogScreen.tsx` — the screen. It reads `/api/catalogue` through the same
+  `CatalogueReadContext` the home and search read, so a test renders it over its own titles.
+- `useCatalogue.ts` — page 1 of a query and the feed that grows from it. Unrefined it pages at
+  `CATALOGUE_LIMITS.pageSizeDefault` (24); refined it reads one shortlist of
+  `CATALOGUE_LIMITS.shortlistSize` (48) with every filter applied in Postgres, and stops paging. A
+  typed query is debounced 320 ms; a new query or refinement starts again from page 1 and aborts
+  whatever the old one had in flight.
+- `pageFeed.ts` — the feed, its single in-flight request and the two triggers that ask for the next
+  page: focus reaching the last row (a remote moves focus, not the scrollbar) and the end of the
+  grid nearing the viewport (mouse and touch). A trigger during a request is dropped, not queued;
+  a page repeating titles already shown appends only the new ones, so nothing on screen moves and
+  focus stays where it was. After a failure nothing is retried behind the viewer's back.
+- `gridMove.ts` / `useGridNavigation.ts` — roving focus over the grid. Arrows move one poster and
+  stop at the edges, a short last row is reachable from the row above, Home/End jump to the row
+  edges, OK opens, and Back is left to the app, which returns it to the top bar. The column count
+  is read from the live grid layout rather than assumed.
+- `RefinementBar.tsx` — the chips, and a second rail naming everything currently narrowing the
+  grid, each removable, with the live match count. Every chip maps to data the catalogue holds
+  (genre, runtime, release year); there is no mood or pace chip, because nothing could honour one.
+- `catalog.css` — the screen's own styles. It sits on `.discover-shell` for the page frame, the
+  poster box, the status panels, the retry, the spinner and the attribution, and adds the head, the
+  chips, the grid and the end of the feed.
+
+**Ranking is named, never implied.** Unrefined, the grid is the order the catalogue query answers
+and nothing claims otherwise. Refined, the shortlist is ordered by the deterministic scorer
+(`orderShortlist(..., { phase: "idle" }, false)`) and the line above the grid says *Ranked by genre
+match*. Catalog never calls the assistant, so it can never show a model's order or a "Ranking…"
+state it will not reach.
+
+**A film opens over the catalogue.** Choosing a poster navigates to `/discover/:id`, and the app
+draws the film page as a layer over `CatalogScreen`, which stays mounted and `inert` underneath —
+so its pages, its scroll and its focus target survive. However the page closes (Escape, the bar's
+Catalog, the browser's Back), focus returns to the poster it was opened from. `App.tsx` now decides
+that from the history entry the film was opened from (`FILM_LAYER_OVER`), which makes the home's
+previous special case one rule covering both screens; every other film page, including one reached
+by URL, still belongs to Discover.
+
+**Remote and phone.** A remote lands on the bar, Down reaches the search field, Down again the
+chips, Down again the grid; Up from the grid's top row returns to the chips. On a phone the
+backdrop and the spotlight step aside, the head becomes the search alone, the chip rails scroll
+sideways at a 44px-tall hit size, and the grid is two posters across.
+
+**Verified.** `npx tsc --noEmit` clean. `pnpm test` 832 passing, including 24 new tests: the pure
+feed and grid rules (`tests/pageFeed.test.ts`, `tests/gridNavigation.test.ts`) and the screen
+through the whole app (`tests/catalog.dom.test.tsx`) — the first page and its attribution, one
+field and no conversation or voice, the bar→field→chips→grid walk and Back, a typed title, growing
+by a page without moving what is shown, narrowing to a named shortlist and widening again, and a
+film opening over the catalogue and handing its poster back the focus.
+
+**Measured in a browser** against the hosted Supabase project, at 1440×900 and 390×844: scrolling
+to the end appended pages 2 and 3 (`/api/catalogue?query=&page=2|3&pageSize=24`, 72 posters, the
+first 24 unmoved); the *Something scary* chip issued
+`/api/catalogue?query=&page=1&pageSize=48&includeGenres=horror`, reported "4,055 titles match",
+captioned the grid *Ranked by genre match* and removed the feed end; typing "blade runner" answered
+with the Blade Runner titles; opening a poster left the catalogue mounted, `inert` and at scroll
+1200, and closing it returned focus to that same poster, still on screen.
+`document.documentElement.scrollWidth - clientWidth` is `0` at both widths.
+
+**Known gap, not caused by this work.** Six tests in `tests/directorPieces.test.ts` and
+`tests/directorPieceMuxer.test.ts` (the muxer worker boundary) fail on this machine — 2 failed, 4
+cancelled — identically before and after this change, on an untouched checkout of `main`. Nothing
+in this slice touches the director.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

@@ -1,8 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { RTCPeerConnection, type MediaStreamTrack } from "werift";
-import { MediaRecorder } from "werift/nonstandard";
 import {
   directorServerMessageSchema,
   initialDirectorState,
@@ -10,7 +6,11 @@ import {
   reduceDirectorState,
   type DirectorState,
 } from "../../src/core/directorProtocol";
-import { DirectorAuditLog, type DirectorAuditEntry } from "../../src/core/directorAudit";
+import {
+  DirectorAuditLog,
+  type DirectorAuditEntry,
+  type DirectorAuditListener,
+} from "../../src/core/directorAudit";
 import type { JamScript } from "../../src/core/script";
 import {
   beatOffsets,
@@ -42,23 +42,21 @@ import {
 const CONTROL_CHANNEL = "fal";
 const ICE_GATHERING_TIMEOUT_MS = 5_000;
 
-/** Where a finished recording goes. Kept as an interface so the media store
- * and a test fake are interchangeable. */
-export interface DirectorRecordingSink {
-  save(jamId: string, sessionId: string, bytes: Buffer, contentType: string): Promise<void>;
-}
-
 export interface DirectorStreamOptions {
   jamId: string;
   sessionId: string;
   config: DirectorConfig;
   script: JamScript;
-  sink?: DirectorRecordingSink;
   /** Injected in tests; defaults to the real fal handshake. */
   startSession?: typeof startDirectorSession;
   /** Injected in tests; defaults to a real werift peer. */
   createPeer?: () => DirectorPeer;
   now?: () => Date;
+  /**
+   * Notified as each audit entry is recorded, so the trail can be written
+   * somewhere that outlives this process. The in-memory trail is unaffected.
+   */
+  onAudit?: DirectorAuditListener;
 }
 
 export interface DirectionRequest {
@@ -116,16 +114,13 @@ export class DirectorStream {
   private state: DirectorState = initialDirectorState();
   private connection: DirectorPeer | null = null;
   private control: DirectorControlChannel | null = null;
-  private recorder: MediaRecorder | null = null;
-  private recordingDir: string | null = null;
-  private recordingPath: string | null = null;
   private stopped = false;
   /** Inbound tracks, kept so viewers can be forwarded a copy. */
   private readonly inbound: MediaStreamTrack[] = [];
   private readonly trackListeners: ((track: MediaStreamTrack) => void)[] = [];
 
   constructor(private readonly options: DirectorStreamOptions) {
-    this.audit = new DirectorAuditLog(options.now);
+    this.audit = new DirectorAuditLog(options.now, options.onAudit);
   }
 
   /** The tracks fal is sending, for forwarding to viewers. */
@@ -316,68 +311,23 @@ export class DirectorStream {
   }
 
   /**
-   * Records the incoming track to disk.
+   * Keeps and announces an incoming track. Nothing here touches its media.
    *
-   * To a file rather than straight to object storage because the container
-   * formats need to finalize their headers on close; streaming a half-written
-   * WebM into the media store would leave an unplayable object behind.
+   * Forwarding a track to a viewer is packet relay and costs almost nothing;
+   * MUXING it is what blocked the event loop when it ran on this thread. So
+   * this stream never muxes: whoever wants the media — the relay, the piece
+   * recorder — subscribes through `onTrackAvailable` and does its work off
+   * this thread. The in-process recorder that used to live here is gone for
+   * that reason (docs/DECISIONS.md).
    */
-  private async onTrack(track: MediaStreamTrack): Promise<void> {
-    // Kept and announced regardless of recording: forwarding a track to a
-    // viewer is packet relay and costs almost nothing, while MUXING it is what
-    // blocks the event loop. The two are separate decisions.
+  private onTrack(track: MediaStreamTrack): void {
     this.inbound.push(track);
     for (const listener of this.trackListeners) listener(track);
-
-    // Capturing media on this thread blocks the event loop hard enough to take
-    // the whole server with it; see DirectorConfig.record.
-    if (!this.options.config.record) return;
-    if (this.recorder) {
-      await this.recorder.addTrack(track);
-      return;
-    }
-    this.recordingDir = await mkdtemp(join(tmpdir(), "reverie-director-"));
-    this.recordingPath = join(this.recordingDir, `${this.options.sessionId}.webm`);
-    this.recorder = new MediaRecorder({
-      path: this.recordingPath,
-      tracks: [track],
-    });
   }
 
   private async teardown(): Promise<void> {
-    try {
-      await this.recorder?.stop();
-    } catch {
-      // A recorder that never received a frame throws on stop; the session is
-      // ending either way and the failure must not mask the real reason.
-    }
     this.connection?.close();
-    await this.persistRecording();
     this.state = { ...this.state, status: this.state.status === "failed" ? "failed" : "ended" };
-  }
-
-  private async persistRecording(): Promise<void> {
-    const path = this.recordingPath;
-    const dir = this.recordingDir;
-    this.recordingPath = null;
-    this.recordingDir = null;
-    if (!path || !dir) return;
-    try {
-      const bytes = await readFile(path);
-      if (bytes.byteLength > 0) {
-        await this.options.sink?.save(
-          this.options.jamId,
-          this.options.sessionId,
-          bytes,
-          "video/webm",
-        );
-      }
-    } catch {
-      // Losing the recording must not prevent the session from closing and
-      // releasing its budget reservation.
-    } finally {
-      await rm(dir, { recursive: true, force: true }).catch(() => undefined);
-    }
   }
 
   private waitForIceGathering(connection: DirectorPeer): Promise<void> {

@@ -1,5 +1,43 @@
 # Decisions
 
+## 2026-09-20 — Two ways to reach a film, and neither pretends to be the other
+
+Reverie now has both a conversation (`/discover`) and a catalogue (`/catalog`). The tempting move
+is to make one of them a mode of the other: put a grid behind the conversation, or bolt a chat bar
+onto the grid. Both were refused, and the split is the decision.
+
+**Browsing is not asking.** The conversation exists because a viewer who cannot name what they want
+can say it instead, and every turn costs a model call. Browsing is the opposite request — *show me
+what there is* — and it has to be free, instant and endless. Putting a conversation bar on the
+catalogue would make the cheap surface look like the expensive one and invite a model call from a
+viewer who only wanted to scroll. So the catalogue carries a title field, chips and a grid, and
+nothing that sends a message. Voice is the conversation's input; it is not on the catalogue either.
+
+**Nothing on the catalogue turns a title down.** "Not this one" belongs to the conversation, where
+refusing a film is a statement that shapes the next answer. On a browsing grid it would be an
+edit to a catalogue the viewer does not own, with no turn to carry it, so the action is simply not
+offered rather than offered and made inert.
+
+**The grid says which order it is in.** Unrefined it is the order the catalogue query answered, and
+nothing claims more. Once a chip narrows it, the shortlist is ordered by the deterministic scorer
+and the line above the grid says *Ranked by genre match*. The catalogue never calls the assistant,
+so it can never show a model's ranking — and, just as important, can never show a "Ranking…" state
+for something that will not happen. A ranking is named by what produced it or it is not named.
+
+**A refined grid stops paging, on purpose.** Filters are applied in Postgres over the whole
+catalogue, so a refined read is one shortlist of 48 rows rather than an endless walk through pages
+the database has already rejected. Paging a filtered feed would mean asking for page after page of
+rows that mostly do not match, and it would let the scorer's order change under the viewer as pages
+arrived. One shortlist, ranked once, is the honest shape of "everything that fits this".
+
+**A film page is a layer over whatever opened it.** The home already drew the film page over itself
+so its shelves, scroll and focus survived; the catalogue needs exactly that, for its loaded pages.
+Rather than add a second special case, `App.tsx` now reads the history entry the film was opened
+from and draws the page over that screen when it is one that can hold its place
+(`FILM_LAYER_OVER`). Everything else — including a film reached by URL — is Discover's, which is
+where a film with no history behind it should land. The rule is now one sentence instead of two
+exceptions, and the next screen that lists films inherits it by being named.
+
 ## 2026-09-20 — The account menu shows the real anonymous session, not a fabricated identity
 
 The top bar now ends in an avatar with a menu behind it. The obvious way to build that surface is
@@ -36,6 +74,209 @@ The cost is accepted and stated: an anonymous identity is per browser profile, s
 on two devices is two viewers with two colours, and signing out discards the rooms that identity
 hosted or joined. Both follow from anonymous auth, which this repository chose earlier; neither is
 made better by drawing a fictional account over it.
+
+## 2026-09-20 — The film is stored as it streams, in pieces, muxed off the serving thread (RV-18)
+
+A director session is now stored while it runs, in pieces of roughly ten seconds,
+rather than as one file when it stops. Storage is what `REVERIE_DIRECTOR_RECORD`
+now means; the in-process WebM recorder that flag used to switch on is deleted.
+
+**Why pieces.** Two things at once. A process that dies mid-stream loses the piece
+in flight and nothing before it — the previous design held a temp file and wrote it
+at `stop()`, so a crash lost the session. And going to a given minute of the film is
+a matter of fetching the piece that contains it (`GET .../archive/:sessionId/pieces/:n`)
+rather than downloading everything before it. Each piece begins on a video keyframe
+and is served with the container's initial header in front, so it decodes from its
+first frame in a plain `<video>` element. The whole film is the same header followed
+by every piece in order (`.../video`).
+
+**Why off-thread.** Muxing on the serving thread was measured taking the server down:
+99% CPU, event loop stalled, `/end` unreachable — and `/end` is the route that stops
+the paid session. The muxer (`directorPieceMuxer.ts`) runs in a worker thread
+(`directorPieceWorker.ts`); the main thread's whole per-packet cost is `serialize()`
+and a `postMessage` (`directorPieces.ts`). A dead worker is reported as
+`worker_failed`, distinct from a codec refusal, and never touches the session.
+Stopping is bounded at two seconds: the tail of the film is worth a moment, the
+route that settles the spend is worth more.
+
+**Why WebM, and where fMP4 belongs.** werift's offer is VP8-only today, so VP8 is
+what fal answers — an answer to a VP8-only offer, which is not fal's preference and
+says nothing about what it would answer to an offer preferring H.264. That offer is
+RV-19's change, and the reply is unprobed. WebM is the container that holds VP8, so
+it stores what comes back today. This WebM muxer explicitly refuses H.264: accepting
+H.264 here would emit WebM/Matroska bytes and risk labelling them as MP4. RV-19's
+fMP4 muxer is the H.264 path, selected before muxing. Both implement the same
+`DirectorSegmentSink` shape by agreement: one selected muxer per stream, many sinks,
+one timeline. The archive layer accepts either declared container but never guesses.
+
+**Verified with real bytes, not a description.** Fabricated VP8 RTP — the payload
+format is simple enough to build honestly — pushed through the real werift pipeline
+and across the real worker thread is cut at the first keyframe past the target, with
+the last piece settled by the muxer's own end-of-stream rather than a guess at stop.
+The cut points observed — `[0–10s] [10–20s] [20–end]` — are what those synthetic
+keyframes produced: they measure werift's pipeline and the worker boundary, not
+fal's chunking. **Not** verified with fal's own media:
+no real session has yet run with recording on. The unknowns that only a live run can
+settle are the provider's keyframe cadence, which sets real piece length, and the
+worker's CPU on a real 480p stream.
+
+End to end against the local stack's real Postgres and real Storage, with the real
+worker: three pieces uploaded and indexed with no failed uploads, the session row
+carrying `webm`/`vp8`, and `pieces/1` served as 893 bytes of `video/webm` beginning
+with the EBML magic — header prepended, playable on its own, fetched without the
+2035 bytes of film around it.
+
+## 2026-09-19 — A jam is live, then playing, then ended, and ended is terminal (RV-18)
+
+A room now has one readable state instead of an implied one. `live` is a room that
+exists and can be joined; `playing` is a room generating; `ended` is a room whose
+recording is what remains of it. Previously "is this room running" was inferred from
+whether a session id happened to be open in a browser tab, which no two clients
+agreed on and no reopened tab could recover.
+
+Server-owned, like every other room transition (`JamStore.advanceLifecycle`). The
+browser projects it and never decides it: `start` and `stop` both answer with the
+resulting lifecycle, so a client does not have to re-read the jam to find out what it
+just did, and a client that missed a stop reads `ended` on its next look.
+
+**`ended` is terminal, and the director refuses to open a session on an ended room.**
+While a room is playing it may still hold the established one-stream-per-configuration
+set; stopping one does not strand another paid stream behind an ended lifecycle. The
+room becomes ended only after its last configuration stream stops, and its archive
+collection is the artifact. Once ended, opening another stream is a new jam instead.
+The refusal is checked before the spend ledger is touched, so it costs nothing, and
+starting is hidden in the UI rather than offered and refused.
+
+**The recording plays without a player library.** WebM is its initial header followed
+by clusters, and fMP4 is an init segment followed by media segments, so concatenating
+the matching layout in order is a valid file:
+`GET /api/jams/:id/director/archive/:sessionId/video` streams them and a finished
+session plays in a plain `<video>` element. Streamed as assembled rather than
+buffered, because a session archive can be hundreds of megabytes. An archive missing
+its init segment is refused rather than served unplayable, and a missing segment
+truncates rather than corrupting the tail. Segments stay individually addressable for
+anything that wants to seek, and an HLS VOD playlist remains available later without
+changing what is stored.
+
+**Known limit, unverified: seeking, and only seeking.** A concatenated fMP4 plays
+start to finish in the ordinary case; what it lacks is a `sidx` or fragment index, so
+players differ on whether they will let a viewer scrub one. The `<video controls>` element offers a
+scrub bar regardless, so if scrubbing matters it needs testing in Safari as well as
+Chrome, and the fix is the HLS VOD playlist over the same segment rows rather than a
+change to what is stored.
+
+Verified by tests, including the reopened-tab case, and end to end against the local
+stack's real Postgres: a session opened, a direction reached `jam_director_audit` as
+it was sent, and the room read `live` then `playing` then `ended`. **Not** verified
+with real director media: the archive has only been exercised with synthetic
+segments. `REVERIE_DIRECTOR_RECORD` gates the piece recorder and remains off by
+default pending one real session confirming `/end` answers while the worker is
+mid-piece. The former in-thread recorder was removed; `PieceMuxer` is the off-thread
+implementation this flag now enables.
+
+**A live route answers an ended room with `409 jam_ended` and a pointer, not `404`.**
+The room exists and so does its recording; only the live stream is gone, and a
+missing-thing answer sends a viewer looking for something that is right there. The
+pointer is the archive COLLECTION rather than a resolved session, since which session
+was the last one is a read the archive side already does. Applied to the live relay's
+`watch` route here; any other route that serves a live stream answers the same way.
+
+**The audit trail is now durable.** `DirectorAuditLog` takes an optional listener and
+the director route writes each entry to `jam_director_audit` as it is recorded —
+fire-and-forget, so a durable write that fails or hangs cannot stall the stream it
+describes, and the bounded in-memory trail the live session reads is unaffected. The
+session row is opened WITH the session rather than at its end, because the audit rows
+reference it and a session that dies mid-stream must still have somewhere for what it
+managed to record.
+
+## 2026-09-19 — A director session reproduces from durable rows, not from a closing process (RV-18)
+
+The archive is written as the session runs and read back by reconstruction, not
+written once at the end.
+
+**One selected muxer, many sinks** (agreed with RV-19). `DirectorStream` owns the
+track and feeds a single muxer; the archive sink consumes its numbered pieces now,
+and live delivery can consume the same timeline when it lands. Two independent muxers
+were rejected because they produce two
+timelines for one session, and the audit trail records which beat and script offset
+each direction landed on — if the audit describes one timeline and the archive is
+another, the join drifts silently and a reproduction can no longer be explained.
+
+**Segments, not one file at stop.** Each segment is uploaded as produced and its row
+written only after that upload succeeds. A crash therefore costs the segment in
+flight, not the session; and a reader can trust that every indexed segment exists,
+because nothing is indexed before its bytes land. The previous design held a temp
+file and persisted at `stop()`, which lost everything if the process died — the
+failure that has actually been observed.
+
+**Nothing reproduction needs is written at the end.** The segmenter delivers
+`finish()` fire-and-forget and does not await it, so `/end` can return, and the
+process exit, before any closing write completes. The playlist is therefore BUILT
+FROM `jam_director_segments` when requested rather than uploaded at close, and
+`complete` stays false for a session that died. A partial archive is reported as
+partial. A failed init or piece upload truncates at the last durable prefix instead
+of indexing later pieces across a gap.
+
+**The record lives in Postgres, the bytes in Storage.** `jam_director_sessions`
+carries the configuration key and script revision — a `<jamId>/<sessionId>` pair
+does not say what was being watched, since streams are keyed by jam AND
+configuration. This is the container server's first Postgres write path; it holds a
+service-role key, which the Vercel functions deliberately never do. The tables carry
+RLS with no policies and grants only to `service_role`, so no browser identity
+reaches them.
+
+Consequence worth stating: every reproduction route is a plain read of durable state,
+with no in-process stream map and no container-local file, so reproducing a session
+could run as a serverless function even though the live director cannot.
+
+Verified 2026-09-19 against the local stack's real Postgres and real Storage: session,
+segments and audit round-tripped, the API reported `durable: true`, and archived bytes
+were served by our own route. **Not** verified against hosted Supabase, and no real
+director media has been through this path. The piece recorder that feeds the archive
+is off by default (`REVERIE_DIRECTOR_RECORD`) pending one real session's measurement;
+the off-thread muxing it depends on is built, not pending.
+
+
+## 2026-09-19 — The local stack runs Storage, and it found two broken paths (RV-18)
+
+`docker/compose.yaml` had no Storage service. Postgres, Auth, PostgREST and Realtime
+ran; nothing served `/storage/v1`. Every media store therefore fell back to memory
+locally and reported success, and the guarded bucket migrations skipped, so
+`SupabasePortionMediaStore` and `SupabaseDirectorRecordingStore` had never once
+addressed a real bucket. A storage path that is never exercised is not a storage path.
+
+The stack now runs `supabase/storage-api:v1.19.3`, ordered **before** `migrate` so
+`to_regclass('storage.buckets')` finds a real schema and the guards actually fire.
+Three things had to be true that were not obvious:
+
+- Storage connects as `supabase_admin` and creates the `storage` schema itself, so
+  an existing `reverie-db` volume needs no recreation.
+- It grants nothing to the API roles. `service_role` had no `usage` on the schema, and
+  an unqualified lookup then reports `relation "buckets" does not exist` rather than a
+  permission error. `apply-migrations.sh` grants it, and only it: the buckets are
+  private and no browser identity reads them.
+- Its healthcheck must use `127.0.0.1`. The server binds IPv4 only and the image's
+  `wget` resolves `localhost` to `::1`.
+
+**Two real defects surfaced the moment a real bucket existed**, both in
+`SupabaseDirectorRecordingStore`, both previously invisible:
+
+1. **Every director upload would have been rejected.** It wrote `video/webm` into
+   `jam-portions`, a bucket whose `allowed_mime_types` is `{video/mp4}` and whose size
+   limit is 64MB against the store's own 512MB cap. Verified by upload: `video/webm`
+   refused, `video/mp4` accepted. `persistRecording()` swallows storage errors so the
+   session can still close, so this would have lost every archive in silence. The
+   archive now has its own bucket (`jam-director`, WebM + fMP4 + HLS playlist, 512MB)
+   created by `20260919236000_jam_director_archive.sql`.
+2. **A missing recording was reported as a store outage.** Storage answers a missing
+   object with **HTTP 400** and a body whose `statusCode` is `"404"`, so the
+   `status === 404` check never matched and the route returned 503 instead of 404.
+   The director store now checks the body for that wrapped 404; unrelated HTTP 400
+   responses remain real storage errors rather than being hidden as missing objects.
+
+Observed on the local stack on 2026-09-19 against `storage-api` v1.19.3, not against
+hosted Supabase. The object key now follows the negotiated container (`.webm` or
+`.mp4`) and a read tries each, because the codec fal answers is still unprobed.
 
 ## 2026-09-20 — Every integration goes through a PR; nobody pushes to `main` directly (RV-20)
 
@@ -214,7 +455,6 @@ happened, about code that no longer exists.
 is one session's stream, kept under `director/<jamId>/<sessionId>.webm`, and the durable
 reproduction of a jam is RV-18's work. Until then, stopping a stream is the only way to keep it,
 and a server without a service-role key keeps it only in memory.
-
 ## 2026-09-19 — Probe receipt: the director handshake works, and it speaks SSE (RV-16)
 
 First live run of `minimax/h3-max/director` with a valid key, via

@@ -1,4 +1,3 @@
-import type { DirectorRecordingSink } from "./directorStream";
 import {
   MediaStorageError,
   resolveObjectStorageConfig,
@@ -22,8 +21,16 @@ const UPLOAD_TIMEOUT_MS = 120_000;
 export const MAX_RECORDING_BYTES = 512 * 1024 * 1024;
 /** Bounded so a long-running server cannot grow without limit. */
 const MAX_IN_MEMORY_RECORDINGS = 8;
+/** A segmented session is many objects, so this bound is per object, not per session. */
+const MAX_IN_MEMORY_OBJECTS = 512;
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+
+/** The container follows the negotiated codec, so the key must follow it too. */
+const EXTENSIONS: Record<string, string> = {
+  "video/webm": "webm",
+  "video/mp4": "mp4",
+};
 
 export interface StoredRecording {
   bytes: Buffer;
@@ -31,14 +38,39 @@ export interface StoredRecording {
   storedAt: string;
 }
 
+/** A whole-session recording, stored under its session id. */
+export interface DirectorRecordingSink {
+  save(jamId: string, sessionId: string, bytes: Buffer, contentType: string): Promise<void>;
+}
+
 export interface DirectorRecordingStore extends DirectorRecordingSink {
   readonly durable: boolean;
   get(jamId: string, sessionId: string): Promise<StoredRecording | null>;
+  /**
+   * Writes one object at an explicit key.
+   *
+   * A segmented archive is many objects rather than one recording, and they
+   * share this store so there is a single storage credential and a single
+   * place that knows how the bucket behaves.
+   */
+  putObject(path: string, bytes: Buffer, contentType: string): Promise<void>;
+  getObject(path: string): Promise<StoredRecording | null>;
 }
+
+/** Each key segment reaches the object path, so each is checked. */
+export function assertSafeObjectPath(path: string): void {
+  const segments = path.split("/");
+  if (!segments.length || !segments.every((segment) => SAFE_KEY.test(segment))) {
+    throw new MediaStorageError("That path cannot address a stored object.", false);
+  }
+}
+
+const SAFE_KEY = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
 
 export class InMemoryDirectorRecordingStore implements DirectorRecordingStore {
   readonly durable = false;
   private readonly recordings = new Map<string, StoredRecording>();
+  private readonly objects = new Map<string, StoredRecording>();
 
   constructor(private readonly clock: () => Date = () => new Date()) {}
 
@@ -57,6 +89,22 @@ export class InMemoryDirectorRecordingStore implements DirectorRecordingStore {
 
   async get(jamId: string, sessionId: string): Promise<StoredRecording | null> {
     return this.recordings.get(`${jamId}/${sessionId}`) ?? null;
+  }
+
+  async putObject(path: string, bytes: Buffer, contentType: string): Promise<void> {
+    assertSafeObjectPath(path);
+    assertRecordingWithinCaps(bytes);
+    // Segments are many and small; the recording bound counts whole sessions,
+    // so objects are bounded by their own, larger count.
+    if (this.objects.size >= MAX_IN_MEMORY_OBJECTS) {
+      const oldest = this.objects.keys().next().value;
+      if (oldest) this.objects.delete(oldest);
+    }
+    this.objects.set(path, { bytes, contentType, storedAt: this.clock().toISOString() });
+  }
+
+  async getObject(path: string): Promise<StoredRecording | null> {
+    return this.objects.get(path) ?? null;
   }
 }
 
@@ -84,7 +132,7 @@ export class SupabaseDirectorRecordingStore implements DirectorRecordingStore {
 
   async save(jamId: string, sessionId: string, bytes: Buffer, contentType: string): Promise<void> {
     assertRecordingWithinCaps(bytes);
-    const path = this.objectPath(jamId, sessionId);
+    const path = this.objectPath(jamId, sessionId, contentType);
     const response = await this.request("POST", path, {
       headers: { "content-type": contentType, "x-upsert": "true" },
       body: new Uint8Array(bytes),
@@ -99,28 +147,90 @@ export class SupabaseDirectorRecordingStore implements DirectorRecordingStore {
     }
   }
 
+  /**
+   * Reads an archive without being told its container.
+   *
+   * The key's extension follows the negotiated codec, and a reader has no way
+   * to know which was used, so each known container is tried in turn. Only a
+   * 404 moves on to the next: a real failure is reported rather than being
+   * mistaken for "stored under the other extension".
+   */
   async get(jamId: string, sessionId: string): Promise<StoredRecording | null> {
-    const response = await this.request("GET", this.objectPath(jamId, sessionId), {});
-    if (response.status === 404) return null;
+    for (const contentType of Object.keys(EXTENSIONS)) {
+      const response = await this.request(
+        "GET",
+        this.objectPath(jamId, sessionId, contentType),
+        {},
+      );
+      // Storage answers a missing object with HTTP 400 and a body whose
+      // statusCode is "404", so status alone never matches. Treated as a miss
+      // exactly as SupabasePortionMediaStore does; without this a recording
+      // that simply is not there is reported as a store outage.
+      if (await isMissingObject(response)) continue;
+      if (!response.ok) {
+        throw new MediaStorageError(
+          "The director recording could not be read.",
+          response.status >= 500,
+        );
+      }
+      return {
+        bytes: Buffer.from(await response.arrayBuffer()),
+        contentType: response.headers.get("content-type") ?? contentType,
+        storedAt: response.headers.get("last-modified") ?? new Date().toISOString(),
+      };
+    }
+    return null;
+  }
+
+  async putObject(path: string, bytes: Buffer, contentType: string): Promise<void> {
+    assertSafeObjectPath(path);
+    assertRecordingWithinCaps(bytes);
+    const response = await this.request(
+      "POST",
+      `/storage/v1/object/${this.config.bucket}/${path}`,
+      { headers: { "content-type": contentType, "x-upsert": "true" }, body: new Uint8Array(bytes) },
+    );
     if (!response.ok) {
       throw new MediaStorageError(
-        "The director recording could not be read.",
+        "The director segment could not be stored.",
+        response.status >= 500,
+      );
+    }
+  }
+
+  async getObject(path: string): Promise<StoredRecording | null> {
+    assertSafeObjectPath(path);
+    const response = await this.request(
+      "GET",
+      `/storage/v1/object/${this.config.bucket}/${path}`,
+      {},
+    );
+    // 400 as well as 404: Storage answers a missing object with a 400 whose
+    // body carries statusCode "404".
+    if (await isMissingObject(response)) return null;
+    if (!response.ok) {
+      throw new MediaStorageError(
+        "The director segment could not be read.",
         response.status >= 500,
       );
     }
     return {
       bytes: Buffer.from(await response.arrayBuffer()),
-      contentType: response.headers.get("content-type") ?? "video/webm",
+      contentType: response.headers.get("content-type") ?? "application/octet-stream",
       storedAt: response.headers.get("last-modified") ?? new Date().toISOString(),
     };
   }
 
   /** Ids reach the object key, so anything that is not plainly safe is refused. */
-  private objectPath(jamId: string, sessionId: string): string {
+  private objectPath(jamId: string, sessionId: string, contentType?: string): string {
     if (!SAFE_ID.test(jamId) || !SAFE_ID.test(sessionId)) {
       throw new MediaStorageError("That id cannot address a stored recording.", false);
     }
-    return `/storage/v1/object/${this.config.bucket}/director/${jamId}/${sessionId}.webm`;
+    const extension = contentType ? EXTENSIONS[contentType] : undefined;
+    // A read does not know the container, so it looks for what was written.
+    // `.webm` stays the fallback because that is what every archive written
+    // before the codec became negotiable was named.
+    return `/storage/v1/object/${this.config.bucket}/${jamId}/${sessionId}.${extension ?? "webm"}`;
   }
 
   private async request(
@@ -145,11 +255,48 @@ export class SupabaseDirectorRecordingStore implements DirectorRecordingStore {
   }
 }
 
+/** Storage sometimes wraps a missing object in HTTP 400; other 400s are errors. */
+async function isMissingObject(response: Response): Promise<boolean> {
+  if (response.status === 404) return true;
+  if (response.status !== 400) return false;
+  const body = await response.clone().json().catch(() => null) as
+    | { statusCode?: unknown }
+    | null;
+  return String(body?.statusCode ?? "") === "404";
+}
+
+const SAFE_BUCKET = /^[a-z0-9][a-z0-9-]{1,62}$/;
+/** Created by supabase/migrations/20260919236000_jam_director_archive.sql. */
+const DEFAULT_DIRECTOR_BUCKET = "jam-director";
+
+/**
+ * Where director archives go.
+ *
+ * Deliberately NOT the default `jam-portions` bucket. It allows `video/mp4`
+ * only and caps objects at 64MB, so every director upload it received was
+ * rejected: this store writes WebM or fragmented MP4 depending on the codec
+ * fal negotiates, and a session archive is far larger than that cap. The
+ * rejection was invisible for as long as the local stack had no Storage
+ * service, because without one the store falls back to memory and reports
+ * success.
+ */
+export function resolveDirectorStorageConfig(
+  env: NodeJS.ProcessEnv = process.env,
+): ObjectStorageConfig | null {
+  const shared = resolveObjectStorageConfig(env);
+  if (!shared) return null;
+  const bucket = env.REVERIE_DIRECTOR_BUCKET?.trim() || DEFAULT_DIRECTOR_BUCKET;
+  if (!SAFE_BUCKET.test(bucket)) {
+    throw new MediaStorageError("REVERIE_DIRECTOR_BUCKET is not a valid bucket name.", false);
+  }
+  return { ...shared, bucket };
+}
+
 /** Durable storage when a service-role key is configured, memory otherwise. */
 export function resolveDirectorRecordingStore(
   env: NodeJS.ProcessEnv = process.env,
 ): DirectorRecordingStore {
-  const config = resolveObjectStorageConfig(env);
+  const config = resolveDirectorStorageConfig(env);
   return config
     ? new SupabaseDirectorRecordingStore(config)
     : new InMemoryDirectorRecordingStore();

@@ -211,8 +211,21 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
+/**
+ * Any module specifier that names the backfill: `from "…"`, a bare `import "…"`, `import("…")` or
+ * `require("…")`. It reads the specifier rather than the word, because naming the directory in
+ * prose is not importing it — `src/about/AboutScreen.tsx` cites it as the source of what the page
+ * says about OpenSubtitles, and that must not read as the app pulling the backfill into a request.
+ */
+const BACKFILL_SPECIFIER = /(?:\bfrom|\bimport|\brequire)\s*\(?\s*["'][^"']*backfill[^"']*["']/;
+
 test("the backfill never runs during a request: nothing the app serves imports it", () => {
+  // The matcher itself, so a rewrite of it cannot quietly stop matching.
+  assert.match('import { checkSubtitles } from "../../apps/backfill/accessibility/opensubtitles";', BACKFILL_SPECIFIER);
+  assert.match('await import("../apps/backfill/accessibility.ts");', BACKFILL_SPECIFIER);
+  assert.doesNotMatch("// see apps/backfill/accessibility/opensubtitles.ts for what it asks for", BACKFILL_SPECIFIER);
+
   for (const file of [...sourceFiles("api"), ...sourceFiles("src"), ...sourceFiles("apps/server")]) {
-    assert.equal(/backfill/.test(readFileSync(file, "utf8")), false, file);
+    assert.doesNotMatch(readFileSync(file, "utf8"), BACKFILL_SPECIFIER, file);
   }
 });

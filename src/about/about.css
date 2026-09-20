@@ -37,11 +37,38 @@
 .about-provider-detail, .about-builders p { margin: 0; color: #c2c4d0; font-size: 17px; line-height: 1.6; }
 .about-builders { margin-bottom: 24px; }
 
+/* The challenges. Drawn so the difference from the providers above is the first thing seen and not
+   something to be read for: dashed instead of solid, flat instead of filled, and a tag on every
+   card saying there is nothing integrated. */
+.about-challenges-section { border-top: 1px solid #2a3048; padding-top: 44px; }
+.about-challenges { margin: 0; padding: 0; list-style: none; display: grid; gap: 20px; }
+.about-challenges > li { padding: 22px 24px; border: 1px dashed #4a527a; border-radius: 10px; background: none; }
+.about-challenges h3 { margin: 0 0 14px; font-size: 21px; font-weight: 600; }
+.about-challenge-tag {
+  margin: 0 0 10px;
+  color: #9aa0bb;
+  font-family: "DM Mono", monospace;
+  font-size: 12px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+.about-challenge-label {
+  margin: 0 0 4px;
+  color: #8e94a8;
+  font-family: "DM Mono", monospace;
+  font-size: 11px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+.about-challenge-text { margin: 0 0 16px; color: #c2c4d0; font-size: 17px; line-height: 1.6; }
+.about-challenge-text:last-child { margin-bottom: 0; }
+
 @media (max-width: 950px) {
   .about-layout { padding: 32px 20px 64px; }
   .about-head .intro { font-size: 18px; }
   .about-section { margin-top: 48px; }
   .about-section h2 { font-size: 26px; }
-  .about-providers > li, .about-builders > li { padding: 18px 18px; }
-  .about-provider-detail, .about-builders p { font-size: 16px; }
+  .about-providers > li, .about-builders > li, .about-challenges > li { padding: 18px 18px; }
+  .about-provider-detail, .about-builders p, .about-challenge-text { font-size: 16px; }
+  .about-challenges-section { padding-top: 32px; }
 }

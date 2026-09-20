@@ -8,6 +8,7 @@ export const PREFERENCE_SCHEMA_VERSION = 1;
 export const MAX_TURNS_PER_SESSION = 12;
 export const MAX_TRANSCRIPT_CHARS = 4_000;
 export const MAX_QUOTE_CHARS = 500;
+export const MAX_SUBJECT_CHARS = 120;
 export const MAX_CHANGES_PER_TURN = 32;
 export const MAX_RANKING_ENTRIES = 100;
 export const SHORTLIST_SIZE = 3;
@@ -48,6 +49,24 @@ export const evidenceSchema = z.strictObject({
   explicit: z.boolean(),
 });
 
+/**
+ * Words the viewer used to say what a candidate should be *about*. Unlike a dimension or a
+ * constraint, the engine cannot judge it: nothing a candidate carries is prose, so there is no
+ * eligibility check it could feed. It is grounded and composed here and applied by whatever
+ * retrieves the candidates. Because it never filters in the engine, it is also never trusted to:
+ * `isEligible` ignores it, and a retrieval layer that drops it simply narrows less.
+ *
+ * It is grounded word by word rather than as one substring: the viewer's sentence carries filler
+ * a search term should not ("a film about a family with some pets" -> "family pets"), so each
+ * word must be a word of the message, and a word that is not refuses the turn.
+ */
+const subjectPhraseSchema = z.string().trim().min(1).max(MAX_SUBJECT_CHARS);
+
+export const subjectSchema = z.strictObject({
+  phrase: subjectPhraseSchema,
+  sourceTurnId: identifierSchema,
+});
+
 export const predicateSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("number"),
@@ -72,6 +91,8 @@ export const preferenceStateSchema = z.strictObject({
   stateVersion: z.number().int().min(0),
   dimensions: z.record(identifierSchema, evidenceSchema),
   constraints: z.record(identifierSchema, constraintSchema),
+  /** What the viewer said the candidate should be about, or null when they have not said. */
+  subject: subjectSchema.nullable().default(null),
   rejectedCandidateIds: z.array(identifierSchema),
   /** turnId -> the transcript it was accepted with. */
   processedTurns: z.record(identifierSchema, z.string()),
@@ -85,6 +106,13 @@ export const turnInputSchema = z.strictObject({
   dimensions: boundedRecord(identifierSchema, evidenceSchema, MAX_CHANGES_PER_TURN),
   setConstraints: z.array(constraintSchema).max(MAX_CHANGES_PER_TURN),
   removeConstraints: z.array(identifierSchema).max(MAX_CHANGES_PER_TURN),
+  /**
+   * The subject this turn states, which replaces whatever subject was in effect. Null says the
+   * turn is silent about the subject, and an earlier one is left standing.
+   */
+  setSubject: subjectPhraseSchema.nullable().default(null),
+  /** True when the turn withdraws the subject in effect, leaving the other refinements alone. */
+  clearSubject: z.boolean().default(false),
 });
 
 /** A proposed ranking. It comes from a model, so every field is untrusted until parsed. */
@@ -96,8 +124,15 @@ export type Configuration = z.infer<typeof configurationSchema>;
 export type Evidence = z.infer<typeof evidenceSchema>;
 export type Predicate = z.infer<typeof predicateSchema>;
 export type Constraint = z.infer<typeof constraintSchema>;
+export type Subject = z.infer<typeof subjectSchema>;
 export type PreferenceState = z.infer<typeof preferenceStateSchema>;
-export type TurnInput = z.infer<typeof turnInputSchema>;
+/**
+ * A turn as a caller builds it: the two subject fields may be left out, and a turn that leaves
+ * them out says nothing about the subject.
+ */
+export type TurnInput = z.input<typeof turnInputSchema>;
+/** A turn as the engine reads it, once the schema has filled in what was left out. */
+export type AcceptedTurn = z.output<typeof turnInputSchema>;
 export type RankingEntry = z.infer<typeof rankingSchema>[number];
 
 /**

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { YEAR_ATTRIBUTE, RUNTIME_ATTRIBUTE, genreDimension, genreOfDimension, genreOfTag, genreLabel } from "../catalogue/domain.js";
 import { GENRES } from "../catalogue/genres.js";
 import { CONSTRAINT_IDS, describePredicate, nextTurnId } from "../catalogue/refinements.js";
-import { MAX_QUOTE_CHARS, type Constraint, type Evidence, type PreferenceState, type TurnInput } from "../preferences/schema.js";
+import { MAX_QUOTE_CHARS, type AcceptedTurn, type Constraint, type Evidence, type PreferenceState } from "../preferences/schema.js";
 
 /**
  * What the model returns when it interprets one viewer message. It never sees the catalogue:
@@ -63,7 +63,7 @@ export type DecisionConstraint = z.infer<typeof decisionConstraintSchema>;
 
 /** A decision, turned into the turn the engine will judge, plus the lines to say back. */
 export type Interpretation = {
-  turn: TurnInput;
+  turn: AcceptedTurn;
   acknowledgement: string;
   question: string | null;
 };
@@ -126,6 +126,8 @@ export function decisionToTurn(decision: Decision, state: PreferenceState, messa
       dimensions: Object.fromEntries(dimensions),
       setConstraints,
       removeConstraints,
+      setSubject: null,
+      clearSubject: false,
     },
     acknowledgement: decision.acknowledgement,
     question: statesSomething ? null : decision.question,

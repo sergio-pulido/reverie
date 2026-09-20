@@ -20,6 +20,8 @@ const OK: TurnOk = {
     dimensions: {},
     setConstraints: [],
     removeConstraints: [],
+    setSubject: null,
+    clearSubject: false,
   },
   acknowledgement: "Something easy-going.",
   question: "A comedy, or something animated?",

@@ -65,6 +65,8 @@ export function fakeAssistant(gate?: ReturnType<typeof rankingGate>) {
           dimensions: Object.fromEntries(heard.dimensions.map(([name, evidence]) => [name, { ...evidence, sourceTurnId: turnId }])),
           setConstraints: heard.constraints.map((constraint) => ({ ...constraint, sourceTurnId: turnId })),
           removeConstraints: [],
+          setSubject: null,
+          clearSubject: false,
         },
         acknowledgement: stated ? `Heard: ${message}.` : "Tell me a little more.",
         question: stated ? null : "Something funny, or something tense?",

@@ -1,5 +1,32 @@
 # Decisions
 
+## 2026-09-20 — The shortest film is sixty seconds, because that is what a take costs (RV-31)
+
+`TOTAL_MIN_SECONDS` was 10 and the default jam was 20 seconds. fal bills a Director session a
+**60-second minimum whether or not it is used** — verified against the vendor's own pages on
+2026-09-20 rather than inherited as an assumption: https://fal.ai/h3-max-director gives
+"$0.08 / second", a minimum of "60 seconds", and "A session shorter than that still bills
+$4.80"; the learn page says a session cut short after fifteen seconds still costs the full
+$4.80. So a twenty-second film did not cost a third of a minute's take. It cost exactly the
+same and threw two thirds of it away.
+
+The floor and the default are both sixty now. This does not make a take cheaper; it makes a
+take worth what it already cost.
+
+**The cushion this removes, stated because it is the real trade.** While a film was twenty
+seconds, the provider's overrun past the last beat was free: generation ran on while the viewer
+caught up, and all of it fell inside the sixty seconds already being billed. At sixty seconds
+the film fills the minimum exactly, so any overrun now bills on top of it. The bound is
+`maxSessionSeconds`, and the fix — halting generation without tearing down delivery — is the
+same unprobed question RV-28 left open.
+
+**What was NOT done, deliberately.** The instruction that started this was to remove
+`DIRECTOR_MIN_BILLED_SECONDS`. Removing it would not have saved a cent, because it is fal's
+floor and not ours; it would only have made the ledger under-report the invoice, which is the
+one direction a spend control must never be wrong in. The repo asserted that number in four
+places and cited no source in any of them, which is why it took a vendor page to settle. The
+citation now lives with the constant.
+
 ## 2026-09-20 — A take ends when the film has been WATCHED to its end, not generated to it (RV-28)
 
 fal does not stop at the last beat. The script reaches it once, at `configure`, and after that

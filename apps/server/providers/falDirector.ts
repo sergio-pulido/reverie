@@ -37,7 +37,16 @@ export const DIRECTOR_MAX_MEMORY = 50;
 /**
  * fal bills each session at a minimum of 60 seconds of runtime, so an idle
  * open session costs the same as a working one. Every guard in ./director is
- * built around this number.
+ * built around this number, and so is the shortest film a jam may ask for
+ * (`TOTAL_MIN_SECONDS`).
+ *
+ * Verified against the vendor 2026-09-20, because four places in this repo
+ * asserted it and none of them said where it came from:
+ * https://fal.ai/h3-max-director — "$0.08 / second", minimum "60 seconds",
+ * "A session shorter than that still bills $4.80". Removing this floor would
+ * not save anything; it would only make our spend figures understate the
+ * invoice. A promotional $0.02/s rate ended 2026-09-14, and a "$1.20 minimum"
+ * anywhere is that same 60 seconds at the old rate.
  */
 export const DIRECTOR_MIN_BILLED_SECONDS = 60;
 

@@ -33,9 +33,9 @@ test("keeps an on-target draft unchanged in total", () => {
   assert.equal(totalDurationSeconds(script), 240);
 });
 
-test("keeps an on-target draft unchanged under the 20-second default", () => {
-  const script = finalizeScriptDraft(buildScript(5, 2, 2));
-  assert.equal(totalDurationSeconds(script), 20);
+test("keeps an on-target draft unchanged under the 60-second default", () => {
+  const script = finalizeScriptDraft(buildScript(5, 3, 4));
+  assert.equal(totalDurationSeconds(script), 60);
 });
 
 test("settles a short mixed draft exactly on 240 seconds", () => {

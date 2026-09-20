@@ -43,6 +43,15 @@ screen lets go of the session, re-reads the room, and shows that take's recordin
 enabled. Adopting a session also clears the previous take's recording, because the player
 renders the recording or the live stream and never both.
 
+**Known consequence, and it is not ours: a room can now hold several recordings.** That is
+exactly what terminality was protecting against — "two different films behind one room URL".
+The data layer already handles it: `DirectorIndexStore.listSessions` is per jam and ordered
+newest first, in both the in-memory and the Postgres store, so every take is listed and none
+overwrites another. What is undecided is the product answer — the room screen shows the most
+recent take and offers no way to reach an earlier one, and nothing says whether it should. The
+archive is the director-archive owner's; this entry names the question rather than answering
+it.
+
 **The viewer count stays exactly as it was.** It is spend control, not ownership: a shared
 stream must outlive the person who started it and must end when the last watcher leaves,
 whoever that turns out to be. Closing a tab is still a detach, Stop is still the only whole-

@@ -413,7 +413,6 @@ provider body or an internal prompt.
 | `queue_full` | ten edits already wait for this jam | yes |
 | `invalid_cascade` | the model's rewrite did not cover the tail exactly, twice; nothing was written | yes, as a new edit |
 | `generation_failed` | the provider did not answer or rejected the call; nothing was written | yes, as a new edit |
-| `jam_ended` | the room has finished; its recording is the artifact and its story no longer moves | no |
 | `beat_locked` | a direction names a beat the stream has already committed to (director route; recorded on the edit as a refused direction) | no |
 
 `portion_locked` at admission is an HTTP `409` on the `POST`; the same code after admission is a
@@ -444,11 +443,16 @@ write path per field rather than re-deriving a beat on every prose edit.
   routes). The Studio hides the controls from non-members; the server does not refuse them.
   Room-scoped authorization for the local host is one decision for all of these routes, not one
   per route.
-- ~~The ended room.~~ **Settled and enforced.** A jam carries a lifecycle
-  (`live | playing | ended`, `src/core/jamLifecycle.ts`). An ended room's recording is its
-  artifact, so its story stops moving: an edit is refused `409 jam_ended` at admission, and an
-  edit already queued when the room ends fails with the same code rather than rewriting a film
-  that was already shot.
+- ~~The ended room.~~ **Settled, and then settled the other way (RV-23).** A jam carries a
+  lifecycle (`live | playing | ended`, `src/core/jamLifecycle.ts`). It was first settled that an
+  ended room's story stops moving, because its recording was the artifact of a finished room:
+  an edit was refused `409 jam_ended` at admission, and a queued edit failed the same way.
+  RV-23 gave the stop signal to everybody in the room, which forced `ended` to stop being
+  terminal — a stop anybody can send must not retire a room permanently. `ended` now means
+  "between takes", so **the outline takes edits in every lifecycle state**: `jam_ended` is gone
+  from this table and from both sites in `apps/server/outline.ts`. What protects a beat already
+  with the provider is `portion_locked`, which is unchanged and is the check that was doing that
+  work all along.
 - The vote tally rule, and whether it is per jam, per host or global. This spec fixes that the
   rule is server-owned, not what it is.
 - How a chat turn is pinned to a beat index — by the model, by the participant, or by both.

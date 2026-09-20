@@ -38,6 +38,119 @@ from and draws the page over that screen when it is one that can hold its place
 where a film with no history behind it should land. The rule is now one sentence instead of two
 exceptions, and the next screen that lists films inherits it by being named.
 
+## 2026-09-20 — A Director session is a way of working on a jam, not a sixth destination
+
+`/director/:slug` is one person making one film by talking to it. The obvious
+place to put it is the top bar, beside Home, Discover, Catalog, Movie Jam and
+Community. It is not there, for two reasons.
+
+The first is mechanical and hard: the bar's five destinations already have to
+fit a 360-pixel screen, where the brand and the account are pinned and the
+strip scrolls inside the bar. A sixth would not fit, and the fix for that
+would be to make the bar worse for every screen in the app.
+
+The second is that it would be a category error. Home, Discover, Catalog,
+Movie Jam and Community are *places*. A Director session is a *way of working
+on a jam you already have* — the same room, the same script, the same beats,
+the same paid stream, differing only in who is in the room. So it lives under
+Movie Jam: `destinationOf("director")` answers `"jam"`, the bar marks Movie
+Jam while you are there, Back leads to `/jams`, and the Movie Jam list gains
+the choice — **With people**, which opens the Studio, or **Alone**, which
+opens the Director session. Nothing redirects between them and neither is the
+"real" one.
+
+The cost is that a Director session cannot be reached in one press from any
+screen; it takes Movie Jam and then a choice. That is the right price for a
+bar that still fits a phone and a mental model that does not make "a mode" and
+"a place" the same thing.
+
+## 2026-09-20 — The Director screen shows what the product knows, and names what it does not
+
+The design this screen was drawn from carries a finished film: nine beats,
+2:11, per-beat stills, variants of a shot to choose between, a library of
+reference images, and dollar figures. Almost none of that has anything behind
+it, and the temptation in building it is to keep the shapes and fill them with
+something — a grey rectangle where a still goes, a disabled Download, a
+carousel with one item in it. Every one of those tells the viewer the feature
+is nearly there. Four of them are not there at all.
+
+So each absence is drawn as an absence, and says what is missing:
+
+- **No beat has a still.** The stream is forwarded to viewers and recorded
+  whole; nothing in this build samples a frame per beat. The beat's frame
+  holds its own phrase, and the timeline says why there is no image, once.
+- **No variants.** Nothing generates a second take of a beat, keeps one, or
+  chooses between them. Review says so where the variants would be.
+- **No reference library.** A Director session keeps no images or clips,
+  because there is nowhere to keep them.
+- **No audio description.** There is no describer and no narration track. Its
+  row in the drawer reads "Not made" and carries no control at all — not a
+  disabled one, which would read as "soon".
+
+**Attach fans out for real and then stops.** A dropped image or clip offers
+the four intents — the look, a character, a place, a shot — because declaring
+a purpose before the media is used is the rule live media already proved. One
+tap picks it, and then the composer says plainly that nothing can carry it to
+the film: there is no upload route, no reference store, and `jam_proposals`
+carries text and nothing else (`docs/specs/multimodal-creative-turns.md`).
+Building the gesture and stopping at the wall is more honest than hiding the
+gesture, and much more honest than faking the wall away.
+
+**Every number is derived.** The runtime, the beat count, each beat's duration
+and start come from the script's own portions. The beat states come from the
+stream's own window (`src/core/directorBeats.ts`, asked rather than restated).
+The turns come from the session's audit trail, and a turn's beat is the one it
+named or the one that was playing when it was sent — never a guess. The spend
+comes from the server, from seconds the provider actually generated. Where the
+script itself is missing — it lives in the process that generated it, so a
+restart or a different host loses it — the screen says that and offers nothing
+built from it.
+
+## 2026-09-20 — Direct mode arms the microphone; it does not leave it open
+
+The two modes are the one choice that changes what everything below the stage
+does, so they are the most prominent control after it. Direct applies each
+completed instruction on its own; Review is stopped, with per-beat tools.
+
+Direct is deliberately *hold to speak* rather than an open microphone.
+Continuous transcription is a spend question rather than a feature one — it is
+listed as exactly that in `docs/specs/multimodal-creative-turns.md` — and an
+always-listening control in a room is a consent question as well. The gesture
+bounds both: audio is captured while the control is held and at no other time,
+the partial transcript is on screen while it is, and on release the final
+transcript goes straight to the stream. Leaving Direct closes the microphone,
+because a Review mode that was still listening would contradict the only thing
+Review means.
+
+The voice machinery underneath is the app's existing relay, recorder and
+partial merge; only the gesture is new, and it is added to the existing control
+rather than copied beside it.
+
+## 2026-09-20 — Spend is the server's figure, from generated seconds, in USD
+
+The screen has to show what a session has cost against `FAL_ASSET_BUDGET_USD`.
+Three ways of getting that number would have been wrong.
+
+Quoting the **reservation** would overstate it. The ledger debits a session's
+worst case up front so a dead browser tab cannot leak budget, and a session
+that ran ten seconds has not spent two minutes' worth.
+
+Computing it **in the browser** would put the rate, the ceiling and the
+provider's minimum in two places, and they would drift. The arithmetic is
+shared (`src/core/directorSpend.ts`) and the numbers are the server's alone.
+
+**Hiding the minimum** would understate it. fal bills sixty seconds per
+session whether or not they are used, so an open session that has generated
+nothing has already cost $4.80 at list price, and the screen says so from the
+moment it opens.
+
+The figure is USD with two decimals, never `Intl.NumberFormat` with the
+viewer's locale — which would re-label the same number as their own currency
+without converting it. When the budget left cannot pay for a beat's seconds,
+that beat is **blocked** on the timeline, marked differently from the other
+four states, and the composer says so on a line of its own: being told the
+stream is stopped must not hide being told the budget is out.
+
 ## 2026-09-20 — The account menu shows the real anonymous session, not a fabricated identity
 
 The top bar now ends in an avatar with a menu behind it. The obvious way to build that surface is

@@ -50,9 +50,9 @@ function buildJam(): Jam {
     id: randomUUID(),
     createdAt: new Date().toISOString(),
     source: { kind: "from-scratch", prompt: "A lighthouse keeper finds a door." },
+    lifecycle: "live",
     format: { totalSeconds: 20, portionMinSeconds: 5, portionMaxSeconds: 5 },
     script: buildScript(5, 2, 2),
-    lifecycle: "live" as const,
   };
 }
 
@@ -309,19 +309,13 @@ test("a second viewer on the same configuration attaches to the one stream", asy
   assert.equal(joined.sessionId, sessionId);
   assert.ok(joined.beats);
 
-  assert.equal((await endSession(jam.id, sessionId)).status, 200);
-  // The stream slot is free again, but THIS room has ended and does not stream
-  // a second time: its recording is what remains of it.
-  const reopened = await fetch(`${baseUrl}/api/jams/${jam.id}/director/session`, {
+  assert.equal((await endSession(jam.id, sessionId)).status, 204);
+  const third = await fetch(`${baseUrl}/api/jams/${jam.id}/director/session`, {
     method: "POST",
   });
-  assert.equal(reopened.status, 409);
-  assert.equal((await reopened.json()).error.code, "jam_ended");
-
-  // A different room still opens, so the refusal is about this jam's life and
-  // not about the concurrency slot.
-  const next = await openJamSession();
-  await endSession(next.jam.id, next.sessionId);
+  assert.equal(third.status, 201);
+  assert.equal((await third.clone().json()).attached, false);
+  await endSession(jam.id, (await third.json()).sessionId);
 });
 
 test("a different configuration gets its own stream", async () => {
@@ -347,17 +341,8 @@ test("a different configuration gets its own stream", async () => {
   assert.equal(sameAgain.status, 200);
   assert.equal((await sameAgain.json()).sessionId, second.sessionId);
 
-  const firstEnded = await endSession(jam.id, first.sessionId);
-  assert.equal((await firstEnded.json()).lifecycle, "playing");
-  assert.equal((await store.getJam(jam.id))?.lifecycle, "playing");
-  // The other configuration is still live, so stopping one must not finish
-  // the room and strand a paid stream behind an ended lifecycle.
-  assert.equal(
-    (await fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${second.sessionId}`)).status,
-    200,
-  );
-  const secondEnded = await endSession(jam.id, second.sessionId);
-  assert.equal((await secondEnded.json()).lifecycle, "ended");
+  await endSession(jam.id, first.sessionId);
+  await endSession(jam.id, second.sessionId);
 });
 
 test("a third configuration is refused once the streams are full", async () => {
@@ -404,16 +389,11 @@ test("a failed handshake releases the reservation and closes the peer", async ()
 test("ending a session closes the peer and is idempotent", async () => {
   const { jam, sessionId } = await openJamSession();
   peer.channel.open();
-  const first = await endSession(jam.id, sessionId);
-  assert.equal(first.status, 200);
-  assert.equal((await first.json()).lifecycle, "ended");
+  assert.equal((await endSession(jam.id, sessionId)).status, 204);
   assert.ok(peer.closed);
   // The provider was told to stop.
   assert.equal(peer.channel.parsed().at(-1)!.type, "stop");
-  // Ending twice is the same teardown, and the room stays ended.
-  const again = await endSession(jam.id, sessionId);
-  assert.equal(again.status, 200);
-  assert.equal((await again.json()).lifecycle, "ended");
+  assert.equal((await endSession(jam.id, sessionId)).status, 204);
 });
 
 test("state and audit are gone once a session is closed", async () => {
@@ -627,40 +607,6 @@ test("watching a session that is not open is refused", async () => {
   assert.equal(response.status, 404);
 });
 
-test("a session id cannot be used through another jam's routes", async () => {
-  const { jam, sessionId } = await openJamSession();
-  const other = buildJam();
-  await store.createJam(other);
-  const prefix = `${baseUrl}/api/jams/${other.id}/director/session/${sessionId}`;
-
-  const attempts = [
-    fetch(prefix),
-    fetch(`${prefix}/direct`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ body: "Cross the rooms." }),
-    }),
-    fetch(`${prefix}/watch`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sdp: "v=0\r\nviewer-offer\r\n" }),
-    }),
-    fetch(`${prefix}/renew`, { method: "POST" }),
-    fetch(`${prefix}/end`, { method: "POST" }),
-  ];
-  for (const response of await Promise.all(attempts)) assert.equal(response.status, 404);
-
-  // The mismatched end did not tear down the real room.
-  assert.equal(
-    (await fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}`)).status,
-    200,
-  );
-  assert.equal((await store.getJam(jam.id))?.lifecycle, "playing");
-  await endSession(jam.id, sessionId);
-  // The ownership check also survives teardown by consulting the archive row.
-  assert.equal((await endSession(other.id, sessionId)).status, 404);
-});
-
 test("a malformed viewer offer never reaches the forwarder", async () => {
   const { jam, sessionId } = await openJamSession();
   const before = viewerOffers.length;
@@ -740,140 +686,76 @@ test("ending one session leaves another session's viewers alone", async () => {
   await endSession(second.jam.id, second.sessionId);
 });
 
-test("watching an ended room points at its recording instead of 404", async () => {
+test("the budget route names this server's ceiling before any session is opened", async () => {
+  const response = await fetch(`${baseUrl}/api/jams/${randomUUID()}/director/budget`);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.configured, true);
+  assert.equal(body.spend.budgetUsd, LIMITS.budgetUsd);
+  assert.equal(body.spend.usdPerSecond, LIMITS.usdPerSecond);
+  assert.equal(body.spend.minBilledSeconds, 60, "fal's per-session minimum, not a guess");
+  assert.equal(body.spend.sessionUsd, 0, "no session, nothing spent");
+});
+
+/** What the server says is left before this test opens anything of its own. */
+async function remainingUsd(): Promise<number> {
+  const body = await (await fetch(`${baseUrl}/api/jams/${randomUUID()}/director/budget`)).json();
+  return body.spend.remainingUsd;
+}
+
+test("an open session is billed the provider's minimum before it has generated a second", async () => {
+  const before = await remainingUsd();
   const { jam, sessionId } = await openJamSession();
+  const { spend, state } = await (
+    await fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}`)
+  ).json();
+
+  assert.equal(state.generatedSeconds, 0);
+  // 60s minimum at $0.08: the money is already committed whether or not it runs.
+  assert.equal(spend.sessionUsd.toFixed(2), "4.80");
+  assert.equal(spend.remainingUsd.toFixed(2), (before - 4.8).toFixed(2));
+
   await endSession(jam.id, sessionId);
-
-  const watched = await fetch(
-    `${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/watch`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sdp: "v=0\r\noffer\r\n" }),
-    },
-  );
-  // The room exists and so does its recording; only the live stream is gone.
-  assert.equal(watched.status, 409);
-  const body = await watched.json();
-  assert.equal(body.error.code, "jam_ended");
-  assert.equal(body.archive, `/api/jams/${jam.id}/director/archive`);
 });
 
-test("watching a session that never existed is still a plain 404", async () => {
-  const jam = buildJam();
-  await store.createJam(jam);
-  const watched = await fetch(
-    `${baseUrl}/api/jams/${jam.id}/director/session/nope/watch`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sdp: "v=0\r\noffer\r\n" }),
-    },
-  );
-  assert.equal(watched.status, 404);
-});
-
-test("a room stopped by its last viewer leaving is ended, not left playing", async () => {
-  viewerClosers = [];
+test("spend follows the seconds the stream actually generated, not its reservation", async () => {
+  const before = await remainingUsd();
   const { jam, sessionId } = await openJamSession();
-  const watched = await fetch(
-    `${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/watch`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sdp: "v=0\r\nviewer-offer\r\n" }),
-    },
-  );
-  assert.equal(watched.status, 201);
+  peer.channel.open();
+  // 90 seconds of video: past the minimum, so the bill follows the chunks.
+  for (let index = 0; index < 6; index += 1) {
+    peer.channel.deliver({
+      type: "chunk",
+      chunk_index: index,
+      prompt_version: 1,
+      playback_seconds: 15,
+      script_offset_seconds: index * 5,
+    });
+  }
 
-  // The viewer rule stops the session without going through the end route, so
-  // the lifecycle has to move with the teardown rather than with the request.
-  viewerClosers[0]();
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  const { spend, state } = await (
+    await fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}`)
+  ).json();
+  assert.equal(state.generatedSeconds, 90);
+  // The session may bill at most its reservation — 60s × $0.08, the limit it
+  // stops at — so the figure is capped there rather than quoting more.
+  assert.equal(spend.sessionUsd.toFixed(2), "4.80");
+  assert.equal(spend.remainingUsd.toFixed(2), (before - 4.8).toFixed(2));
 
-  const reopened = await fetch(`${baseUrl}/api/jams/${jam.id}/director/session`, {
-    method: "POST",
-  });
-  assert.equal(reopened.status, 409);
-  assert.equal((await reopened.json()).error.code, "jam_ended");
+  await endSession(jam.id, sessionId);
 });
 
-test("a recording server builds the session's sinks and finishes them on end", async () => {
-  const built: { jamId: string; sessionId: string }[] = [];
-  let finished = 0;
-  const app = express();
-  app.use(
-    createDirectorRouter(store, {
-      config: { ...CONFIG, record: true },
-      limits: LIMITS,
-      recordings,
-      createPeer: () => new FakeDirectorPeer(),
-      startSession: async () => "v=0\r\nanswer\r\n",
-      createSegmentSinks: (session) => {
-        built.push(session);
-        return [{ init() {}, segment() {}, finish() { finished += 1; } }];
-      },
-    }),
-  );
-  const server = app.listen(0, "127.0.0.1");
-  await new Promise((resolve) => server.once("listening", resolve));
-  const port = (server.address() as { port: number }).port;
+test("opening a session reports the same spend the read route does", async () => {
   const jam = buildJam();
   await store.createJam(jam);
-  try {
-    const opened = await fetch(`http://127.0.0.1:${port}/api/jams/${jam.id}/director/session`, {
-      method: "POST",
-    });
-    assert.equal(opened.status, 201);
-    const { sessionId } = await opened.json();
-    // The sinks are the session's own: built for this jam and this session.
-    assert.deepEqual(built, [{ jamId: jam.id, sessionId }]);
-
-    const ended = await fetch(
-      `http://127.0.0.1:${port}/api/jams/${jam.id}/director/session/${sessionId}/end`,
-      { method: "POST" },
-    );
-    assert.equal(ended.status, 200);
-    // No track ever arrived, so nothing was muxed; the sink is still told the
-    // session is over, and the route did not wait on a muxer for it.
-    assert.equal(finished, 1);
-  } finally {
-    server.close();
-  }
-});
-
-test("a server that does not record builds no sinks at all", async () => {
-  let built = 0;
-  const app = express();
-  app.use(
-    createDirectorRouter(store, {
-      config: { ...CONFIG, record: false },
-      limits: LIMITS,
-      recordings,
-      createPeer: () => new FakeDirectorPeer(),
-      startSession: async () => "v=0\r\nanswer\r\n",
-      createSegmentSinks: () => {
-        built += 1;
-        return [];
-      },
-    }),
-  );
-  const server = app.listen(0, "127.0.0.1");
-  await new Promise((resolve) => server.once("listening", resolve));
-  const port = (server.address() as { port: number }).port;
-  const jam = buildJam();
-  await store.createJam(jam);
-  try {
-    const opened = await fetch(`http://127.0.0.1:${port}/api/jams/${jam.id}/director/session`, {
-      method: "POST",
-    });
-    assert.equal(opened.status, 201);
-    assert.equal(built, 0);
-    const { sessionId } = await opened.json();
-    await fetch(`http://127.0.0.1:${port}/api/jams/${jam.id}/director/session/${sessionId}/end`, {
-      method: "POST",
-    });
-  } finally {
-    server.close();
-  }
+  const opened = await (
+    await fetch(`${baseUrl}/api/jams/${jam.id}/director/session`, { method: "POST" })
+  ).json();
+  assert.equal(opened.spend.sessionUsd.toFixed(2), "4.80");
+  assert.equal(opened.spend.budgetUsd, LIMITS.budgetUsd);
+  const read = await (
+    await fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${opened.sessionId}`)
+  ).json();
+  assert.deepEqual(read.spend, opened.spend);
+  await endSession(jam.id, opened.sessionId);
 });

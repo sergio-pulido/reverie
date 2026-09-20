@@ -176,6 +176,22 @@ The same boundary answers both routes. `POST /api/jams/:id/director/session/:ses
 
 **There is no per-portion generation.** Video is produced by one continuous director session, not by a queue of clips; the events `portion.locked`, `media.requested`, `media.ready` and `media.delayed` described elsewhere in this document belong to a pipeline that no longer exists.
 
+### Director spend
+
+Every director session response (`POST .../director/session`, `GET .../director/session/:sessionId`) carries `spend`:
+
+| Field | Meaning |
+| --- | --- |
+| `budgetUsd` | The ceiling, from `FAL_ASSET_BUDGET_USD`. `0` when it is not set, which means nothing can be generated. |
+| `usdPerSecond` | fal's price per generated second, from `REVERIE_DIRECTOR_USD_PER_SECOND`. |
+| `minBilledSeconds` | The provider's per-session minimum (60), billed whether or not it is used. |
+| `sessionUsd` | What this session has cost, from the seconds it has generated, capped at its reservation. |
+| `remainingUsd` | The ceiling less everything committed, including this session. |
+
+`GET /api/jams/:id/director/budget` answers the same `spend` with `sessionUsd: 0`, plus `configured` — whether a director is configured on this server at all, which is a different fact from having money left. It does not look the jam up: the budget belongs to the process, not to a room.
+
+The figure is derived from generated seconds, never from the reservation. The reservation is the worst case the ledger commits up front so a dead browser tab cannot leak budget (`apps/server/directorSessions.ts`); quoting it back as spend would overstate every session that ran short. Currency is USD because fal prices in USD; it is never converted or re-labelled.
+
 ## Planned Supabase mutation and Realtime contracts
 
 Supabase Realtime carries authenticated room notifications over its managed WebSocket transport. Durable chat/proposals/votes use RLS-protected database writes; multi-row admission and scene transitions use constrained transactional RPCs. Broadcast cannot grant membership or accept a scene. The HTTP routes above remain design candidates, not available endpoints; admission may be implemented as an authenticated RPC instead. Each command has `schemaVersion`, `requestId`, `expectedStateVersion`, `type`, and typed payload. Events have `eventId`, `roomId`, `stateVersion`, `occurredAt`, `type`, and payload. Vercel functions handle privileged operations such as issuing Vonage session tokens and calling providers.

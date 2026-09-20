@@ -21,6 +21,9 @@ import {
   JOIN_PATH,
   NEW_JAM_PATH,
   destinationOf,
+
+  directorPath,
+  directorSlugFromPath,
   filmFromPath,
   filmPath,
   jamSlugFromPath,
@@ -32,6 +35,7 @@ import { hasSupabaseConfiguration } from "./lib/supabase";
 import { useViewerSource } from "./shell/ViewerContext";
 import { ScriptScreen } from "./ScriptScreen";
 import { CreateRoom, type SourceKind } from "./screens/CreateRoom";
+import { DirectorScreen } from "./director/DirectorScreen";
 import { JamRegistry } from "./screens/JamRegistry";
 import { JoinRoom } from "./screens/JoinRoom";
 import { PreviewStudio } from "./screens/PreviewStudio";
@@ -48,7 +52,7 @@ import { useRemoteConventions } from "./shell/useRemoteConventions";
 const LandingRoute = lazy(() => import("./landing/LandingRoute"));
 
 /** Screens with no rows of their own to land in: a remote arrives on their top bar. */
-const LANDS_ON_TOP_BAR: ReadonlySet<Screen> = new Set(["catalog", "community", "jams", "create", "join", "script", "studio"]);
+const LANDS_ON_TOP_BAR: ReadonlySet<Screen> = new Set(["catalog", "community", "jams", "create", "join", "script", "studio", "director"]);
 
 /**
  * Screens a film page is drawn as a layer over rather than in place of, so they keep their scroll,
@@ -68,10 +72,15 @@ let searchRequests = 0;
 
 type Location = { screen: Screen; slug: string | null; film: ReturnType<typeof filmFromPath>; from: string | null; inviteCode: string };
 
+/** The jam a path names, whether it is the room's or its Director session's. */
+function slugOf(pathname: string) {
+  return jamSlugFromPath(pathname) ?? directorSlugFromPath(pathname);
+}
+
 /** Where the viewer is. */
 function readLocation(): Location {
   const { pathname } = window.location;
-  return { screen: screenFromPath(pathname), slug: jamSlugFromPath(pathname), film: filmFromPath(pathname), from: entryFrom(), inviteCode: inviteCodeFromLocation() };
+  return { screen: screenFromPath(pathname), slug: slugOf(pathname), film: filmFromPath(pathname), from: entryFrom(), inviteCode: inviteCodeFromLocation() };
 }
 
 export type AppProps = {
@@ -116,7 +125,7 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
     const state = replace ? replacingEntry() : pushedEntry();
     if (replace) window.history.replaceState(state, "", path);
     else window.history.pushState(state, "", path);
-    setLocation({ screen: next, slug: jamSlugFromPath(path), film: filmFromPath(path), from: entryFrom(state), inviteCode: inviteCodeFromLocation() });
+    setLocation({ screen: next, slug: slugOf(path), film: filmFromPath(path), from: entryFrom(state), inviteCode: inviteCodeFromLocation() });
     setSearchRequest(null);
     setNotice(null);
   }
@@ -316,7 +325,14 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
       />;
     }
     if (screen === "community") return <CommunityScreen />;
-    if (screen === "jams") return <JamRegistry onNew={startJam} onOpen={(jam, mode) => { applyJam(jam, mode); navigate("studio", `/jams/${jam.slug}`); }} />;
+    if (screen === "director") return <DirectorScreen slug={slug} />;
+    if (screen === "jams") {
+      return <JamRegistry
+        onNew={startJam}
+        onOpen={(jam, mode) => { applyJam(jam, mode); navigate("studio", `/jams/${jam.slug}`); }}
+        onDirect={(jam, mode) => { applyJam(jam, mode); navigate("director", directorPath(jam.slug)); }}
+      />;
+    }
     if (screen === "create") {
       return <CreateRoom title={roomTitle} premise={premise} visibility={visibility} sourceKind={sourceKind} importedScript={importedScript} totalSeconds={totalSeconds} portionMinSeconds={portionMinSeconds} portionMaxSeconds={portionMaxSeconds} onTitle={setRoomTitle} onPremise={setPremise} onVisibility={setVisibility} onSourceKind={setSourceKind} onImportedScript={setImportedScript} onTotalSeconds={setTotalSeconds} onPortionMinSeconds={setPortionMinSeconds} onPortionMaxSeconds={setPortionMaxSeconds} onSubmit={createRoom} isCreating={isCreating} notice={notice} />;
     }

@@ -93,6 +93,15 @@ export async function press(key: string, init: KeyboardEventInit & { allowLost?:
   return event.defaultPrevented;
 }
 
+/** Dispatches one event and lets what it changed settle, as a real interaction does. */
+export async function fire(element: Element | null, event: Event) {
+  assert.ok(element instanceof window.HTMLElement, "there is something to send the event to");
+  await act(async () => {
+    element.dispatchEvent(event);
+  });
+  await settle(1);
+}
+
 export async function click(element: Element | null) {
   assert.ok(element instanceof window.HTMLElement, "there is something to click");
   await act(async () => {

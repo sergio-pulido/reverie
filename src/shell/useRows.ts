@@ -1,12 +1,15 @@
 import { useCallback, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
 import { rowMove, type HomeRow } from "../home/rowMove";
-import { isEditable } from "../shell/topBarFocus";
+import { isEditable } from "./topBarFocus";
 
 /**
  * Remote navigation over a column of rows, the same axis rule as the rest of the app: Up and Down
  * move between rows and land on the item last focused there, Left and Right move within a row and
  * stop at its ends. `rowMove` decides every arrow. OK presses the focused button. A cell is any
  * element carrying `data-row` and `data-index`; in a text field Left and Right belong to the caret.
+ *
+ * It lives in `shell` because it is the app's axis convention rather than any one screen's:
+ * Discover's filter panel and the Director session both walk their rows with it.
  */
 
 export type Row = HomeRow;

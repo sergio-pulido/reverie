@@ -41,6 +41,14 @@ export interface OpenedDirectorSession {
   /** False when this server is not delivering the stream live. */
   liveDelivery: boolean;
   maxSessionSeconds: number;
+  /**
+   * The film's own length, when this server holds the script.
+   *
+   * A take ends at whichever comes first, this or the session ceiling. Null
+   * means the server could not read the script, never that the film is
+   * endless.
+   */
+  filmSeconds: number | null;
   /** False when the server has no object storage: the recording is lost on restart. */
   recordingDurable: boolean;
   /** Where the room is now. Opening moves it to playing; attaching reports it. */
@@ -64,6 +72,8 @@ export interface DirectorBudget {
   configured: boolean;
   /** Where a take stops itself, so the commitment can be stated before the press. */
   maxSessionSeconds: number;
+  /** The film's length, which is the earlier stop whenever it is the shorter. */
+  filmSeconds: number | null;
   spend: DirectorSpend;
 }
 

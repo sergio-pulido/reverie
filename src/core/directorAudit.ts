@@ -21,6 +21,12 @@ export type DirectorAuditKind =
   | "direction_rejected"
   | "chunk_received"
   | "provider_error"
+  /**
+   * The film reached its selected length and the take stopped itself. Always
+   * followed by `session_closed`: this says why that close happened, which is
+   * otherwise indistinguishable from somebody in the room pressing Stop.
+   */
+  | "session_complete"
   | "session_closed";
 
 export interface DirectorAuditEntry {

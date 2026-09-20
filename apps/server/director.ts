@@ -28,6 +28,7 @@ import {
   DEFAULT_CONFIGURATION,
 } from "../../src/core/configuration";
 import { sessionSettingsSchema } from "../../src/core/session";
+import { totalDurationSeconds } from "../../src/core/script";
 import {
   DIRECTOR_MIN_BILLED_SECONDS,
   DirectorError,
@@ -436,12 +437,18 @@ export function createDirectorRouter(
    * would help nobody. `configured` says whether a session could be opened at
    * all, which is a different fact from having money left.
    */
-  router.get("/api/jams/:id/director/budget", (_request, response) => {
+  router.get("/api/jams/:id/director/budget", async (request, response) => {
+    // The film's own length is the ceiling a take usually reaches first, and
+    // it is the one the room chose. Read best-effort and answered as null when
+    // it cannot be: the budget belongs to this process, so a jam that lives
+    // elsewhere must not cost a reader the price of the session either.
+    const jam = await store.getJam(request.params.id).catch(() => null);
     response.json({
       configured: requireConfig() !== null,
       // The ceiling a take stops itself at, so a screen can say what pressing
       // play commits to before it is pressed rather than only afterwards.
       maxSessionSeconds: limits.maxSessionSeconds,
+      filmSeconds: jam?.script ? totalDurationSeconds(jam.script) : null,
       spend: spendOf(null),
     });
   });
@@ -490,6 +497,7 @@ export function createDirectorRouter(
           viewerId: ledger.attach(existing.sessionId),
           attached: true,
           maxSessionSeconds: limits.maxSessionSeconds,
+          filmSeconds: jam.script ? totalDurationSeconds(jam.script) : null,
           recordingDurable: recordings.durable && index.durable,
           liveDelivery: deliverLive,
           // Attaching does not move the room; it reports where it already is.
@@ -604,6 +612,18 @@ export function createDirectorRouter(
       onAudit: (entry) => {
         void index.recordAudit(session.sessionId, entry).catch(() => undefined);
       },
+      // The take stops itself at the end of the film it was asked for.
+      //
+      // fal keeps generating past the last beat — it is told the script once
+      // and then streams until it is told to stop — so without this every take
+      // runs to the session ceiling and the room pays for minutes of film that
+      // are not in the script. Ending here rather than inside the stream is
+      // what settles the paid session, closes the archive and moves the room
+      // out of `playing`: it is the same stop a person presses, sent by the
+      // server on the room's behalf.
+      onComplete: () => {
+        void endSession(session.sessionId).catch(() => undefined);
+      },
     });
     try {
       await stream.open();
@@ -649,6 +669,7 @@ export function createDirectorRouter(
       viewerId: ledger.attach(session.sessionId),
       attached: false,
       maxSessionSeconds: limits.maxSessionSeconds,
+      filmSeconds: jam.script ? totalDurationSeconds(jam.script) : null,
       recordingDurable: recordings.durable && index.durable,
       liveDelivery: deliverLive,
       lifecycle: started.lifecycle,

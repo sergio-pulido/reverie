@@ -1,5 +1,43 @@
 # Decisions
 
+## 2026-09-20 — A take ends when the film does (RV-28)
+
+fal does not stop at the last beat. The script reaches it once, on the control channel at
+`configure`, and after that the stream runs until it is told to stop: a twenty-second script
+was measured generating through 1:20 before a person pressed Stop. Every second past the end
+of the script is generated, billed at the per-second rate, and thrown away -- it is not in
+the film, because the film is the script. So the selected length is a boundary only this
+side can enforce, and now does.
+
+**The server ends it, not the screen.** `DirectorStream` reports the end through `onComplete`
+and the router calls the same `endSession` a person's Stop calls, so the paid session settles,
+the archive closes and the room leaves `playing` exactly as it does for a pressed Stop. A
+browser-side stop would have been a stop that a closed tab, a dead laptop or a reader who
+looked away could skip -- which is the class of bug the 90-second idle reclaim already exists
+to cover.
+
+**Two readings, either of which ends the take** (`src/core/directorCompletion.ts`).
+`generatedSeconds` -- the sum of each chunk's `playback_seconds` -- is how much film exists,
+and normally crosses first. `script_offset_seconds` is the provider's frontier, and a paid
+probe on 2026-09-20 established that it is the START offset of the chunk being generated: a
+session reading 50 has 60 seconds in hand. So the frontier crosses the runtime a whole chunk
+late and is the backstop, not the trigger -- it still ends a take whose chunks report no
+playable duration to add up. Both come off the control channel, so this works while the media
+pipeline is producing nothing, which is the state the muxer is currently in.
+
+**A script this server cannot time is not a film of no length.** A runtime of zero leaves the
+take running to the session ceiling rather than ending it the instant it opens.
+
+**The session ceiling stays, and is now the second of two.** `maxSessionSeconds` is a spend
+control over any film; the film's length is what the room asked for. A take reaches whichever
+is nearer, and the room is told which before Play is pressed -- `filmSeconds` on the budget
+and session routes, answered as `null` when this server does not hold the script, never as an
+endless film.
+
+**A take that ends itself says so.** `session_complete` is recorded before the `session_closed`
+that follows it, because otherwise a room cannot tell the film ending from the stream failing:
+both look like a player that swapped to a recording on its own.
+
 ## 2026-09-20 — A finished film is read from the deployment, and the archive says why it is empty (RV-25)
 
 The archive routes were written to be portable -- plain reads of Supabase and Storage, with

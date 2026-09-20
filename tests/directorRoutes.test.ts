@@ -46,23 +46,33 @@ let viewerClosers: (() => void)[] = [];
 let server: Server;
 let baseUrl: string;
 
-function buildJam(): Jam {
+/**
+ * A jam whose film is `portionSeconds x 2 x portionsPerScene` long, 20s by default.
+ *
+ * The length matters to more than the script: a take now stops itself at the
+ * end of the film, so a test that drives a stream past that boundary has to
+ * ask for a film long enough to contain what it is driving.
+ */
+function buildJam(portionSeconds = 5, portionsPerScene = 2): Jam {
   return {
     id: randomUUID(),
     createdAt: new Date().toISOString(),
     source: { kind: "from-scratch", prompt: "A lighthouse keeper finds a door." },
     lifecycle: "live",
-    format: { totalSeconds: 20, portionMinSeconds: 5, portionMaxSeconds: 5 },
-    script: buildScript(5, 2, 2),
+    format: {
+      totalSeconds: portionSeconds * 2 * portionsPerScene,
+      portionMinSeconds: portionSeconds,
+      portionMaxSeconds: portionSeconds,
+    },
+    script: buildScript(portionSeconds, 2, portionsPerScene),
   };
 }
 
-async function openJamSession(): Promise<{
+async function openJamSession(jam: Jam = buildJam()): Promise<{
   jam: Jam;
   sessionId: string;
   viewerId: string;
 }> {
-  const jam = buildJam();
   await store.createJam(jam);
   const response = await fetch(`${baseUrl}/api/jams/${jam.id}/director/session`, {
     method: "POST",
@@ -878,9 +888,83 @@ test("a room stopped by its last viewer leaving is stopped, not left playing", a
   assert.equal((await store.getJam(jam.id))?.lifecycle, "ended");
 });
 
-test("spend follows the seconds the stream actually generated, not its reservation", async () => {
+test("a take stops itself at the end of the film, with nobody pressing anything", async () => {
   const before = await remainingUsd();
   const { jam, sessionId } = await openJamSession();
+  peer.channel.open();
+  const closing = peer;
+
+  // The jam's script is 20 seconds, so these two chunks are the whole film.
+  // fal would keep going; this server is what ends the take.
+  peer.channel.deliver({
+    type: "chunk",
+    chunk_index: 0,
+    prompt_version: 1,
+    playback_seconds: 10,
+    script_offset_seconds: 0,
+  });
+  peer.channel.deliver({
+    type: "chunk",
+    chunk_index: 1,
+    prompt_version: 1,
+    playback_seconds: 10,
+    script_offset_seconds: 10,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const response = await fetch(
+    `${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}`,
+  );
+  assert.equal(response.status, 404);
+  // Ended, not merely forgotten: the provider connection is closed, the room
+  // is out of `playing`, and the paid session settled at the minimum rather
+  // than holding its whole reservation.
+  assert.equal(closing.closed, true);
+  assert.equal((await store.getJam(jam.id))?.lifecycle, "ended");
+  assert.equal((await remainingUsd()).toFixed(2), (before - 4.8).toFixed(2));
+});
+
+test("a take short of the film's length keeps running", async () => {
+  const { jam, sessionId } = await openJamSession();
+  peer.channel.open();
+  // Half of a 20-second film, and the frontier still inside it.
+  peer.channel.deliver({
+    type: "chunk",
+    chunk_index: 0,
+    prompt_version: 1,
+    playback_seconds: 10,
+    script_offset_seconds: 0,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const { state } = await (
+    await fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}`)
+  ).json();
+  assert.equal(state.generatedSeconds, 10);
+  await endSession(jam.id, sessionId);
+});
+
+test("the budget names the film's length, so a room knows where a take ends", async () => {
+  const jam = buildJam();
+  await store.createJam(jam);
+  const body = await (
+    await fetch(`${baseUrl}/api/jams/${jam.id}/director/budget`)
+  ).json();
+  assert.equal(body.filmSeconds, 20);
+  assert.equal(body.maxSessionSeconds, LIMITS.maxSessionSeconds);
+  // A jam this server does not hold still gets its budget answered.
+  const unknown = await (
+    await fetch(`${baseUrl}/api/jams/${randomUUID()}/director/budget`)
+  ).json();
+  assert.equal(unknown.filmSeconds, null);
+  assert.equal(unknown.configured, true);
+});
+
+test("spend follows the seconds the stream actually generated, not its reservation", async () => {
+  const before = await remainingUsd();
+  // A two-minute film, so ninety seconds of it is a take still running rather
+  // than one that has reached its end and stopped itself.
+  const { jam, sessionId } = await openJamSession(buildJam(15, 4));
   peer.channel.open();
   // 90 seconds of video: past the minimum, so the bill follows the chunks.
   for (let index = 0; index < 6; index += 1) {

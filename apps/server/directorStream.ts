@@ -15,7 +15,12 @@ import {
   type DirectorAuditEntry,
   type DirectorAuditListener,
 } from "../../src/core/directorAudit";
-import type { JamScript } from "../../src/core/script";
+import { totalDurationSeconds, type JamScript } from "../../src/core/script";
+import {
+  completionDetail,
+  completionSignal,
+  type CompletionSignal,
+} from "../../src/core/directorCompletion";
 import {
   beatOffsets,
   beatWindow,
@@ -63,6 +68,14 @@ export interface DirectorStreamOptions {
    * somewhere that outlives this process. The in-memory trail is unaffected.
    */
   onAudit?: DirectorAuditListener;
+  /**
+   * Called once, when the take has generated the whole film it was asked for.
+   *
+   * The stream reports the end rather than ending itself: what a finished take
+   * costs, what it settles, and what the room's lifecycle becomes are the
+   * router's, and a stream that tore itself down would settle none of them.
+   */
+  onComplete?: (signal: CompletionSignal) => void;
 }
 
 export interface DirectionRequest {
@@ -177,6 +190,8 @@ export class DirectorStream {
   private connection: DirectorPeer | null = null;
   private control: DirectorControlChannel | null = null;
   private stopped = false;
+  /** Reported once: the film's end is reached in one chunk, not repeatedly. */
+  private completed = false;
   /** Inbound tracks, kept so viewers can be forwarded a copy. */
   private readonly inbound: MediaStreamTrack[] = [];
   private readonly trackListeners: ((track: MediaStreamTrack) => void)[] = [];
@@ -203,6 +218,11 @@ export class DirectorStream {
       const index = this.trackListeners.indexOf(listener);
       if (index >= 0) this.trackListeners.splice(index, 1);
     };
+  }
+
+  /** True once this take has generated the whole film it was asked for. */
+  get complete(): boolean {
+    return this.completed;
   }
 
   /** The jam this stream belongs to, for callers holding many streams. */
@@ -371,6 +391,39 @@ export class DirectorStream {
       default:
         break;
     }
+
+    this.reportCompletion();
+  }
+
+  /**
+   * Says, once, that the film has reached its selected length.
+   *
+   * Read after every control message rather than only after a chunk, because
+   * the two readings that answer it are carried on different messages and a
+   * take that is already past its end must not wait for one more chunk — the
+   * chunk it would wait for is the overrun this exists to prevent.
+   *
+   * A stream that is already stopping reports nothing: the take is ending, and
+   * a completion arriving behind a stop would settle a session twice.
+   */
+  private reportCompletion(): void {
+    if (this.completed || this.stopped) return;
+    const reading = {
+      runtimeSeconds: totalDurationSeconds(this.options.script),
+      generatedSeconds: this.state.generatedSeconds,
+      scriptOffsetSeconds: this.state.scriptOffsetSeconds,
+    };
+    const signal = completionSignal(reading);
+    if (!signal) return;
+    this.completed = true;
+    this.audit.record({
+      kind: "session_complete",
+      detail: completionDetail(signal, reading),
+      ...(this.state.scriptOffsetSeconds === null
+        ? {}
+        : { scriptOffsetSeconds: this.state.scriptOffsetSeconds }),
+    });
+    this.options.onComplete?.(signal);
   }
 
   /**

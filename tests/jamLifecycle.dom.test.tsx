@@ -535,6 +535,166 @@ describe("the room shows where it is in its life", () => {
     }
   });
 
+  it("says a take will stop at the end of the film, not at the session ceiling", async () => {
+    // Two ceilings, and the room is told the one it will actually reach. The
+    // session ceiling is a spend control; the film's length is what the room
+    // asked for, and on any film shorter than the ceiling it is what ends the
+    // take.
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(typeof input === "string" ? input : input.toString());
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+      if (url.endsWith(`/api/jams/${JAM}`)) return json({ jam: { lifecycle: "live" } });
+      if (url.endsWith("/director/budget")) {
+        return json({
+          configured: true,
+          maxSessionSeconds: 120,
+          filmSeconds: 20,
+          spend: {
+            budgetUsd: 20,
+            usdPerSecond: 0.08,
+            minBilledSeconds: 60,
+            sessionUsd: 0,
+            remainingUsd: 20,
+          },
+        });
+      }
+      if (url.endsWith(`/api/jams/${JAM}/director/session`)) {
+        return json(
+          { error: { code: "no_stream", safeMessage: "Nobody is streaming.", retryable: true } },
+          404,
+        );
+      }
+      return json({});
+    }) as typeof fetch;
+
+    try {
+      await render(<JamDirector jamId={JAM} configuration={DEFAULT_CONFIGURATION} />);
+      await settle();
+      const cost = text('[data-testid="jam-director-cost"]');
+      assert.match(cost, /stops itself at the end of the film, after 0:20/);
+      assert.doesNotMatch(cost, /stops itself after 2:00/);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("says a take stopped itself because the film ended, rather than losing it", async () => {
+    // Nobody pressed Stop here: the server ended the take when the film
+    // reached its selected length. Without saying so, the player quietly swaps
+    // to a recording and the room is left to guess whether that was the film
+    // ending or the stream failing.
+    const original = globalThis.fetch;
+    let lifecycle = "playing";
+    let sessionOpen = true;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(typeof input === "string" ? input : input.toString());
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+      if (url.endsWith(`/api/jams/${JAM}`)) return json({ jam: { lifecycle } });
+      if (url.endsWith(`/api/jams/${JAM}/director/session`) && init?.method === "POST") {
+        if (!sessionOpen) {
+          return json(
+            { error: { code: "no_stream", safeMessage: "Nobody is streaming.", retryable: true } },
+            404,
+          );
+        }
+        return json({
+          sessionId: "sess-2",
+          viewerId: "viewer-2",
+          attached: true,
+          liveDelivery: false,
+          recordingDurable: true,
+          maxSessionSeconds: 120,
+          filmSeconds: 20,
+          lifecycle,
+          state: {
+            status: "streaming",
+            appliedPromptVersion: 1,
+            sentPromptVersion: 1,
+            chunksReceived: 2,
+            generatedSeconds: 20,
+            scriptOffsetSeconds: 10,
+            endedReason: null,
+            error: null,
+          },
+          beats: null,
+        });
+      }
+      if (url.endsWith("/director/session/sess-2")) {
+        // The take generated the whole film, so the server ended it. The trail
+        // is where that is said; the session stops answering right after.
+        sessionOpen = false;
+        lifecycle = "ended";
+        return json({
+          state: {
+            status: "ended",
+            appliedPromptVersion: 1,
+            sentPromptVersion: 1,
+            chunksReceived: 2,
+            generatedSeconds: 20,
+            scriptOffsetSeconds: 10,
+            endedReason: null,
+            error: null,
+          },
+          beats: null,
+          audit: [
+            { at: "2026-09-20T09:00:00.000Z", kind: "session_opened" },
+            {
+              at: "2026-09-20T09:00:20.000Z",
+              kind: "session_complete",
+              detail: "20s generated of a 20s film",
+            },
+          ],
+          droppedAuditEntries: 0,
+          spend: {
+            budgetUsd: 20,
+            usdPerSecond: 0.08,
+            minBilledSeconds: 60,
+            sessionUsd: 4.8,
+            remainingUsd: 15.2,
+          },
+        });
+      }
+      if (url.endsWith("/director/archive")) return json({ durable: true, sessions: [{ id: "sess-2" }] });
+      if (/\/director\/archive\/[^/]+$/.test(url)) {
+        return json({
+          durable: true,
+          session: { complete: true, container: "webm" },
+          segments: [{ segmentIndex: 0, startSeconds: 0, durationSeconds: 20 }],
+          durationSeconds: 20,
+        });
+      }
+      return json({});
+    }) as typeof fetch;
+
+    try {
+      await render(<JamDirector jamId={JAM} configuration={DEFAULT_CONFIGURATION} />);
+      await settle(6);
+
+      const notices = [...document.querySelectorAll(".notice")].map(
+        (node) => node.textContent ?? "",
+      );
+      assert.ok(
+        notices.some((notice) => /reached the end of the film and stopped itself/.test(notice)),
+        "the room is told why the take ended",
+      );
+      assert.equal(badge(), "STOPPED");
+      assert.ok(
+        document.querySelector('[data-testid="jam-director-recording"]'),
+        "and the film it made is what the room shows",
+      );
+      assert.equal(
+        document.querySelector<HTMLButtonElement>('[data-testid="jam-director-play"]')?.disabled,
+        false,
+        "a finished film does not retire the room",
+      );
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it("detaches a viewer allocated after the screen has unmounted", async () => {
     const original = globalThis.fetch;
     let answerAttach!: (response: Response) => void;

@@ -2528,6 +2528,27 @@ the code it quotes sit together again.
   generated" runs against a two-minute film, because `buildJam()` in `tests/directorRoutes.test.ts`
   now takes `(portionSeconds, portionsPerScene)` and portions cap at 15s.
 
+## 2026-09-20 — A film is at least sixty seconds (RV-31)
+
+- `TOTAL_MIN_SECONDS` 10 → 60 and `DEFAULT_TOTAL_SECONDS` 20 → 60. fal bills a Director session
+  a 60-second minimum whether or not it is used, so a 20-second film cost exactly what a
+  60-second one costs and discarded two thirds of it. The Create form already reads the constant
+  for its input bounds, and now says why the floor is there.
+- **The minimum is verified, not assumed.** https://fal.ai/h3-max-director: "$0.08 / second",
+  minimum "60 seconds", "A session shorter than that still bills $4.80". Four places in this
+  repo asserted the number and none cited a source; the citation now sits with the constant in
+  `apps/server/providers/falDirector.ts`.
+- **Deliberately not done:** removing `DIRECTOR_MIN_BILLED_SECONDS` from the spend model. It is
+  fal's floor, not ours, so removing it saves nothing and makes the ledger under-report the
+  invoice.
+- **Trade this makes, and it is real:** at 20s the provider's overrun past the last beat was
+  absorbed by the 60s minimum and cost nothing. At 60s the film fills the minimum exactly, so
+  overrun now bills on top. Bounded by `maxSessionSeconds`; the proper fix is the same unprobed
+  question RV-28 left open.
+- Verified: `pnpm test` 1411/1411, `npx tsc --noEmit` clean. Six fixtures moved off the old
+  20-second default (`buildDefaultFormatScript` is now 3×4×5s), and one DOM test that grabbed
+  the first `.form-note` in the create form now asks for the note it means.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

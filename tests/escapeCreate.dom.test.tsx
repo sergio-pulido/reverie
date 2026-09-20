@@ -136,6 +136,13 @@ describe("starting a jam from an escape room", () => {
     await render(show({ sourceKind: "from-scratch" }));
     assert.ok(document.querySelector(".format-row"), "a written script still has its length");
     assert.equal(submit().textContent, "Write the script↗");
-    assert.match(document.querySelector(".room-form .form-note")?.textContent ?? "", /never a copy of an existing film/);
+    // Several notes share the class, so this asks for the one it means rather
+    // than for whichever happens to come first in the form.
+    const notes = [...document.querySelectorAll(".room-form .form-note")].map(
+      (note) => note.textContent ?? "",
+    );
+    assert.ok(notes.some((note) => /never a copy of an existing film/.test(note)));
+    // The length floor is a price, and the form says so where the length is set.
+    assert.ok(notes.some((note) => /billed 60 seconds whatever length you pick/.test(note)));
   });
 });

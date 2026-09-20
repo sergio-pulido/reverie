@@ -59,22 +59,22 @@ const FOUR_MINUTES = scriptFormatSchema.parse({
 });
 
 test("expected portions follow the format's timing", () => {
-  assert.equal(expectedPortions(DEFAULT_SCRIPT_FORMAT), 4); // 20s / 5s avg
+  assert.equal(expectedPortions(DEFAULT_SCRIPT_FORMAT), 12); // 60s / 5s avg
   assert.equal(expectedPortions(FOUR_MINUTES), 18); // 240s / 13.5s avg
   assert.equal(
-    expectedPortions({ totalSeconds: 20, portionMinSeconds: 5, portionMaxSeconds: 5 }),
-    4,
+    expectedPortions({ totalSeconds: 60, portionMinSeconds: 5, portionMaxSeconds: 5 }),
+    12,
   );
 });
 
 test("completion token budget scales with the script size and stays capped", () => {
-  const tiny = { totalSeconds: 20, portionMinSeconds: 5, portionMaxSeconds: 5 };
+  const tiny = { totalSeconds: 60, portionMinSeconds: 5, portionMaxSeconds: 5 };
   const huge = scriptFormatSchema.parse({
     totalSeconds: 720,
     portionMinSeconds: 15,
     portionMaxSeconds: 15,
   });
-  assert.equal(completionTokenBudget(tiny), 800 + 4 * 300);
+  assert.equal(completionTokenBudget(tiny), 800 + 12 * 300);
   assert.equal(completionTokenBudget(FOUR_MINUTES), 800 + 18 * 300);
   assert.equal(completionTokenBudget(huge), 8000);
 });
@@ -82,12 +82,12 @@ test("completion token budget scales with the script size and stays capped", () 
 test("system prompt speaks the format's numbers", () => {
   const prompt = buildSystemPrompt(
     scriptFormatSchema.parse({
-      totalSeconds: 20,
+      totalSeconds: 60,
       portionMinSeconds: 5,
       portionMaxSeconds: 5,
     }),
   );
-  assert.match(prompt, /20 seconds in total/);
+  assert.match(prompt, /60 seconds in total/);
   assert.match(prompt, /5-5 seconds each/);
 });
 

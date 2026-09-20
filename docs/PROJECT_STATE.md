@@ -1826,7 +1826,7 @@ then quoted "A comedy" every time.
 
 - `npx tsc --noEmit` clean. `pnpm test` 1,117/1,124 — the seven failures are the pre-existing
   `directorPieces`, `directorPieceMuxer` and `directorRoutes` ones, unchanged from `main`. New
-  tests: `tests/preferenceSubject.test.ts` (13, grounding and composition), and cases added to
+  tests: `tests/preferenceSubject.test.ts` (12, grounding and composition), and cases added to
   `conversationDecision`, `refinements`, `shortlistFilters` and `search.dom` (30 new in all).
 - The widening guard was checked by making the words match nothing in the DOM test: the row still
   shows films and carries the sentence naming the words that found none.

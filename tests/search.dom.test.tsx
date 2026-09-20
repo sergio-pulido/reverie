@@ -378,5 +378,10 @@ describe("what the film is about", () => {
     const [turn] = turns();
     assert.ok(turn.posters.length > 0, "the screen is not left empty");
     assert.match(turn.caption ?? "", /The words \u201ca family with some pets\u201d found no films/);
+    assert.match(
+      document.querySelector(".search-strip-notice")?.textContent ?? "",
+      /The words \u201ca family with some pets\u201d found no films/,
+      "and the strip says the same beside the count",
+    );
   });
 });

@@ -2616,6 +2616,12 @@ the code it quotes sit together again.
   generated plus the next" and "the beat being generated plus the next" (`twoBeatsAhead`), so the
   room's own rule holds whatever a chunk turns out to be: at Play, beats 1 and 2 are both closed
   even on a film whose beats are as long as a chunk. Capped at the film's runtime.
+- **A beat is 15 seconds by default**, at both ends of the band (`DEFAULT_PORTION_MIN_SECONDS`,
+  `DEFAULT_PORTION_MAX_SECONDS` 5 → 15), so the default 60-second film is four beats rather than
+  twelve. Fewer, longer beats means fewer seams, and it is what makes a beat worth directing: a
+  five-second beat is shorter than a chunk, so the provider is already past it before a change
+  could matter. `buildDefaultFormatScript` is now 2x2x15s; `expectedPortions` of the default
+  format is 4.
 - **A beat being generated is no longer offerable to the composer.** It stays selectable — Review
   reads a beat back whatever its state — but the Direct button is disabled and the note names the
   beat and its state, instead of sending something the screen already knows the server refuses.

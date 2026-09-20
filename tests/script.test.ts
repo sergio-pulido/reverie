@@ -43,19 +43,20 @@ test("structural schema still refuses a portion the model cannot render", () => 
   assert.equal(jamScriptSchema.safeParse(tooLong).success, false);
 });
 
-test("format defaults to 60 seconds of 5-second portions", () => {
+test("format defaults to 60 seconds of 15-second portions", () => {
   const format = scriptFormatSchema.parse({});
   assert.deepEqual(format, {
     totalSeconds: 60,
-    portionMinSeconds: 5,
-    portionMaxSeconds: 5,
+    // Both ends of the model's band: the fewest, longest beats it can make.
+    portionMinSeconds: 15,
+    portionMaxSeconds: 15,
   });
 });
 
 test("format accepts partial overrides", () => {
   const format = scriptFormatSchema.parse({ totalSeconds: 120 });
   assert.equal(format.totalSeconds, 120);
-  assert.equal(format.portionMinSeconds, 5);
+  assert.equal(format.portionMinSeconds, 15);
 });
 
 test("format rejects a minimum portion above the maximum", () => {

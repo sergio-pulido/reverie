@@ -7,8 +7,13 @@ import { z } from "zod";
 // minimum of 60 seconds whether or not they are used, so the default film is
 // the length that gets all of what has already been paid for.
 export const DEFAULT_TOTAL_SECONDS = 60;
-export const DEFAULT_PORTION_MIN_SECONDS = 5;
-export const DEFAULT_PORTION_MAX_SECONDS = 5;
+// The longest portion the video model will make, at both ends of the band, so
+// the default film is the fewest, longest beats it can be. A beat is one
+// generated shot: fewer of them means fewer seams, and each one carries more
+// of the story. It is also what makes a beat worth directing — at five
+// seconds the provider is a chunk ahead before a change could matter.
+export const DEFAULT_PORTION_MIN_SECONDS = 15;
+export const DEFAULT_PORTION_MAX_SECONDS = 15;
 
 // The floor is fal's billing minimum, verified against the vendor's own pages
 // on 2026-09-20: a Director session costs 60 seconds x $0.08 whether it runs

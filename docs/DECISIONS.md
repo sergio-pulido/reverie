@@ -22,6 +22,12 @@ the provider has is one nobody can still change; every beat that can still chang
 provider has not seen. An edit therefore cannot land on a beat fal holds, and the next hand-over
 reads the story as it stands, so the picture follows the room.
 
+**Beat length is what sets how much of the film is closed, which is why the default moved to
+fifteen seconds** — the top of the model's band, at both ends of it. A beat shorter than a chunk
+cannot be directed in practice: the provider is a chunk ahead, so by the time anyone could ask for
+a change that beat is long gone. At fifteen seconds a beat is a chunk, and the two beats the room
+is guaranteed are a real half-minute of film.
+
 **The window is wider than it was, and that is the true price.** One chunk of lead over a
 ten-second chunk closes about four five-second beats, where the old rule claimed two. The cost was
 always being paid — under the old shape every beat was committed from the first second — the

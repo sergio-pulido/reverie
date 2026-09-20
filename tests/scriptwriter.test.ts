@@ -59,7 +59,7 @@ const FOUR_MINUTES = scriptFormatSchema.parse({
 });
 
 test("expected portions follow the format's timing", () => {
-  assert.equal(expectedPortions(DEFAULT_SCRIPT_FORMAT), 12); // 60s / 5s avg
+  assert.equal(expectedPortions(DEFAULT_SCRIPT_FORMAT), 4); // 60s / 15s avg
   assert.equal(expectedPortions(FOUR_MINUTES), 18); // 240s / 13.5s avg
   assert.equal(
     expectedPortions({ totalSeconds: 60, portionMinSeconds: 5, portionMaxSeconds: 5 }),

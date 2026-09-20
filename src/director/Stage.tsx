@@ -21,7 +21,6 @@ type StageProps = {
   currentBeat: TimelineBeat | null;
   /** Blocking reason, when a session cannot be opened at all. */
   cannotStart: string | null;
-  canDrive: boolean;
   cellProps: (row: string, index: number) => Record<string, unknown>;
   /** The transport bar, drawn under a finished frame. */
   transport: ReactNode;
@@ -39,7 +38,6 @@ export function Stage({
   beats,
   currentBeat,
   cannotStart,
-  canDrive,
   cellProps,
   transport,
 }: StageProps) {
@@ -93,16 +91,16 @@ export function Stage({
             type="button"
             className="button button-primary"
             onClick={() => void session.start()}
-            disabled={!canDrive || session.busy || session.live || cannotStart !== null}
+            disabled={session.busy || session.live || cannotStart !== null}
             {...cellProps(STAGE_ROW, 0)}
           >
-            {session.busy && !session.live ? "Starting…" : "Start the stream"} <span>▶</span>
+            {session.busy && !session.live ? "Starting…" : session.live ? "Playing" : "Play"} <span>▶</span>
           </button>
           <button
             type="button"
             className="button button-quiet"
             onClick={() => void session.stop()}
-            disabled={!canDrive || !session.live || session.busy}
+            disabled={!session.live || session.busy}
             {...cellProps(STAGE_ROW, 1)}
           >
             Stop

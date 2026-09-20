@@ -186,8 +186,8 @@ export const beatCards = () =>
 export const beatStates = () => beatCards().map((card) => card.dataset.state);
 export const turnCards = () => Array.from(document.querySelectorAll<HTMLElement>(".director-turn"));
 export const stage = () => document.querySelector<HTMLElement>(".director-stage")!;
-export const startButton = () =>
-  beatOrNull(Array.from(document.querySelectorAll<HTMLButtonElement>(".director-stage-actions button")).find((button) => button.textContent?.includes("Start")));
+export const playButton = () =>
+  beatOrNull(document.querySelector<HTMLButtonElement>(".director-stage-actions .button-primary") ?? undefined);
 
 function beatOrNull<T>(value: T | undefined): T {
   if (value === undefined) throw new Error("the control is on the screen");

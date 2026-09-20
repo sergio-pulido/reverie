@@ -160,6 +160,94 @@ describe("the room shows where it is in its life", () => {
     }
   });
 
+  it("lets go of a session somebody else stopped, and shows that take", async () => {
+    // Anybody in the room can send the stop signal, so most stops arrive from
+    // another browser. A screen that only learned about its own Stop would sit
+    // on a dead player until it was reopened.
+    const original = globalThis.fetch;
+    let lifecycle = "playing";
+    let sessionOpen = true;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(typeof input === "string" ? input : input.toString());
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "content-type": "application/json" },
+        });
+      if (url.endsWith(`/api/jams/${JAM}`)) return json({ jam: { lifecycle } });
+      if (url.endsWith(`/api/jams/${JAM}/director/session`) && init?.method === "POST") {
+        if (!sessionOpen) {
+          return json(
+            { error: { code: "no_stream", safeMessage: "Nobody is streaming.", retryable: true } },
+            404,
+          );
+        }
+        return json({
+          sessionId: "sess-1",
+          viewerId: "viewer-1",
+          attached: true,
+          liveDelivery: false,
+          recordingDurable: true,
+          lifecycle,
+          state: {
+            status: "streaming",
+            appliedPromptVersion: 1,
+            sentPromptVersion: 1,
+            chunksReceived: 1,
+            generatedSeconds: 4,
+            scriptOffsetSeconds: null,
+            endedReason: null,
+            error: null,
+          },
+          beats: null,
+        });
+      }
+      if (url.endsWith("/director/session/sess-1")) {
+        // Between joining the stream and this first read of it, somebody else
+        // in the room pressed Stop.
+        sessionOpen = false;
+        lifecycle = "ended";
+        return json(
+          { error: { code: "not_found", safeMessage: "That director session is not open.", retryable: false } },
+          404,
+        );
+      }
+      if (url.endsWith("/director/archive")) return json({ durable: true, sessions: [{ id: "sess-1" }] });
+      if (/\/director\/archive\/[^/]+$/.test(url)) {
+        return json({
+          durable: true,
+          session: { complete: true, container: "webm" },
+          segments: [{ segmentIndex: 0, startSeconds: 0, durationSeconds: 8 }],
+          durationSeconds: 8,
+        });
+      }
+      return json({});
+    }) as typeof fetch;
+
+    try {
+      await render(<JamDirector jamId={JAM} configuration={DEFAULT_CONFIGURATION} />);
+      await settle(6);
+
+      assert.equal(badge(), "STOPPED");
+      assert.equal(
+        document.querySelector<HTMLButtonElement>('[data-testid="jam-director-stop"]')?.disabled,
+        true,
+        "there is nothing left to stop",
+      );
+      assert.ok(
+        document.querySelector('[data-testid="jam-director-recording"]'),
+        "the take that just stopped is what the room shows",
+      );
+      assert.equal(
+        document.querySelector<HTMLButtonElement>('[data-testid="jam-director-play"]')?.disabled,
+        false,
+        "and the next take is one press away",
+      );
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it("detaches a viewer allocated after the screen has unmounted", async () => {
     const original = globalThis.fetch;
     let answerAttach!: (response: Response) => void;

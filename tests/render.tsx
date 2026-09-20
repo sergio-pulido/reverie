@@ -93,6 +93,22 @@ export async function press(key: string, init: KeyboardEventInit & { allowLost?:
   return event.defaultPrevented;
 }
 
+/** Types into a field the way a viewer does, so React sees the change it would see. */
+export async function fill(element: Element | null, value: string) {
+  assert.ok(element instanceof window.HTMLInputElement || element instanceof window.HTMLTextAreaElement, "there is a field to fill");
+  const prototype = element instanceof window.HTMLInputElement ? window.HTMLInputElement.prototype : window.HTMLTextAreaElement.prototype;
+  // React tracks the previous value on the node, so setting `value` directly
+  // would be swallowed as "unchanged"; the prototype setter is what a real
+  // keystroke goes through.
+  const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+  assert.ok(setter, "the field has a value setter");
+  await act(async () => {
+    setter.call(element, value);
+    element.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  await settle(1);
+}
+
 export async function click(element: Element | null) {
   assert.ok(element instanceof window.HTMLElement, "there is something to click");
   await act(async () => {

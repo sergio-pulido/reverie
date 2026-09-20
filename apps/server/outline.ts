@@ -171,6 +171,28 @@ export class OutlineEditQueue {
   }
 
   private async process(record: OutlineEditRecord): Promise<void> {
+    try {
+      await this.attempt(record);
+    } catch {
+      // An unexpected failure must still settle the record: a record left
+      // `processing` blocks this jam's queue forever and tells the room
+      // nothing about why.
+      this.fail(record, {
+        code: "generation_failed",
+        safeMessage: "The story could not be rewritten.",
+        retryable: true,
+      });
+    }
+    if (record.status === "processing") {
+      this.fail(record, {
+        code: "generation_failed",
+        safeMessage: "The story could not be rewritten.",
+        retryable: true,
+      });
+    }
+  }
+
+  private async attempt(record: OutlineEditRecord): Promise<void> {
     record.status = "processing";
     record.startedAt = this.now().toISOString();
     const intent: OutlineEditIntent =

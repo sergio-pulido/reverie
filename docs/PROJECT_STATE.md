@@ -1334,12 +1334,18 @@ open a PR, merge the PR. The previous split between a "primary agent" pushing di
   generating / editable state, "Rewrite" and "Not this" on editable beats, the ledger, and honest
   "no beat yet" and "no script on this server" states. `GET /api/jams/:id/outline` also returns
   the current script so the screenplay under the panel follows the revision the beats describe.
-- **Status: documented, code written, nothing verified.** The user paused implementation with
-  the documentation complete. The modules above exist on the branch and `pnpm typecheck` is
-  clean, but no tests were written for them and none of it has been run, offline or against
-  Nebius. Treat every "as built" sentence in `docs/specs/story-outline.md` as the target the
-  code was written to, not as behaviour. The route authorization gap is unchanged (no script
-  route on the Express host checks the caller).
+- **Verified offline:** `pnpm typecheck` clean, `pnpm test` 787/787 (58 new, covering the edit
+  schemas, the fill-in, both provider retry loops, the queue's ordering, idempotency, lock and
+  stale-revision refusals, queue limit, worker recovery, direction delivery, the store commit and
+  the panel), `pnpm build`. Also exercised against the real local host with providers off: an
+  imported jam answers `outline.complete: false` with every beat honestly missing, `GET
+  /api/jams/:id/outline` serves the beats with nothing locked and no stream open, an edit is
+  refused `503 generation_disabled`, a command without a `requestId` is refused `400`, and an
+  unknown jam is `404`.
+- **Not verified:** no cascade and no beat fill-in has ever been run against Nebius from this
+  repository, so every claim about the quality of a rewritten tail is specification, not
+  observation. Delivery into a live director stream is exercised only against a fake stream. The
+  route authorization gap is unchanged (no script route on the Express host checks the caller).
 
 ## Next milestones
 

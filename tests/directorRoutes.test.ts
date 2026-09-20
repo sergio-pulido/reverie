@@ -569,6 +569,31 @@ test("the registry reports the strictest open stream for a jam", async () => {
   assert.equal(registry.minEditablePortionIndex("jam-a"), 3);
 });
 
+test("the registry hands the outline the strictest window and the jam's own streams", async () => {
+  const { DirectorStreamRegistry } = await import("../apps/server/director");
+  const registry = new DirectorStreamRegistry();
+  // Nothing open: nothing is playing and nothing is locked, which is not the
+  // same claim as "the first beat is playing".
+  assert.deepEqual(registry.beatWindow("jam-a"), {
+    currentBeatIndex: null,
+    lockedBeatIndex: null,
+    minEditableBeatIndex: 0,
+  });
+  assert.deepEqual(registry.streamsFor("jam-a"), []);
+
+  const lenient = { jamId: "jam-a", beats: { currentBeatIndex: 1, lockedBeatIndex: 2, minEditableBeatIndex: 3 } };
+  const strict = { jamId: "jam-a", beats: { currentBeatIndex: 3, lockedBeatIndex: 4, minEditableBeatIndex: 5 } };
+  registry.set("s1", lenient as never);
+  registry.set("s2", strict as never);
+  registry.set("s3", { jamId: "other-jam", beats: { currentBeatIndex: 9, lockedBeatIndex: 10, minEditableBeatIndex: 11 } } as never);
+
+  // An edit is only safe if it is ahead of every open stream, so the window
+  // the room is shown is the strictest one.
+  assert.deepEqual(registry.beatWindow("jam-a"), strict.beats);
+  assert.deepEqual(registry.streamsFor("jam-a"), [lenient, strict] as never);
+  assert.deepEqual(registry.streamsFor("nobody"), []);
+});
+
 test("a viewer is forwarded the stream this server already holds", async () => {
   const { jam, sessionId } = await openJamSession();
   const response = await fetch(

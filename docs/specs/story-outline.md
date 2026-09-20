@@ -1,12 +1,12 @@
 # The story outline
 
-**Status: specified; code written on `codex/rv-22-outline-edits`, untested.** This document is
-the specification the RV-22 work builds to. The cascade provider wiring, the fill-in, the per-jam
-edit queue, the outline routes, the store commit and the client panel exist on that branch and
-typecheck, but **no tests have been written for them and nothing has been run**, offline or
-against a provider. Implementation was paused by the user on 2026-09-20 with the documentation
-complete; the code is kept as a starting point, not as a claim. `docs/PROJECT_STATE.md` carries
-the dated receipt when any of it is verified.
+**Status: implemented and verified offline; no provider call has ever been made.** The outline
+projection, the cascade and its provider wiring, the beat fill-in, the per-jam edit queue, the
+outline routes, the store commit and the client panel are built (RV-22) and covered by tests that
+inject the completion instead of calling a model. The routes were also exercised against the real
+local host with providers off. **No cascade and no fill-in has been run against Nebius from this
+repository**, so the quality of a rewritten tail is specified and unobserved;
+`docs/PROJECT_STATE.md` carries the dated receipt when one is run.
 
 ## Why an outline exists
 
@@ -428,8 +428,8 @@ write path per field rather than re-deriving a beat on every prose edit.
 
 ## Implementation status
 
-Written on `codex/rv-22-outline-edits` (RV-22), typechecked, **not tested and not run**:
-`summary` requested by the scriptwriter and accepted by the draft schema; the one-call fill-in for missing beats on generated
+Implemented (RV-22), verified offline with injected completions: `summary` requested by the
+scriptwriter and accepted by the draft schema; the one-call fill-in for missing beats on generated
 and imported scripts (`src/core/outlineSummary.ts`, `apps/server/outlineWriter.ts`); the edit
 intent and command schemas (`src/core/outlineEdit.ts`); the cascade prompt for both intents and
 its provider wiring; `JamStore.commitScript` with the boundary and revision guards; the per-jam
@@ -442,3 +442,17 @@ the cascade schema and application (`src/core/outlineCascade.ts`).
 
 Not implemented: the vote, poll and chat adapters; route authorization; the `jam_ended` refusal;
 a durable store for the script and the ledger (RV-21).
+
+**What the tests actually prove**, since "tested" is not one claim: that an edit rewrites the tail
+and lands as one revision while settled beats are untouched; that durations survive a cascade;
+that edits for one jam are applied strictly in order, each on the previous result; that a replayed
+`requestId` returns the first outcome and pays for one cascade, not two; that a locked beat is
+refused at the door, that a boundary moving under a running cascade refuses the commit and the
+edit waiting behind it, and that both failures are visible in the ledger; that a competing edit
+makes the worker recompute once and give up the second time rather than overwrite; that an
+unexpected failure still settles the record so the jam's queue keeps moving; that a full queue is
+refused; that the landed beat reaches every open stream of that jam and no other's, and that a
+refused direction does not undo the commit; that no provider means no fabricated cascade; and that
+the panel shows played, generating and editable beats, renders a missing beat as missing, and
+sends `set` and `reroll` with the revision the reader was looking at. What they do not prove is
+anything about a real model's output.

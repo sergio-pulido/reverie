@@ -218,6 +218,9 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
   /** One of the three chosen: the flow it already had, opened with that choice carried into it. */
   function chooseWay(chosen: CreateWay) {
     setWay(chosen);
+    setRoomTitle((current) => ["Untitled Movie Jam", "Untitled Film", "Untitled Escape Room"].includes(current)
+      ? chosen === "director" ? "Untitled Film" : chosen === "escape" ? "Untitled Escape Room" : "Untitled Movie Jam"
+      : current);
     setSourceKind(chosen === "escape" ? "escape-room" : "from-scratch");
     setRegisteredRoom(null);
     setGeneratedJam(null);
@@ -317,7 +320,7 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
     try {
       const created = registeredRoom
         ? { jam: registeredRoom, persistence }
-        : await createJamRoom({ id: crypto.randomUUID(), title: roomTitle.trim(), premise: roomPremise.slice(0, 280), visibility });
+        : await createJamRoom({ id: crypto.randomUUID(), title: roomTitle.trim(), premise: roomPremise.slice(0, 280), visibility: way === "director" ? "invite_only" : visibility });
       setRegisteredRoom(created.jam);
       applyJam(created.jam, created.persistence);
       // The jam row does not say which of the three this is, and the routes that would say are

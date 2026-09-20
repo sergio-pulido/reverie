@@ -1,4 +1,4 @@
-import { cleanup, click, render } from "./render";
+import { cleanup, click, render, focusOn, focused, press } from "./render";
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import type { CreateWay } from "../src/create/CreateScreen";
@@ -69,7 +69,7 @@ function show(overrides: {
 }
 
 function sources(): HTMLElement[] {
-  return [...document.querySelectorAll<HTMLElement>('.jam-kind [role="radio"]')];
+  return [...document.querySelectorAll<HTMLElement>('[aria-label="Story source"] [role="radio"]')];
 }
 
 function submit(): HTMLButtonElement {
@@ -87,7 +87,7 @@ describe("starting a jam from an escape room", () => {
 
   it("asks an escape room for no story source at all: the room is the story", async () => {
     await render(show({ way: "escape", sourceKind: "escape-room", scenarioId: "night-audit" }));
-    assert.equal(document.querySelector(".jam-kind"), null);
+    assert.equal(document.querySelector('[aria-label="Story source"]'), null);
     assert.match(document.querySelector(".setup-intro .eyebrow")?.textContent ?? "", /ESCAPE ROOM/);
   });
 
@@ -112,9 +112,9 @@ describe("starting a jam from an escape room", () => {
     await render(show({ sourceKind: "escape-room", scenarioId: "night-audit" }));
     assert.equal(document.querySelector(".format-row"), null);
     assert.equal(document.querySelector("textarea"), null);
-    assert.equal(submit().textContent, "Open the room↗");
+    assert.equal(submit().textContent, "Open escape room↗");
     assert.equal(submit().disabled, false);
-    assert.match(document.querySelector(".room-form .form-note")?.textContent ?? "", /written into this repository/);
+    assert.match(document.querySelector(".room-form .form-note")?.textContent ?? "", /rules resolve your actions/);
   });
 
   it("nothing can be opened until a room is chosen", async () => {
@@ -135,7 +135,39 @@ describe("starting a jam from an escape room", () => {
   it("the other two sources are untouched", async () => {
     await render(show({ sourceKind: "from-scratch" }));
     assert.ok(document.querySelector(".format-row"), "a written script still has its length");
-    assert.equal(submit().textContent, "Write the script↗");
-    assert.match(document.querySelector(".room-form .form-note")?.textContent ?? "", /never a copy of an existing film/);
+    assert.equal(submit().textContent, "Write shared screenplay↗");
+    assert.match(document.querySelector(".room-form .form-note")?.textContent ?? "", /original screenplay/);
   });
+});
+
+for (const way of ["director", "jam", "escape"] as const) {
+  it(`${way} keeps the shared chrome and traverses mode-specific fields`, async () => {
+    await render(show({ way, sourceKind: way === "escape" ? "escape-room" : "from-scratch", scenarioId: "night-audit" }));
+    assert.ok(document.querySelector("[data-top-bar]"));
+    assert.ok(document.querySelector("footer"));
+    assert.match(document.querySelector(".discover-attribution")?.textContent ?? "", /TMDB/);
+    assert.ok(document.querySelector(`.setup-scene .mode-${way}`));
+    assert.equal(Boolean(document.querySelector(".create-admission")), way !== "director");
+    await focusOn(document.querySelector('[data-row="title"]'));
+    await press("ArrowUp");
+    assert.equal(focused().getAttribute("data-destination"), "create");
+    await press("ArrowDown");
+    assert.equal(focused().getAttribute("data-row"), "title");
+    await press("ArrowDown");
+    assert.equal(focused().getAttribute("data-row"), way === "escape" ? "scenario-night-audit" : "source");
+    if (way !== "escape") {
+      await press("ArrowRight");
+      assert.equal(focused().getAttribute("data-index"), "1");
+      await press("ArrowDown");
+      assert.equal(focused().getAttribute("data-row"), "story");
+      assert.equal(await press("ArrowLeft"), false, "horizontal arrows belong to the text caret");
+      await press("ArrowUp");
+      assert.equal(focused().getAttribute("data-index"), "1", "rows remember their last item");
+    }
+  });
+}
+it("import labels promise import, not generation", async () => {
+  await render(show({ way: "director", sourceKind: "import-script" }));
+  assert.equal(submit().textContent, "Import and open Director↗");
+  assert.match(document.querySelector(".form-note")?.textContent ?? "", /imported screenplay/);
 });

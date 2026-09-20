@@ -2474,6 +2474,50 @@ the code it quotes sit together again.
 - The endpoint itself was not exercised from here. It is not on this branch, and the receipts for
   it are in the `POST /api/evaluate` entry above.
 
+## 2026-09-20 — Four modes at the create door (UI-only)
+
+Implemented on `codex/four-modes-create`, in the `reverie-four-modes` worktree. The four
+cards are visible in a single desktop row, with distinct colors and illustrations; mobile
+stacks them. Director, Movie Jam and Escape Room open their existing flows with distinct
+headings, supporting copy, illustrations, field labels and submit labels. Exam says “Not
+open yet” and has no action or flow. Import labels describe importing, and Movie Jam copy
+states that voting and turning proposals into scenes are not available. Escape availability
+reports the actual failure without guessing whether the deployment has a Node server.
+
+All create screens include the top bar, footer and TMDB credit. Remote navigation uses
+`useRows` for both the responsive door and the forms and retains the shell's two-stage Back.
+Director creation forces invite-only and untouched default titles follow the selected mode.
+No database/schema/migration, `startedKinds.ts`, `Studio.tsx`, `JamRegistry.tsx`, or
+`apps/server/` file was changed. The remaining storage/detail-view spec is still deferred.
+
+Verification in this worktree:
+
+- `npx tsc --noEmit`: passed.
+- `pnpm build`: passed; existing large-bundle warning and missing local catalogue
+  configuration notice remain.
+- `node --import tsx --test tests/create.dom.test.tsx tests/escapeCreate.dom.test.tsx tests/backConvention.dom.test.tsx`:
+  passed (35/35 tests, including the mobile-door regression).
+- `pnpm test`: 1,369 passed, 4 failed, 7 cancelled (1,380 total). All create and Back
+  regressions pass, including mobile and desktop card traversal. Failures/cancellations are
+  in the pre-existing media tests `directorPieceMuxer`, `directorPieces`, and `directorSegmenter`.
+  Baseline commands in the unchanged primary checkout reproduced the same failures:
+  `node --import tsx --test tests/directorPieceMuxer.test.ts tests/directorPieces.test.ts tests/directorSegments.test.ts`
+  (4 passed, 2 failed, 4 cancelled; the named `directorSegments.test.ts` does not exist), then
+  `node --import tsx --test tests/directorSegmenter.test.ts` (2 failed, 3 cancelled).
+  Symptoms are worker failure/timeouts and unresolved promises at process exit on Node
+  22.17.1. Server changes to investigate/fix them are outside this task's allowed scope.
+- `PORT=4329 pnpm dev`: local runtime started without provider credentials. Its hot-reload
+  WebSocket conflicts with another local server; manual reloads were used for browser checks.
+  `PORT=4330 pnpm start` also starts the production build for review.
+- Real Chromium browser at 390×844 and 1280×800: visited all four cards, opened all three
+  active forms, edited titles and screenplay imports, changed script length, selected an
+  authored scenario, traversed the form rows with arrows, and used Back twice to return to
+  the door. Exam remains on the door after Enter. Top bar, footer and TMDB credit remain.
+  No element extended horizontally outside either viewport. At 1280×800 all four cards
+  have the same top (314px) and bottom (767px), including their actions/status.
+  Checked the rendered desktop door and desktop/mobile Director layouts visually.
+  These checks cover setup UI, not paid generation or end-to-end collaborative playback.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

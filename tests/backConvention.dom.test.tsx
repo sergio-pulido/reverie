@@ -159,7 +159,7 @@ describe("a film page", () => {
 });
 
 describe("the jam form", () => {
-  it("go up from the first field into the bar, and leave fields their own keys", async () => {
+  it("go up from the first field into the bar, using the shared row convention", async () => {
     await render(<App />, "/jams/new");
     await press("ArrowDown");
     const title = focused() as HTMLInputElement;
@@ -170,10 +170,13 @@ describe("the jam form", () => {
 
     const premise = document.querySelector("textarea")!;
     await focusOn(premise);
-    assert.equal(await press("ArrowUp"), false, "Up moves the caret in a text area");
+    assert.equal(await press("ArrowLeft"), false, "Left moves the caret in a text area");
     assert.equal(focused(), premise);
+    assert.equal(await press("ArrowUp"), true, "Up returns to the story-source row");
+    assert.equal(focused().getAttribute("data-row"), "source");
     await focusOn(document.querySelector('input[type="number"]'));
-    assert.equal(await press("ArrowUp"), false, "Up steps a number");
+    assert.equal(await press("ArrowUp"), true, "Up returns to the premise row");
+    assert.equal(focused(), premise);
 
     await focusOn(title);
     assert.equal(await press("ArrowUp"), true);

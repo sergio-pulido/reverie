@@ -1,5 +1,23 @@
 # Decisions
 
+## 2026-09-20 — Four create faces without changing room storage
+
+The create door presents Director, Movie Jam, Escape Room and an explicitly unavailable
+Exam. Only the existing three flows are callable; Exam adds no route, form or stored kind.
+The chosen `CreateWay` controls copy, illustration, field labels and submit action. Director
+creation is invite-only even when the viewer previously selected a public Jam. User-entered
+titles survive changing doors; untouched default titles follow the chosen mode.
+
+Desktop shows all four cards in one row; mobile stacks them. `useRows` follows that layout:
+Left/Right traverse the desktop cards, Up/Down the mobile cards and form rows. Form fields
+retain Left/Right for their caret and Backspace for deletion; Up/Down move between form rows,
+including number fields. The existing shell still owns Back and top-bar navigation. The
+unavailable Exam notice is focusable so a remote can read it without opening a dead flow.
+
+The full storage change in `docs/specs/four-modes-one-room.md` remains deferred. No database,
+server, stored-kind reader, Studio or Yours behavior is changed. The create screens retain
+the top bar, footer and TMDB credit and do not promise Movie Jam voting or scene generation.
+
 ## 2026-09-20 — A finished film is read from the deployment, and the archive says why it is empty (RV-25)
 
 The archive routes were written to be portable -- plain reads of Supabase and Storage, with

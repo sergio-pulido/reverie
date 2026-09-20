@@ -24,8 +24,10 @@ import { CRITIC_SYSTEM, criticUser } from "./discover-prompts.js";
 
 export const CRITIQUE_BUDGET: Budget = {
   maxTokens: 1_100,
-  timeoutMs: 18_000,
-  deadlineMs: 28_000,
+  // Longer than the ranking's, because nothing is waiting on this one: the posters are already
+  // on screen by the time it is asked, and a wait costs the viewer nothing but the wait.
+  timeoutMs: 24_000,
+  deadlineMs: 36_000,
   // Warmer than the calls that report: criticism with no voice is the thing being replaced.
   temperature: 0.6,
 };
@@ -34,6 +36,14 @@ export const CRITIQUE_BUDGET: Budget = {
 const MIN_RESERVATION_CHARS = 20;
 
 const criticReplySchema = z.object({ critiques: z.array(z.unknown()).max(CONVERSATION_LIMITS.maxCritiquePicks * 2) });
+
+/** A reply's parts before they are cut to length; the shape is checked again after. */
+const looseCritiqueSchema = z.object({
+  candidateId: z.string(),
+  why: z.string(),
+  watching: z.string(),
+  reservation: z.string(),
+});
 
 /**
  * Crowds the critic may not hide behind. What is refused is a verdict borrowed from other
@@ -56,24 +66,81 @@ const VIEWER =
 /** A reservation that reserves nothing. */
 const HOLLOW = /\b(nothing (?:much )?(?:to|against|bad|wrong)|no (?:real|major|obvious|true|serious)|hard to fault|little to fault|few flaws|no flaws|no reservations|flawless|faultless|none(?: at all)?\.?$)/i;
 
+/**
+ * A running time claimed in the prose, a score claimed in it, and a year claimed as this film's
+ * release. These three are what the row can contradict, and a contradiction is a refusal.
+ *
+ * Nothing else about a number is refused. A first pass banned digits outright, and live it
+ * refused "16-bit sprites", "the 1990 game" and a running time the row itself states — true
+ * things, and exactly the knowledge this pass exists to get. What must hold is that the critique
+ * never disagrees with the record beside it, not that it never counts.
+ */
+/**
+ * A running time claimed for the film, in the shapes that claim one and no others. A critic
+ * writes in minutes constantly — "the first thirty minutes", "forty minutes of the best farce
+ * in it" — and those are stretches of the film, not its length. Reading every figure as a
+ * running time refused true sentences live, so only the idioms that state a length are checked:
+ * "at N minutes" opening a sentence, "runs N minutes", "an N-minute film", "N minutes long".
+ * Each capture is a value followed by its unit, which is how `claimed` reads them.
+ */
+const RUNTIME_CLAIM = new RegExp(
+  [
+    String.raw`(?:^|[.;!?]\s+)at\s+(\d{1,3})\s*-?\s*(minutes?|mins?|hours?|hrs?)\b`,
+    String.raw`\b(?:runs|lasts|clocks in at|running time of)\s+(?:for\s+)?(\d{1,3})\s*-?\s*(minutes?|mins?|hours?|hrs?)\b`,
+    String.raw`\b(\d{1,3})\s*-\s*(minute|min|hour|hr)\b`,
+    String.raw`\b(\d{1,3})\s*(minutes?|mins?|hours?|hrs?)\s+long\b`,
+  ].join("|"),
+  "gi",
+);
+const SCORE_CLAIM =
+  /\b(\d{1,3}(?:\.\d)?)\s*(?:\/|out of)\s*(?:5|10|100|five|ten)\b|\b(\d{1,3}(?:\.\d)?|one|two|three|four|five|six|seven|eight|nine|ten)\s*(?:stars?\b|percent\b|%)|\b(\d\.\d)\b/gi;
+const YEAR_CLAIM =
+  /\b(?:released|made|shot|filmed|premiered|came out|dates? from)\s+(?:in\s+)?(\d{4})\b|\b(?:a|an|the|this)\s+(\d{4})\s+(?:film|movie|picture|feature|release|comedy|drama|horror|thriller|romance|western|musical|animation)\b|\bof\s+(\d{4})\b/gi;
+
 const DIGITS = /\d+(?:[.,]\d+)*/g;
+
+/**
+ * The first number one of those patterns finds, with its unit. Every pattern captures a value
+ * and, where a unit matters, the group straight after it, so the first group that matched names
+ * the claim whichever alternative caught it.
+ */
+function claimed(text: string, pattern: RegExp): { value: string; unit: string } | null {
+  for (const match of text.matchAll(pattern)) {
+    const groups = match.slice(1);
+    const at = groups.findIndex((group) => group !== undefined);
+    if (at >= 0) return { value: groups[at], unit: groups[at + 1] ?? "" };
+  }
+  return null;
+}
+
+/** Whether a claim of hours or minutes is this running time, hours read to the nearest hour. */
+function matchesRuntime(claim: { value: string; unit: string }, runtimeMinutes: number): boolean {
+  const value = Number(claim.value);
+  if (!/^h/i.test(claim.unit)) return value === runtimeMinutes;
+  return value === Math.floor(runtimeMinutes / 60) || value === Math.round(runtimeMinutes / 60);
+}
+
+/**
+ * As many whole sentences of `text` as fit, or null when even the first will not. Length is the
+ * one thing a critique is cut for rather than refused over: running long is not a claim that can
+ * be wrong, and refusing a true critique because it overruns by a dozen characters loses the
+ * viewer a note to gain nothing. Only whole sentences are kept, so a trimmed note says less than
+ * the critic wrote and never something else.
+ */
+export function toWholeSentences(text: string, max: number): string | null {
+  const trimmed = text.trim();
+  if (trimmed.length <= max) return trimmed;
+  let kept = "";
+  for (const sentence of trimmed.match(/[^.!?]+[.!?]+(?:\s+|$)/g) ?? []) {
+    if ((kept + sentence).trim().length > max) break;
+    kept += sentence;
+  }
+  return kept.trim() || null;
+}
 
 /** Every part of a critique, as one body of prose to check. */
 function prose(critique: Critique): string {
   return `${critique.why} ${critique.watching} ${critique.reservation}`;
-}
-
-/**
- * The digit runs a critique about `film` is allowed: those inside its own title (so a film
- * called "2001" can be named), its year, and a score the row states. Everything else — a
- * running time, an invented rating, a place in some list — contradicts the row or invents.
- */
-function allowedDigits(film: RankCandidate): Set<string> {
-  const allowed = new Set<string>();
-  for (const run of film.title.match(DIGITS) ?? []) allowed.add(run);
-  if (film.year !== undefined) allowed.add(String(film.year));
-  for (const run of film.rating?.match(DIGITS) ?? []) allowed.add(run);
-  return allowed;
 }
 
 /**
@@ -104,9 +171,23 @@ export function faultInCritique(critique: Critique, film: RankCandidate, withhel
   const named = namesWithheld(text, checkableTitles(withheld));
   if (named) return `your critique of ${film.title} names "${named}", which is not one of the films you were given`;
 
-  const allowed = allowedDigits(film);
-  const stray = (text.match(DIGITS) ?? []).find((run) => !allowed.has(run));
-  if (stray) return `your critique of ${film.title} writes the number "${stray}", and the only digits allowed are the ones in the film's own title or the score its row states`;
+  const runtime = claimed(text, RUNTIME_CLAIM);
+  if (runtime && film.runtimeMinutes !== undefined && !matchesRuntime(runtime, film.runtimeMinutes)) {
+    return `your critique of ${film.title} makes it "${runtime.value} ${runtime.unit}" long, and its row says ${film.runtimeMinutes} minutes`;
+  }
+
+  // The list rows carry no score today, so in practice every score is one the critic invented.
+  const score = claimed(text, SCORE_CLAIM);
+  const stated: string[] = film.rating?.match(DIGITS) ?? [];
+  if (score && !stated.includes(score.value)) {
+    const row = film.rating ? `its row says ${film.rating}` : "its row states no score, so there is none to cite";
+    return `your critique of ${film.title} scores it "${score.value}", and ${row}`;
+  }
+
+  const year = claimed(text, YEAR_CLAIM);
+  if (year && String(film.year) !== year.value) {
+    return `your critique of ${film.title} dates it to "${year.value}", and its row says ${film.year ?? "no year at all"}`;
+  }
 
   const crowd = CROWD.exec(text);
   if (crowd) return `your critique of ${film.title} says "${crowd[0]}", and you may not speak for a crowd`;
@@ -139,10 +220,20 @@ export function judgeCritiques(raw: unknown, picks: readonly RankCandidate[], wi
   const critiques: Critique[] = [];
   const written = new Set<string>();
   for (const entry of reply.data.critiques) {
-    const parsed = critiqueSchema.safeParse(entry);
-    if (!parsed.success) {
-      const issue = parsed.error.issues[0];
+    const loose = looseCritiqueSchema.safeParse(entry);
+    if (!loose.success) {
+      const issue = loose.error.issues[0];
       return { fault: `an entry was not shaped {"candidateId","why","watching","reservation"}: ${issue.message} at ${issue.path.join(".") || "the entry"}` };
+    }
+    const max = CONVERSATION_LIMITS.maxCritiquePartChars;
+    const parsed = critiqueSchema.safeParse({
+      candidateId: loose.data.candidateId,
+      why: toWholeSentences(loose.data.why, max),
+      watching: toWholeSentences(loose.data.watching, max),
+      reservation: toWholeSentences(loose.data.reservation, max),
+    });
+    if (!parsed.success) {
+      return { fault: `an entry ran past what one sentence of it may be: keep every part to two sentences of about forty words` };
     }
     const film = byId.get(parsed.data.candidateId);
     if (!film) return { fault: `you wrote about "${parsed.data.candidateId}", which is not one of the films you were given` };

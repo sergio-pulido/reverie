@@ -115,7 +115,7 @@ describe("the critic's note at both widths", () => {
     await openSearch();
     await say("something funny");
     assert.ok(noted(), "a pick's card is drawn as a noted one");
-    assert.equal(declared(styles, page(), "--pick-width"), "620px", "a pick's slot is wider than a poster's");
+    assert.equal(declared(styles, page(), "--pick-width"), "700px", "a pick's slot is wider than a poster's");
     assert.equal(declared(styles, noted(), "flex-direction"), "row", "poster on the left, prose on the right");
     assert.notEqual(declared(styles, document.querySelector(".search-card-against"), "display"), "none", "what is against it is on screen");
   });

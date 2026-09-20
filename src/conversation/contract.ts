@@ -16,8 +16,8 @@ export const CONVERSATION_LIMITS = {
   maxReasonChars: 160,
   /** Picks one critique call covers: the top picks the ranking produced, never more. */
   maxCritiquePicks: 3,
-  /** One part of a critique: two sentences of it, still readable across a room. */
-  maxCritiquePartChars: 240,
+  /** One part of a critique: two sentences with room to finish, still readable across a room. */
+  maxCritiquePartChars: 320,
 } as const;
 
 export const turnRequestSchema = z.strictObject({

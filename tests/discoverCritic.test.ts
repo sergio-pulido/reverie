@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { CompletionOptions } from "../apps/server/providers/nebius";
 import { ASSISTANT_ATTEMPTS, type Completion } from "../api/_lib/discover-assistant";
-import { CRITIQUE_BUDGET, faultInCritique, isHollow, judgeCritiques, writeCritiques } from "../api/_lib/discover-critic";
+import { CRITIQUE_BUDGET, faultInCritique, isHollow, judgeCritiques, toWholeSentences, writeCritiques } from "../api/_lib/discover-critic";
 import { CRITIC_SYSTEM } from "../api/_lib/discover-prompts";
 import type { Critique, RankCandidate } from "../src/conversation/contract";
 import { newState } from "../src/preferences/state";
@@ -61,26 +61,49 @@ describe("faultInCritique", () => {
     assert.equal(faultInCritique(prose, PICKS[0], ["Up", "Heat", "Moves"]), null);
   });
 
-  it("refuses a wrong year, a running time and an invented score alike, as strayed digits", () => {
+  it("refuses a running time the row contradicts, and allows the one it states", () => {
+    assert.match(
+      faultInCritique(good("cat:1", { watching: "At 132 minutes it outstays the joke." }), PICKS[0], []) ?? "",
+      /makes it "132 minutes" long, and its row says 96 minutes/,
+    );
+    assert.equal(faultInCritique(good("cat:1", { watching: "Ninety-six minutes, and not one wasted." }), PICKS[0], []), null, "in words, and right");
+    assert.equal(faultInCritique(good("cat:1", { watching: "At 96 minutes it is over before it tires." }), PICKS[0], []), null, "in figures, and right");
+    assert.equal(faultInCritique(good("cat:2", { watching: "It runs 2 hours and never drags." }), PICKS[1], []), null, "108 minutes read to the nearest hour");
+    assert.match(faultInCritique(good("cat:1", { watching: "A 132-minute farce." }), PICKS[0], []) ?? "", /132 minute/, "and the hyphenated form too");
+  });
+
+  it("refuses a year claimed for this film that the row contradicts", () => {
+    for (const part of [{ why: "A 1998 comedy that still plays." }, { why: "Released in 1998, and it shows." }, { watching: "The best of 1998." }]) {
+      assert.match(faultInCritique(good("cat:1", part), PICKS[0], []) ?? "", /dates it to "1998", and its row says 1994/, JSON.stringify(part));
+    }
+    assert.equal(faultInCritique(good("cat:1", { why: "A 1994 comedy that still plays." }), PICKS[0], []), null);
+  });
+
+  it("refuses a score the row does not state, in any shape a score takes", () => {
     for (const part of [
-      { why: "A 1998 comedy that still plays." },
-      { watching: "At 132 minutes it outstays the joke a little." },
-      { reservation: "Worth 7.5 at most, and the ending drops a point off even that." },
+      { reservation: "Worth 7.5 at most." },
+      { reservation: "A generous 3 out of 5, and no more." },
+      { reservation: "Two stars for the ending alone." },
+      { reservation: "It is a 60% film with a 90% first reel." },
     ]) {
-      const fault = faultInCritique(good("cat:1", part), PICKS[0], []);
-      assert.match(fault ?? "", /writes the number/, JSON.stringify(part));
+      assert.match(faultInCritique(good("cat:1", part), PICKS[0], []) ?? "", /scores it .*no score, so there is none to cite/, JSON.stringify(part));
     }
   });
 
-  it("allows the film's own year, and digits inside its own title", () => {
-    assert.equal(faultInCritique(good("cat:1", { why: "The best thing anybody made in 1994." }), PICKS[0], []), null);
-    const sequel = pick(3, { title: "Laugh Riot 2", year: 1997 });
-    assert.equal(faultInCritique(good("cat:3", { why: "Laugh Riot 2 is the one that earns its reputation." }), sequel, []), null);
+  it("allows a score the row does state, cited as the crowd's", () => {
+    const rated = pick(5, { title: "Late Train", year: 2001, runtimeMinutes: 100, rating: "7.4" });
+    assert.equal(faultInCritique(good("cat:5", { why: "The crowd puts it at 7.4, and that is about right." }), rated, []), null);
   });
 
-  it("allows a score the row states, cited as the crowd's", () => {
-    const rated = pick(4, { title: "Late Train", year: 2001, rating: "7.4" });
-    assert.equal(faultInCritique(good("cat:4", { why: "The crowd puts it at 7.4, and that is about right." }), rated, []), null);
+  it("leaves numbers the row says nothing about alone, because they contradict nothing", () => {
+    for (const part of [
+      { watching: "The 16-bit sprites are rebuilt shot for shot." },
+      { why: "It takes the 1990 game seriously, which nobody expected." },
+      { watching: "Three brothers, one kitchen, and 40 minutes of the best farce in it." },
+      { reservation: "It goes hollow after the first 30 minutes, like a rollercoaster with no brakes." },
+    ]) {
+      assert.equal(faultInCritique(good("cat:3", part), pick(3, { title: "Sprites", year: 2023 }), []), null, JSON.stringify(part));
+    }
   });
 
   it("refuses a verdict borrowed from critics, audiences or a score site", () => {
@@ -139,7 +162,36 @@ describe("isHollow", () => {
   });
 });
 
+describe("toWholeSentences", () => {
+  it("leaves a part that fits exactly as it was written", () => {
+    assert.equal(toWholeSentences(" A single thought. ", 40), "A single thought.");
+  });
+
+  it("keeps the sentences that fit and drops the ones that do not", () => {
+    assert.equal(toWholeSentences("One. Two. Three.", 9), "One. Two.");
+  });
+
+  it("never cuts inside a sentence: a first sentence that will not fit is no part at all", () => {
+    assert.equal(toWholeSentences("One sentence far too long to keep.", 10), null);
+  });
+});
+
 describe("judgeCritiques", () => {
+  it("cuts an over-long part to its whole sentences instead of refusing the reply", () => {
+    const long = `${"A first sentence that says something real about the film. ".repeat(6)}And a last one.`;
+    const verdict = judgeCritiques(JSON.parse(reply(good("cat:1", { why: long }))), PICKS, []);
+    assert.ok("critiques" in verdict);
+    const { why } = verdict.critiques[0];
+    assert.ok(why.length <= 320, `kept to the cap, was ${why.length}`);
+    assert.ok(why.endsWith("film."), "and to a sentence, never mid-thought");
+  });
+
+  it("refuses an entry whose first sentence alone runs past the cap", () => {
+    const verdict = judgeCritiques(JSON.parse(reply(good("cat:1", { why: `${"word ".repeat(120)}end.` }))), PICKS, []);
+    assert.ok("fault" in verdict);
+    assert.match(verdict.fault, /two sentences/);
+  });
+
   it("accepts critiques for the films it was given", () => {
     const verdict = judgeCritiques(JSON.parse(reply(good("cat:1"), good("cat:2"))), PICKS, []);
     assert.ok("critiques" in verdict);

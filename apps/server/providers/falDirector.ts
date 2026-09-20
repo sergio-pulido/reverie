@@ -195,6 +195,12 @@ export async function startDirectorSession(
   config: DirectorConfig,
   offer: DirectorOffer,
 ): Promise<string> {
+  // The timeout covers the handshake only. The same signal would also abort
+  // the response body, and that body is the session's own stream, kept open
+  // for as long as the session runs; a timeout on it would end every session
+  // at thirty seconds. So it is cleared the moment the answer is in hand.
+  const handshake = new AbortController();
+  const timer = setTimeout(() => handshake.abort(), START_SESSION_TIMEOUT_MS);
   let response: Response;
   try {
     response = await fetch(`${DIRECTOR_BASE_URL}/start-session`, {
@@ -205,9 +211,10 @@ export async function startDirectorSession(
         accept: "text/event-stream, application/json",
       },
       body: JSON.stringify({ type: "offer", sdp: offer.sdp }),
-      signal: AbortSignal.timeout(START_SESSION_TIMEOUT_MS),
+      signal: handshake.signal,
     });
   } catch {
+    clearTimeout(timer);
     throw new DirectorError("The director stream did not respond.", true);
   }
   if (!response.ok) {
@@ -218,11 +225,14 @@ export async function startDirectorSession(
       response.status === 429 || response.status >= 500,
     );
   }
-  const answer = (response.headers.get("content-type") ?? "").includes(
-    "text/event-stream",
-  )
-    ? await readAnswerFromEventStream(response)
-    : findSdp(await response.json().catch(() => null));
+  let answer: string | null;
+  try {
+    answer = (response.headers.get("content-type") ?? "").includes("text/event-stream")
+      ? await readAnswerFromEventStream(response)
+      : findSdp(await response.json().catch(() => null));
+  } finally {
+    clearTimeout(timer);
+  }
   if (!answer) {
     throw new DirectorError("The director stream returned no answer.", true);
   }

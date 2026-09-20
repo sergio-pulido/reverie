@@ -2487,7 +2487,10 @@ the code it quotes sit together again.
   joining the running take and a Play press still opening its own; `tests/jamLifecycle.dom.test.tsx`
   and `tests/directorScreen.dom.test.tsx` cover the screens. The first was confirmed to fail
   against the old attach path before the fix.
-- `pnpm test` 1374/1374 and `npx tsc --noEmit` clean in this worktree.
+- `pnpm test` 1397/1397 and `npx tsc --noEmit` clean in this worktree, with RV-27 (PR #22)
+  merged in. That slice rewrote `src/lib/hlsPlayback.ts` to wait for a first segment and to
+  trust MSE over `canPlayType`, which is the other half of a room handing over its film:
+  this entry is about being given the right session, that one about the frame then playing.
 - **Not verified:** nothing here ran against a real take or a real provider. The joining half
   is covered by route tests with a fake peer and by DOM tests with a stubbed server; whether
   two browsers in one room now see the same film was not observed.

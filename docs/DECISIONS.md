@@ -22,6 +22,22 @@ the provider has is one nobody can still change; every beat that can still chang
 provider has not seen. An edit therefore cannot land on a beat fal holds, and the next hand-over
 reads the story as it stands, so the picture follows the room.
 
+**Run fal dry and it wraps to the top of the script rather than waiting.** Measured, session
+`mu9vnsrb-1` (2026-09-20): configured with the first 30 seconds of a 60-second film, it reported
+chunks at script offsets 0, 10, 20 — **and then 0 again**. The beats handed over at 30s and 45s
+were accepted (`prompt_applied` v2, v3) but arrived after it had already wrapped, so the room
+watched its opening thirty seconds twice and never saw the beats it had edited. The planner also
+runs ahead of the offset it reports: it had consumed 30s of script while reporting 20. So the
+hand-over lead is `DIRECTOR_HANDOVER_LEAD_SECONDS` — forty seconds, four reported chunks at the
+ten-second chunk fal chose — and it is a measurement, not a preference. Starving the provider is
+not a slow degradation; it silently re-renders the opening.
+
+**What that lead costs the room is real and must not be glossed.** On the default sixty-second
+film of fifteen-second beats, three of the four beats are already with fal when the take starts,
+so only the last one can still be directed during it. A longer film pays the same forty seconds
+once and keeps the rest editable — eight beats of fifteen seconds leaves five. Everything is
+editable before Play, and an edit that lands then is in the beats `configure` carries.
+
 **Beat length is what sets how much of the film is closed, which is why the default moved to
 fifteen seconds** — the top of the model's band, at both ends of it. A beat shorter than a chunk
 cannot be directed in practice: the provider is a chunk ahead, so by the time anyone could ask for

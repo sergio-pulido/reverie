@@ -2612,6 +2612,15 @@ the code it quotes sit together again.
 - **The window is wider than before**: one chunk of lead over a ten-second chunk closes about four
   five-second beats, against the two the old rule claimed. The cost was always being paid; the
   window just did not say so.
+- **The lead is measured, not chosen: `DIRECTOR_HANDOVER_LEAD_SECONDS` = 40.** Session
+  `mu9vnsrb-1` was configured with 30s of a 60s film and reported offsets 0, 10, 20, **0** — fal
+  wraps to the top of the script when it runs out, rather than waiting, so the room watched its
+  opening twice while the beats it had edited (accepted as prompt versions 2 and 3) arrived too
+  late to matter. Its planner runs ahead of what it reports: 30s of script consumed at a reported
+  offset of 20.
+- **The cost, stated:** on the default 60-second film that lead closes three of four beats at
+  Play, leaving only the last one directable during a take. A 120-second film pays the same 40
+  seconds and keeps five of eight. Everything is editable before Play.
 - **Never narrower than two beats, either.** The hand-over is the longer of "the chunk being
   generated plus the next" and "the beat being generated plus the next" (`twoBeatsAhead`), so the
   room's own rule holds whatever a chunk turns out to be: at Play, beats 1 and 2 are both closed

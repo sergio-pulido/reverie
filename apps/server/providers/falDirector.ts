@@ -32,6 +32,25 @@ export const DIRECTOR_MIN_CHUNK_SECONDS = 5;
 export const DIRECTOR_MAX_CHUNK_SECONDS = 15;
 /** `script_max_beats` from /info. */
 export const DIRECTOR_MAX_SCRIPT_BEATS = 64;
+
+/**
+ * How far ahead of the reported frontier the script must already be in fal's
+ * hands, in seconds.
+ *
+ * **Measured, not chosen.** Session `mu9vnsrb-1` (2026-09-20) was configured
+ * with the first 30 seconds of a 60-second film and reported chunks at script
+ * offsets 0, 10, 20 — and then **0 again**. Given no more script, fal does not
+ * wait and does not stop: it wraps to the top and re-renders the opening. The
+ * beats handed over at offsets 30 and 45 were accepted (`prompt_applied`, v2
+ * and v3) but arrived after it had already wrapped, so the room watched its
+ * first thirty seconds twice and never saw the beats it had edited.
+ *
+ * The planner therefore runs ahead of the offset it reports — it had consumed
+ * 30s of script while reporting 20 — so a lead of two chunks is too late by
+ * about a chunk. Forty seconds is four reported chunks at the ten-second
+ * chunk fal chose, which leaves margin without handing over the whole film.
+ */
+export const DIRECTOR_HANDOVER_LEAD_SECONDS = 40;
 /** `min_memory` / `max_memory` from /info. */
 export const DIRECTOR_MIN_MEMORY = 1;
 export const DIRECTOR_MAX_MEMORY = 50;

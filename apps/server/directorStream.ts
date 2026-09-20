@@ -32,7 +32,7 @@ import {
 import {
   buildConfigureMessage,
   buildDirectorScript,
-  DIRECTOR_MAX_CHUNK_SECONDS,
+  DIRECTOR_HANDOVER_LEAD_SECONDS,
   DirectorError,
   startDirectorSession,
   type DirectorConfig,
@@ -384,6 +384,8 @@ export class DirectorStream {
    */
   private sendConfigure(): void {
     if (!this.control || this.control.readyState !== "open") return;
+    // The same lead as every later hand-over: whatever fal generates before it
+    // has reported anything, it must already have the script for.
     const throughSeconds = this.handoverThrough(null);
     this.control.send(
       JSON.stringify(
@@ -398,20 +400,22 @@ export class DirectorStream {
   /**
    * How far the script must have been handed over, from a given frontier.
    *
-   * Two rules, and the longer of them wins. The provider needs the chunk it is
-   * generating plus the one after it, or it runs dry and improvises. The ROOM
-   * needs the beat being generated and the one after that to be closed — the
-   * rule the screen has always stated — and a chunk shorter than a beat would
-   * not reach it. Capped at the film: past the last beat there is nothing
-   * further to protect and nothing further to send.
+   * Two rules, and the longer of them wins. The provider needs a real lead —
+   * `DIRECTOR_HANDOVER_LEAD_SECONDS`, which is measured rather than chosen,
+   * because running dry makes fal wrap to the top of the script and re-render
+   * the opening. The ROOM needs the beat being generated and the one after it
+   * to be closed, the rule the screen has always stated, which a short film
+   * would not otherwise reach. Capped at the film: past the last beat there is
+   * nothing further to protect and nothing further to send.
    */
   private handoverThrough(frontierSeconds: number | null): number {
     const offsets = beatOffsets(this.options.script);
-    const chunk = this.state.chunkSeconds ?? DIRECTOR_MAX_CHUNK_SECONDS;
-    const chunks = (frontierSeconds ?? 0) + chunk * (frontierSeconds === null ? 1 : 2);
     return Math.min(
       totalDurationSeconds(this.options.script),
-      Math.max(chunks, twoBeatsAhead(offsets, frontierSeconds)),
+      Math.max(
+        (frontierSeconds ?? 0) + DIRECTOR_HANDOVER_LEAD_SECONDS,
+        twoBeatsAhead(offsets, frontierSeconds),
+      ),
     );
   }
 

@@ -91,7 +91,18 @@ describe("the top bar", () => {
     await render(<App />, "/home");
     const item = searchItem();
     assert.equal(item.getAttribute("href"), "/discover");
-    assert.ok(item.querySelector("svg[aria-hidden='true']"), "the lens is drawn and hidden from assistive technology");
+    const mark = item.querySelector("[aria-hidden='true'] svg");
+    assert.ok(mark, "the lens is drawn and hidden from assistive technology");
+  });
+
+  it("gives every destination a mark, drawn once, for the phone's bottom bar", async () => {
+    await render(<App />, "/home");
+    const items = Array.from(liveTopBar()!.querySelectorAll<HTMLAnchorElement>("a[data-top-bar-item]"));
+    assert.equal(items.length, 5, "one list of five, whatever the width draws it as");
+    for (const item of items) {
+      assert.equal(item.querySelectorAll(".top-bar-item-icon svg").length, 1, item.textContent ?? "");
+      assert.equal(item.querySelector(".top-bar-item-icon")?.getAttribute("aria-hidden"), "true", "the label says it");
+    }
   });
 });
 

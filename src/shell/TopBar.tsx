@@ -1,4 +1,4 @@
-import type { KeyboardEvent, MouseEvent } from "react";
+import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { AccountMenu } from "./AccountMenu";
 import { BAR_DESTINATIONS, DESTINATION_PATH, HOME_PATH, type Destination } from "../lib/routes";
 import { useShell } from "./ShellContext";
@@ -24,6 +24,10 @@ const LABELS: Readonly<Record<Destination, string>> = {
  * Back from anywhere on the page. Left and Right move along it, Down returns to the page: to
  * `onEnterPage` when the screen steers its own rows, otherwise to the first thing below the bar,
  * or, on a page with nothing to focus, a step further down the page.
+ *
+ * On a phone the same five destinations are drawn as a fixed bottom bar instead, which is
+ * purely `shell.css`: one list, one set of items, one keyboard model. Nothing about the
+ * television layout or the remote's focus order changes with the width.
  */
 export function TopBar({ current, onEnterPage }: { current: Destination | null; onEnterPage?: () => void }) {
   const shell = useShell();
@@ -47,12 +51,13 @@ export function TopBar({ current, onEnterPage }: { current: Destination | null; 
             <a
               className="top-bar-item"
               data-top-bar-item=""
+              data-destination={id}
               href={DESTINATION_PATH[id]}
               aria-current={id === current ? "page" : undefined}
               onClick={(event) => follow(event, () => shell.go(id))}
             >
-              {id === "discover" && <SearchIcon />}
-              {LABELS[id]}
+              <span className="top-bar-item-icon" aria-hidden="true">{ICONS[id]}</span>
+              <span className="top-bar-item-label">{LABELS[id]}</span>
             </a>
           </li>
         ))}
@@ -90,12 +95,28 @@ function moveAlongBar(event: KeyboardEvent<HTMLElement>, onEnterPage?: () => voi
   }
 }
 
-/** A lens and a handle, drawn for Reverie. */
-function SearchIcon() {
+/**
+ * One mark per destination, drawn for Reverie. On a television only Discover's is shown — its
+ * lens says "search" faster than the word does — and a phone's bottom bar shows all five,
+ * because a bar of five words at that width is a bar of five abbreviations.
+ */
+function Glyph({ children }: { children: ReactNode }) {
   return (
-    <svg className="top-bar-search-icon" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false">
-      <circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" strokeWidth="2.4" />
-      <path d="M15.4 15.4 21 21" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
+    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" focusable="false">
+      {children}
     </svg>
   );
 }
+
+const ICONS: Readonly<Record<Destination, ReactNode>> = {
+  // A roof over a door.
+  home: <Glyph><path d="M3.5 10.5 12 3.5l8.5 7" /><path d="M5.5 9.5V20h13V9.5" /><path d="M10 20v-5.5h4V20" /></Glyph>,
+  // A lens and a handle.
+  discover: <Glyph><circle cx="10.5" cy="10.5" r="6.5" /><path d="M15.4 15.4 21 21" /></Glyph>,
+  // Four panels of a grid of posters.
+  catalog: <Glyph><rect x="3.5" y="3.5" width="7" height="7" rx="1.4" /><rect x="13.5" y="3.5" width="7" height="7" rx="1.4" /><rect x="3.5" y="13.5" width="7" height="7" rx="1.4" /><rect x="13.5" y="13.5" width="7" height="7" rx="1.4" /></Glyph>,
+  // A plus: the one thing on the bar that makes something rather than going somewhere.
+  create: <Glyph><path d="M12 5v14" /><path d="M5 12h14" /></Glyph>,
+  // A stack of what you have started.
+  jam: <Glyph><path d="M4 7.5 12 3.5l8 4-8 4z" /><path d="M4 12.5 12 16.5l8-4" /><path d="M4 17 12 21l8-4" /></Glyph>,
+};

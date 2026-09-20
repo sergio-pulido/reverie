@@ -542,8 +542,13 @@ button.search-card:hover .search-card-poster { box-shadow: 0 0 0 3px rgba(207, 2
   .search-heard-chip { font-size: 16px; padding: 9px 15px; }
   .search-results-preview .search-card-slot { width: 112px; }
 
-  /* The dock: its own padding clears a phone's home indicator, and the keyboard lifts it. */
-  .search-dock { padding: 14px var(--safe-x) calc(12px + env(safe-area-inset-bottom, 0px)); }
+  /* The dock stands on whichever is taller: the bottom bar, or what the keyboard covers. With
+     the keyboard closed it sits on the bar; with it open the bar has slid away and the dock
+     takes the keyboard's own edge, so the two are never both in that space. */
+  .search-dock {
+    bottom: max(var(--keyboard), var(--bottom-bar-space));
+    padding: 14px var(--safe-x) 12px;
+  }
   .search-composer-form { gap: 8px; }
   .search-field input { padding: 0 14px; border-width: 2px; border-radius: 14px; font-size: 17px; }
   .voice-control { border-width: 2px; }

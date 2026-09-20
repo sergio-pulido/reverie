@@ -296,6 +296,9 @@ html.film-page-open { overflow: hidden; }
 .film-inline-error { padding: 0 var(--safe-x); color: #ffd6cf; font-size: 20px; }
 
 @media (max-width: 720px) {
+  /* A film page scrolls inside itself, so the page's own padding never reaches it: it keeps the
+     bottom bar's room free below its last line. */
+  .film-page { padding-bottom: var(--bottom-bar-space); }
   .discover-attribution { padding-top: 28px; font-size: 13px; }
   .film-hero { grid-template-columns: minmax(0, 1fr); }
   .film-poster { width: 180px; }

@@ -39,17 +39,17 @@ const pointerOut = (element: Element) =>
   fire(element, new window.MouseEvent("mouseout", { bubbles: true, relatedTarget: null }));
 
 describe("where a Director session sits", () => {
-  it("opens at /director/:slug under the Movie Jam destination, with no sixth one added", async () => {
+  it("opens at /director/:slug under Yours, with no sixth destination added", async () => {
     server = await openDirector();
     assert.equal(window.location.pathname, `/director/${SLUG}`);
     assert.equal(text(".director-head h1"), "The Salt Door");
     const bar = liveTopBar();
     assert.ok(bar, "the shared top bar is on the screen");
     assert.equal(bar!.querySelectorAll("a[data-top-bar-item]").length, 5);
-    assert.equal(bar!.querySelector('[aria-current="page"]')?.textContent, "Movie Jam");
+    assert.equal(bar!.querySelector('[aria-current="page"]')?.textContent, "Yours");
   });
 
-  it("is reached from the Movie Jam list, which offers the two ways to work", async () => {
+  it("is reached from Yours, which offers the two ways to work on a jam", async () => {
     server = await openDirector();
     await render(<div />, "/x");
     await cleanup();
@@ -79,10 +79,10 @@ describe("where a Director session sits", () => {
     assert.equal(window.location.pathname, `/director/${SLUG}`);
   });
 
-  it("lands a remote on its bar, and Back from there leads to the Movie Jam list", async () => {
+  it("lands a remote on its bar, and Back from there leads to Yours", async () => {
     server = await openDirector();
     assert.equal(focused().getAttribute("aria-current"), "page");
-    assert.equal(focused().textContent, "Movie Jam");
+    assert.equal(focused().textContent, "Yours");
     assert.equal(await press("Escape"), true);
     assert.equal(window.location.pathname, "/jams");
   });

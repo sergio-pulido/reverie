@@ -82,8 +82,8 @@ describe("the app's home", () => {
     const first = window.location.pathname;
     assert.equal(document.querySelector(".film-page h1")?.textContent, "Science fiction 1");
 
-    // Leave the film for Movie Jam, come home with Back, open a second film and close it.
-    await focusOn(liveTopBar()!.querySelectorAll<HTMLElement>("[data-top-bar-item]")[3]);
+    // Leave the film for Yours, come home with Back, open a second film and close it.
+    await focusOn(liveTopBar()!.querySelectorAll<HTMLElement>("[data-top-bar-item]")[4]);
     await press("Enter");
     assert.equal(window.location.pathname, "/jams");
     await press("Escape");

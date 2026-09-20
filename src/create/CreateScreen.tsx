@@ -64,7 +64,7 @@ export function CreateScreen({ scenarios, scenariosNotice, onChoose }: CreateScr
 
   return (
     <main className="site-shell create-shell">
-      <TopBar current="jam" />
+      <TopBar current="create" />
       <section className="create-layout">
         <header className="create-head">
           <p className="eyebrow">MAKE SOMETHING</p>

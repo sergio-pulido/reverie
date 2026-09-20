@@ -64,7 +64,7 @@ type CreateRoomProps = {
  * and never the escape room. What a Jam is, below, is shown only when this is one.
  */
 export function CreateRoom({ way, title, premise, visibility, sourceKind, importedScript, scenarios, scenarioId, scenariosNotice, onScenarioId, totalSeconds, portionMinSeconds, portionMaxSeconds, onTitle, onPremise, onVisibility, onSourceKind, onImportedScript, onTotalSeconds, onPortionMinSeconds, onPortionMaxSeconds, onSubmit, isCreating, notice }: CreateRoomProps) {
-  return <main className="site-shell setup-shell"><TopBar current="jam" /><section className="setup-layout setup-layout-explained">
+  return <main className="site-shell setup-shell"><TopBar current="create" /><section className="setup-layout setup-layout-explained">
     <div className="setup-intro"><p className="eyebrow">{INTRO[way].eyebrow}</p><h1>{INTRO[way].title}</h1><p className="intro">{INTRO[way].lede}</p></div>
     <form className="room-form" onSubmit={onSubmit}>
       <label>{TITLE_LABEL[way]}<input value={title} onChange={(event) => onTitle(event.target.value)} maxLength={72} required /></label>

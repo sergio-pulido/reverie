@@ -87,7 +87,7 @@ describe("the account avatar", () => {
     assert.equal(await walkRight(), avatar(), "Right from the last destination reaches the avatar and stops there");
     assert.equal(topBarItems(liveTopBar()!).at(-1), avatar());
     await press("ArrowLeft");
-    assert.equal(focused().textContent, "Community", "Left goes back to the last destination");
+    assert.equal(focused().textContent, "Yours", "Left goes back to the last destination");
   });
 });
 

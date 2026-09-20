@@ -3,7 +3,6 @@ import { AboutScreen } from "./about/AboutScreen";
 import { CatalogScreen } from "./catalog/CatalogScreen";
 import { CreateScreen, type CreateWay } from "./create/CreateScreen";
 import { providerIdOf, type CatalogueTitle } from "./catalogue/contract";
-import { CommunityScreen } from "./community/CommunityScreen";
 import type { Jam as GeneratedJam, JamSource } from "./core/jam";
 import { FilmPage } from "./discover/FilmPage";
 import { TMDB_ATTRIBUTION_FALLBACK } from "./discover/TmdbAttribution";
@@ -21,6 +20,7 @@ import {
   ABOUT_PATH,
   CREATE_PATH,
   DESTINATION_PATH,
+  redirectFor,
   JAMS_PATH,
   LANDING_PATH,
   DISCOVER_PATH,
@@ -58,7 +58,7 @@ import { useRemoteConventions } from "./shell/useRemoteConventions";
 const LandingRoute = lazy(() => import("./landing/LandingRoute"));
 
 /** Screens with no rows of their own to land in: a remote arrives on their top bar. */
-const LANDS_ON_TOP_BAR: ReadonlySet<Screen> = new Set(["about", "catalog", "community", "jams", "create", "newJam", "join", "script", "studio", "director"]);
+const LANDS_ON_TOP_BAR: ReadonlySet<Screen> = new Set(["about", "catalog", "jams", "create", "newJam", "join", "script", "studio", "director"]);
 
 /**
  * Screens a film page is drawn as a layer over rather than in place of, so they keep their scroll,
@@ -83,8 +83,15 @@ function slugOf(pathname: string) {
   return jamSlugFromPath(pathname) ?? directorSlugFromPath(pathname);
 }
 
-/** Where the viewer is. */
+/**
+ * Where the viewer is.
+ *
+ * A path that no longer names a screen is corrected first, in place, so a link someone already
+ * shared lands somewhere real and the URL says where that is rather than claiming the old one.
+ */
 function readLocation(): Location {
+  const redirect = redirectFor(window.location.pathname);
+  if (redirect) window.history.replaceState(window.history.state, "", redirect);
   const { pathname } = window.location;
   return { screen: screenFromPath(pathname), slug: slugOf(pathname), film: filmFromPath(pathname), from: entryFrom(), inviteCode: inviteCodeFromLocation() };
 }
@@ -400,7 +407,6 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
       />;
     }
     if (screen === "about") return <AboutScreen />;
-    if (screen === "community") return <CommunityScreen />;
     if (screen === "director") return <DirectorScreen slug={slug} />;
     if (screen === "jams") {
       return <JamRegistry
@@ -436,6 +442,7 @@ function isAt(destination: Destination, screen: Screen) {
   if (destination === "home") return screen === "home";
   if (destination === "discover") return screen === "discover";
   if (destination === "catalog") return screen === "catalog";
-  if (destination === "community") return screen === "community";
+  // The door, not the form beneath it: choosing Create from the form goes back to the door.
+  if (destination === "create") return screen === "create";
   return screen === "jams";
 }

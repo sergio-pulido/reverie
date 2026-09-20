@@ -8,14 +8,14 @@ const LABELS: Readonly<Record<Destination, string>> = {
   home: "Home",
   discover: "Discover",
   catalog: "Catalog",
-  jam: "Movie Jam",
-  community: "Community",
+  create: "Create",
+  jam: "Yours",
 };
 
 /**
- * The one top bar, rendered at the top of every screen: the brand, the five destinations (Search
- * marked by its lens as well as its name) and, at the trailing edge, the viewer's account. It
- * holds no text field: choosing Search opens the search screen with its own field focused.
+ * The one top bar, rendered at the top of every screen: the brand, the five destinations
+ * (Discover marked by its lens as well as its name) and, at the trailing edge, the viewer's
+ * account. It holds no text field: choosing Discover opens it with its own field focused.
  *
  * `current` is the destination the screen belongs to, or null on a screen that belongs to none
  * (About), where nothing on the bar is marked as the page.

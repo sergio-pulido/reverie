@@ -13,7 +13,6 @@ export type Screen =
   | "discover"
   | "catalog"
   | "jams"
-  | "community"
   | "create"
   | "newJam"
   | "join"
@@ -42,8 +41,24 @@ export const JOIN_PATH = "/join";
 export const DISCOVER_PATH = "/discover";
 /** The browsable catalogue. A later slice fills it; today it is a placeholder screen. */
 export const CATALOG_PATH = "/catalog";
-/** What the rooms around you are making. A later slice fills it; today it is a placeholder screen. */
+/**
+ * Where what the rooms around you are making used to have a screen of its own.
+ *
+ * It is no longer a destination. Films made in Reverie belong beside the catalogue's, which is
+ * the product's own claim, so they are a shelf on the home and a source filter in Catalog
+ * instead of a fifth place to go. The path still resolves, to the home, so a link someone has
+ * already shared still lands somewhere.
+ */
 export const COMMUNITY_PATH = "/community";
+
+/** A path that no longer names a screen, and where a link to it lands now. */
+export const LEGACY_REDIRECTS: Readonly<Record<string, string>> = { [COMMUNITY_PATH]: HOME_PATH };
+
+/** Where `pathname` should be sent instead, or null when it names a screen of its own. */
+export function redirectFor(pathname: string): string | null {
+  const normalized = pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
+  return LEGACY_REDIRECTS[normalized] ?? null;
+}
 /**
  * What Reverie is, what it is built on, and who built it.
  *
@@ -75,7 +90,6 @@ export function screenFromPath(pathname: string): Screen {
   if (pathname === CREATE_PATH || pathname === `${CREATE_PATH}/`) return "create";
   if (pathname === DISCOVER_PATH || pathname === `${DISCOVER_PATH}/` || FILM_PAGE.test(pathname)) return "discover";
   if (pathname === CATALOG_PATH || pathname === `${CATALOG_PATH}/`) return "catalog";
-  if (pathname === COMMUNITY_PATH || pathname === `${COMMUNITY_PATH}/`) return "community";
   if (pathname === "/jams") return "jams";
   if (pathname === "/jams/new") return "newJam";
   if (pathname === "/join") return "join";
@@ -112,8 +126,14 @@ export function filmPath(providerId: string) {
   return `${DISCOVER_PATH}/${providerId}`;
 }
 
-/** The places the top bar leads to. Every screen belongs to exactly one. */
-export type Destination = "home" | "discover" | "catalog" | "jam" | "community";
+/**
+ * The places the bar leads to. Every screen belongs to exactly one, or to none.
+ *
+ * `create` is the door where the three ways to make a film are offered; `jam` is Yours,
+ * everything you have already started. They are different questions, which is why they are
+ * different places.
+ */
+export type Destination = "home" | "discover" | "catalog" | "create" | "jam";
 
 /**
  * Which of the bar's destinations a screen belongs to, or `null` for a screen that belongs to
@@ -125,7 +145,8 @@ export function destinationOf(screen: Screen): Destination | null {
   if (screen === "home") return "home";
   if (screen === "discover") return "discover";
   if (screen === "catalog") return "catalog";
-  if (screen === "community") return "community";
+  // The door, and the form it opens: both are making something new.
+  if (screen === "create" || screen === "newJam") return "create";
   // "director" falls here with the jam screens: a Director session is one way
   // to work on a jam, not a sixth place to go.
   return "jam";
@@ -135,9 +156,9 @@ export const DESTINATION_PATH: Readonly<Record<Destination, string>> = {
   home: HOME_PATH,
   discover: DISCOVER_PATH,
   catalog: CATALOG_PATH,
+  create: CREATE_PATH,
   jam: JAMS_PATH,
-  community: COMMUNITY_PATH,
 };
 
 /** The bar's destinations, in the order a remote walks them. */
-export const BAR_DESTINATIONS: readonly Destination[] = ["home", "discover", "catalog", "jam", "community"];
+export const BAR_DESTINATIONS: readonly Destination[] = ["home", "discover", "catalog", "create", "jam"];

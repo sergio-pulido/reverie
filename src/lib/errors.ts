@@ -41,6 +41,10 @@ const SQLSTATE: Record<string, { code: JamErrorCode; message: string; retryable?
   P0002: { code: "not_found", message: "That invite code does not match an open jam." },
   "42501": { code: "forbidden", message: "You are not allowed to do that in this jam." },
   "23505": { code: "conflict", message: "That record already exists." },
+  // A value the schema refuses. Retrying sends the same value, so this is never retryable —
+  // reported as an outage it looked like one, and an operator whose database predates a
+  // migration was told to wait rather than to migrate.
+  "23514": { code: "invalid_input", message: "That is not a value this room accepts. The room database may be missing a migration." },
   // A foreign key failure on insert means the identity this browser kept no longer has a
   // user record (for example after the project database is reset). It is actionable, not
   // a mystery outage: reloading re-runs identity confirmation and signs in again.

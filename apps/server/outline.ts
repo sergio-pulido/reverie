@@ -206,6 +206,11 @@ export class OutlineEditQueue {
         this.fail(record, { code: "not_found", safeMessage: "This jam has no script on this server.", retryable: false });
         return;
       }
+      // A room can end while an edit waits its turn.
+      if ((await this.store.getJam(record.jamId))?.lifecycle === "ended") {
+        this.fail(record, ENDED_ERROR);
+        return;
+      }
       // Re-read at the front of the queue: the beat may have locked while the
       // edit waited, and that must fail visibly rather than rewrite a beat the
       // provider already has.
@@ -289,6 +294,13 @@ export class OutlineEditQueue {
     record.finishedAt = this.now().toISOString();
   }
 }
+
+/** A finished room keeps the film it made; editing its story afterwards would describe one that was never shot. */
+const ENDED_ERROR: OutlineEditError = {
+  code: "jam_ended",
+  safeMessage: "This jam has ended; its story is what the recording shows.",
+  retryable: false,
+};
 
 function lockedError(minEditablePortionIndex: number): OutlineEditError {
   return {
@@ -379,6 +391,10 @@ export function createOutlineRouter(
     const current = await store.getCurrentScriptRevision(jamId);
     if (!current) {
       sendError(response, 404, "not_found", "This jam has no script on this server.", false);
+      return;
+    }
+    if ((await store.getJam(jamId))?.lifecycle === "ended") {
+      sendError(response, 409, ENDED_ERROR.code, ENDED_ERROR.safeMessage, false);
       return;
     }
     // A replay returns what the first request produced, in whatever state it

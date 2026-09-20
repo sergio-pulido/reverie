@@ -38,6 +38,580 @@ the call fails, the jam is still created with its beats missing and `POST /api/j
 layer is still "history"; the name stays **outline** / **beat** in code and docs, for the reason
 recorded below on 2026-09-19.
 
+## 2026-09-20 — Two ways to reach a film, and neither pretends to be the other
+
+Reverie now has both a conversation (`/discover`) and a catalogue (`/catalog`). The tempting move
+is to make one of them a mode of the other: put a grid behind the conversation, or bolt a chat bar
+onto the grid. Both were refused, and the split is the decision.
+
+**Browsing is not asking.** The conversation exists because a viewer who cannot name what they want
+can say it instead, and every turn costs a model call. Browsing is the opposite request — *show me
+what there is* — and it has to be free, instant and endless. Putting a conversation bar on the
+catalogue would make the cheap surface look like the expensive one and invite a model call from a
+viewer who only wanted to scroll. So the catalogue carries a title field, chips and a grid, and
+nothing that sends a message. Voice is the conversation's input; it is not on the catalogue either.
+
+**Nothing on the catalogue turns a title down.** "Not this one" belongs to the conversation, where
+refusing a film is a statement that shapes the next answer. On a browsing grid it would be an
+edit to a catalogue the viewer does not own, with no turn to carry it, so the action is simply not
+offered rather than offered and made inert.
+
+**The grid says which order it is in.** Unrefined it is the order the catalogue query answered, and
+nothing claims more. Once a chip narrows it, the shortlist is ordered by the deterministic scorer
+and the line above the grid says *Ranked by genre match*. The catalogue never calls the assistant,
+so it can never show a model's ranking — and, just as important, can never show a "Ranking…" state
+for something that will not happen. A ranking is named by what produced it or it is not named.
+
+**A refined grid stops paging, on purpose.** Filters are applied in Postgres over the whole
+catalogue, so a refined read is one shortlist of 48 rows rather than an endless walk through pages
+the database has already rejected. Paging a filtered feed would mean asking for page after page of
+rows that mostly do not match, and it would let the scorer's order change under the viewer as pages
+arrived. One shortlist, ranked once, is the honest shape of "everything that fits this".
+
+**A film page is a layer over whatever opened it.** The home already drew the film page over itself
+so its shelves, scroll and focus survived; the catalogue needs exactly that, for its loaded pages.
+Rather than add a second special case, `App.tsx` now reads the history entry the film was opened
+from and draws the page over that screen when it is one that can hold its place
+(`FILM_LAYER_OVER`). Everything else — including a film reached by URL — is Discover's, which is
+where a film with no history behind it should land. The rule is now one sentence instead of two
+exceptions, and the next screen that lists films inherits it by being named.
+
+## 2026-09-20 — A Director session is a way of working on a jam, not a sixth destination
+
+`/director/:slug` is one person making one film by talking to it. The obvious
+place to put it is the top bar, beside Home, Discover, Catalog, Movie Jam and
+Community. It is not there, for two reasons.
+
+The first is mechanical and hard: the bar's five destinations already have to
+fit a 360-pixel screen, where the brand and the account are pinned and the
+strip scrolls inside the bar. A sixth would not fit, and the fix for that
+would be to make the bar worse for every screen in the app.
+
+The second is that it would be a category error. Home, Discover, Catalog,
+Movie Jam and Community are *places*. A Director session is a *way of working
+on a jam you already have* — the same room, the same script, the same beats,
+the same paid stream, differing only in who is in the room. So it lives under
+Movie Jam: `destinationOf("director")` answers `"jam"`, the bar marks Movie
+Jam while you are there, Back leads to `/jams`, and the Movie Jam list gains
+the choice — **With people**, which opens the Studio, or **Alone**, which
+opens the Director session. Nothing redirects between them and neither is the
+"real" one.
+
+The cost is that a Director session cannot be reached in one press from any
+screen; it takes Movie Jam and then a choice. That is the right price for a
+bar that still fits a phone and a mental model that does not make "a mode" and
+"a place" the same thing.
+
+## 2026-09-20 — The Director screen shows what the product knows, and names what it does not
+
+The design this screen was drawn from carries a finished film: nine beats,
+2:11, per-beat stills, variants of a shot to choose between, a library of
+reference images, and dollar figures. Almost none of that has anything behind
+it, and the temptation in building it is to keep the shapes and fill them with
+something — a grey rectangle where a still goes, a disabled Download, a
+carousel with one item in it. Every one of those tells the viewer the feature
+is nearly there. Four of them are not there at all.
+
+So each absence is drawn as an absence, and says what is missing:
+
+- **No beat has a still.** The stream is forwarded to viewers and recorded
+  whole; nothing in this build samples a frame per beat. The beat's frame
+  holds its own phrase, and the timeline says why there is no image, once.
+- **No variants.** Nothing generates a second take of a beat, keeps one, or
+  chooses between them. Review says so where the variants would be.
+- **No reference library.** A Director session keeps no images or clips,
+  because there is nowhere to keep them.
+- **No audio description.** There is no describer and no narration track. Its
+  row in the drawer reads "Not made" and carries no control at all — not a
+  disabled one, which would read as "soon".
+
+**Attach fans out for real and then stops.** A dropped image or clip offers
+the four intents — the look, a character, a place, a shot — because declaring
+a purpose before the media is used is the rule live media already proved. One
+tap picks it, and then the composer says plainly that nothing can carry it to
+the film: there is no upload route, no reference store, and `jam_proposals`
+carries text and nothing else (`docs/specs/multimodal-creative-turns.md`).
+Building the gesture and stopping at the wall is more honest than hiding the
+gesture, and much more honest than faking the wall away.
+
+**Every number is derived.** The runtime, the beat count, each beat's duration
+and start come from the script's own portions. The beat states come from the
+stream's own window (`src/core/directorBeats.ts`, asked rather than restated).
+The turns come from the session's audit trail, and a turn's beat is the one it
+named or the one that was playing when it was sent — never a guess. The spend
+comes from the server, from seconds the provider actually generated. Where the
+script itself is missing — it lives in the process that generated it, so a
+restart or a different host loses it — the screen says that and offers nothing
+built from it.
+
+## 2026-09-20 — Direct mode arms the microphone; it does not leave it open
+
+The two modes are the one choice that changes what everything below the stage
+does, so they are the most prominent control after it. Direct applies each
+completed instruction on its own; Review is stopped, with per-beat tools.
+
+Direct is deliberately *hold to speak* rather than an open microphone.
+Continuous transcription is a spend question rather than a feature one — it is
+listed as exactly that in `docs/specs/multimodal-creative-turns.md` — and an
+always-listening control in a room is a consent question as well. The gesture
+bounds both: audio is captured while the control is held and at no other time,
+the partial transcript is on screen while it is, and on release the final
+transcript goes straight to the stream. Leaving Direct closes the microphone,
+because a Review mode that was still listening would contradict the only thing
+Review means.
+
+The voice machinery underneath is the app's existing relay, recorder and
+partial merge; only the gesture is new, and it is added to the existing control
+rather than copied beside it.
+
+## 2026-09-20 — Spend is the server's figure, from generated seconds, in USD
+
+The screen has to show what a session has cost against `FAL_ASSET_BUDGET_USD`.
+Three ways of getting that number would have been wrong.
+
+Quoting the **reservation** would overstate it. The ledger debits a session's
+worst case up front so a dead browser tab cannot leak budget, and a session
+that ran ten seconds has not spent two minutes' worth.
+
+Computing it **in the browser** would put the rate, the ceiling and the
+provider's minimum in two places, and they would drift. The arithmetic is
+shared (`src/core/directorSpend.ts`) and the numbers are the server's alone.
+
+**Hiding the minimum** would understate it. fal bills sixty seconds per
+session whether or not they are used, so an open session that has generated
+nothing has already cost $4.80 at list price, and the screen says so from the
+moment it opens.
+
+The figure is USD with two decimals, never `Intl.NumberFormat` with the
+viewer's locale — which would re-label the same number as their own currency
+without converting it. When the budget left cannot pay for a beat's seconds,
+that beat is **blocked** on the timeline, marked differently from the other
+four states, and the composer says so on a line of its own: being told the
+stream is stopped must not hide being told the budget is out.
+
+## 2026-09-20 — Probe receipt: what MiniMax H3 actually returns, and what the room is built on
+
+Two live generations through `minimax/h3-max/text-to-video` with a real loop shot from a
+shipped scenario, on 2026-09-20, via `scripts/probe-escape-segment.mts`:
+
+| asked | measured duration | bytes | accepted | completed | playable file |
+| --- | --- | --- | --- | --- | --- |
+| 15s | **15.104s** | 9,795,075 | 523ms | 22.9s | 25.3s |
+| 5s | **5.184s** | 3,792,092 | 488ms | 6.4s | 8.7s |
+
+Both came back as `video/mp4` from `v3b.fal.media`. Two things follow, and the escape room is
+built on them rather than on the published schema.
+
+**The model overshoots, by a tenth of a second or two, and not proportionally.** So a clip's
+length is read from the file (`src/core/mediaDuration.ts`, the `moov`/`mvhd` header) rather than
+assumed from the request, and the measured number is what the panel reports. The cut back to the
+loop is driven by the element's own `ended` event and never by a timer, so the overshoot cannot
+clip a beat short however far it drifts — which is what "the beat durations fit what the model
+returns" has to mean when the two numbers are not the same.
+
+**A fifteen-second beat takes about twenty-five seconds to become playable — longer than the
+beat itself.** The idle loop is therefore not a nicety; it is the only thing between the room and
+a spinner. A location's loop is generated at 5 seconds, which is the model's floor, the cheapest
+and, measured here, the fastest to first frame; a beat is 15. A beat that arrives late is simply
+a longer loop, and one that never arrives leaves the loop running.
+
+At the configured list rate of $0.08 per generated second that is $0.40 a loop and $1.20 a beat,
+so a clean ten-step run of a scenario costs about $14 of the $20 ceiling this project ships with.
+That is why the ceiling ending a session is a designed ending rather than a failure. **The rate
+is a configured estimate, not an invoice this repository has seen**: it is the figure the
+director already used, chosen because list price never understates the bill.
+
+Also verified live, in a browser against the hosted Supabase project, on 2026-09-20: a room
+opened, a proposal in a participant's own words resolved and was filmed, a second proposal was
+discarded, the beat cut in over the loop and handed the screen back when it ended, and a refusal
+was reported in the author's words without spending anything. Not verified: two browsers in one
+room, and any of this on Vercel.
+
+## 2026-09-20 — The rules decide what happened; the model only tells it
+
+An escape room's whole value is that it is coherent — that the key fits the drawer for everyone,
+on every replay, in the same way. So the question "what happened" is answered by a pure module
+(`src/core/escape/rules.ts`) with no network, no React, no clock and no randomness, reading an
+authored scenario, and by nothing else. The model is handed the resolved outcome afterwards and
+writes the prose and the shot. It is never asked a question about the world, so there is nothing
+here for it to get wrong about the world.
+
+That boundary is enforced, not hoped for. An outcome that does not advance returns the very state
+it was given, **by identity**, so "an impossible action changes nothing" is checkable rather than
+intended. An advancing one appends exactly one action id to a log, and the tests search each
+scenario exhaustively over the transitions the rules actually produce, replay every reachable
+goal log to prove it reproduces that same world, and prove that dropping any single step of a
+shortest solution fails to reach the goal.
+
+**Interpretation is a matcher, not a model.** Turning "jam the crank with the file" into an
+action is also a question about this world, so it is answered by the same offline, testable code
+(`src/core/escape/intent.ts`). The cost is real and is stated where it lives: a phrasing nobody
+anticipated does not match, and the room is told so rather than handed something it did not ask
+for. Widening that is an author writing more aliases.
+
+**Every refusal is the author's sentence.** A condition carries the words to say when it does not
+hold, so a room is told "the porch is still filling; the pressure behind the door will not let
+the dogs move" rather than a template. A generic "you cannot do that" is what makes a room feel
+arbitrary, and the format has nowhere to put one.
+
+**Things carry `seen` as well as `known`.** A door two rooms away is not hidden, but nobody has
+been there: it must not appear in the progress panel, and naming it must read as meaningless
+rather than as "it is not here", which would confirm the building has one. This was found by a
+test asserting what the panel lists at the start, and it changed the format.
+
+## 2026-09-20 — Only an outcome that changed the world is filmed
+
+A beat costs $1.20 and a clean run of a scenario is ten or eleven of them against a $20 ceiling.
+A refusal — "the lock still holds", "the bolt will not move by hand" — is the most cinematic
+thing in an escape room and is also the cheapest thing to get wrong about: the scenario authors a
+shot for what happens, not for what does not. So refusals become beats in the record, are shown
+to the room with the sentence their author wrote, and are not generated. The loop keeps the
+screen and the panel says "not filmed".
+
+The alternative was letting the model invent a shot for a failure. That is inside the boundary —
+the rules had already decided it failed — but it would spend a fifth of the budget on the door
+that did not open, and the room would run out before reaching the one that does.
+
+## 2026-09-20 — One spend account for the process, and the queue half of the fal adapter
+
+`FAL_ASSET_BUDGET_USD` is documented as a ceiling on this process. A second feature holding its
+own copy of that number would have meant two features each believing they could spend all of it,
+and the documented ceiling would quietly have become twice what it says. Money now lives in one
+`SpendAccount` (`apps/server/spendLedger.ts`); the director ledger keeps its reservation
+behaviour unchanged and debits that account instead of a private total.
+
+The escape room needs a clip it can **play again** — a location's loop is generated once and
+reused for the rest of the session — and a realtime Director session cannot give you one: it
+produces frames and no file, which is exactly why RV-16 deleted the per-portion queue pipeline
+and said the director was the only video path. That decision stands for the **film**: a Movie Jam
+is still one continuous directed stream. It does not fit a room that has to cut between a
+reusable loop and a rendered action, so the fal adapter regains its queue half
+(`apps/server/providers/falSegments.ts`) for the escape room only. Same provider, same rules: a
+typed spec per model carrying the duration band and request body it actually wants, a
+server-owned allowlist that `FAL_MODEL` selects from, an unknown value refused rather than
+quietly replaced, and no path anywhere that produces something which only looks generated.
+
+## 2026-09-20 — The escape-room routes check who is asking; the rest of this Express host does not
+
+The script, session and director routes on the local Node server carry no authorization — a
+known, recorded gap. The escape-room routes do not repeat it: they move a world a whole room can
+see and they spend from a budget, so identity is Supabase Auth's answer to the presented access
+token and the role is the caller's own `jam_members` row read under Row Level Security with that
+same token. This server holds no service-role key for it and can see no more than the participant
+it is acting for. Opening a room and closing a vote are host-only; proposing and voting need an
+active member; an `authorId` in a request body is rejected outright rather than overruled.
+
+A room is polled by everyone in it every three seconds, and two Supabase calls per participant
+per poll is not a thing to ship. The answer is cached for twenty seconds against a SHA-256 digest
+of the token — the digest, so a long-lived structure never holds a credential. The cost is
+stated where it lives: an admission or a removal takes up to twenty seconds to be felt.
+
+This leaves the host inconsistent, and deliberately so. Bringing the other routes up to this is
+worth doing and is not this slice; what is not worth doing is adding a fourth unauthenticated
+surface because the first three are.
+
+## 2026-09-20 — Appearing in the film is a consent kind, not a second register
+
+A participant can choose to be a character in the film the room generates. That needed a record
+of who agreed, to what, until when — and the live-media register already holds exactly that shape
+for camera, microphone and screen. So `likeness` joins `jam_live_consents` as a fourth consent
+kind rather than starting a parallel store.
+
+The alternative, a `jam_likeness_grants` table of its own, was rejected for a specific reason and
+not for tidiness: two registers means two answers to "may this person be used", and the moment
+they disagree — a withdrawal landing in one and not the other — the disagreement is a person on
+screen who asked not to be. One table, one withdrawal function, one definition of effective.
+
+The cost of sharing is that a likeness grant now flows through code written for publishable
+tracks. `permittedKinds` was the sharp edge: unchanged, a likeness grant would have been read as
+permission to publish something. It now filters to track kinds explicitly, and two tests hold both
+directions — agreeing to appear starts no camera, and a camera grant seeds no beat. The
+TypeScript union caught this at the seam before any of it ran, which is the argument for the
+kinds being a closed union rather than a string.
+
+**A partial unique index allows one standing likeness grant per participant per jam.** Two would
+mean two references for one face, and withdrawing one would leave the other standing — a
+withdrawal that does not withdraw. Changing your frame is withdrawing and agreeing again, with a
+fresh purpose and a fresh expiry, which is the honest shape of that act anyway.
+
+**Withdrawal is forward-looking, and the interface says so in those words.** A beat is a thing
+that happened. `describeBeatLikeness` is three-valued — `none`, `standing`, `withdrawn_since` —
+rather than a boolean, precisely so that a withdrawal cannot quietly reclassify an existing beat
+as having used nobody. "Ending the agreement stops the next beat, not this one" is the sentence
+the room sees, and a DOM test asserts the copy does not drift into implying a recall.
+
+## 2026-09-20 — Reference-to-video is a model on the fal allowlist, and one budget covers both
+
+`minimax/h3-max/reference-to-video` generates a beat seeded by approved frames;
+`minimax/h3-max/text-to-video` generates the same beat with nobody in it. They are two entries in
+one server-owned allowlist behind one adapter and one key, not a new provider. A request carrying
+frames reaches the reference model and one without reaches the plain model; there is deliberately
+no third path that asks for a likeness and quietly returns a beat without it.
+
+**Measured, against both live models** (`pnpm probe:beat-video`, 2026-09-20, 5-second 768p
+clips): the plain beat took 5.8 s from submit to a downloaded clip with 2.5 s of reported
+inference; the reference beat took 8.6 s with 3.0 s — 1.48× the wall clock, 1.2× the inference.
+The provider refuses a reference below 256×256 (`image_too_small`), which is why the frame check
+is server-side and happens before anything is spent.
+
+Cost could not be measured the same way: no response from the queue carries a price, so the
+figures in `.env.example` are fal's published rates read from their model listing on 2026-09-20 —
+$0.08 per second at 768p for reference-to-video, against $0.04 promotional for text-to-video,
+which is 2× per second today and level once the promotion ends. Both defaults are the list rate,
+so a stale default overstates rather than understates the bill. Reference *inputs* are billed as
+tokens beyond an included 4,096; a 1024×1024 image is 1,024 tokens, so capping a frame at
+1024×1024 and a beat at three references keeps every likeness beat inside the allowance. That cap
+is a pricing decision written into `src/core/likeness.ts`, not a guess at a good size.
+
+**`FAL_ASSET_BUDGET_USD` is now genuinely one total.** The director's ledger counted its own
+spend; beat generation would have counted its own beside it, and the stated budget would have
+been half the real ceiling. Both now reserve against a shared `FalBudget`.
+
+**The frame goes to the provider inline, as a `data:` URI**, rather than being uploaded for a URL.
+It has to reach the provider — that is the generation the person consented to — but it does not
+have to become an address that anyone holding the link can fetch, and inline means the only
+copies are ours and the provider's, for the length of the request.
+
+## 2026-09-20 — The account menu shows the real anonymous session, not a fabricated identity
+
+The top bar now ends in an avatar with a menu behind it. The obvious way to build that surface is
+to invent what it needs: a placeholder name ("Guest", "You"), a stock photo, a seeded email. Every
+one of those would be a lie that the app then has to keep, and the lie is load-bearing in the worst
+place — the account menu is exactly where a viewer looks to answer "who does this app think I am?"
+
+The app already has a real answer. Every visitor is signed in anonymously through Supabase Auth the
+first time a screen reads anything (`src/lib/session.ts`), and that user id is what row-level
+security checks on every jam, membership, message and proposal. So the menu surfaces **that** user
+and nothing else:
+
+- The **colour** of the circle is *derived* from the Supabase user id (`src/shell/avatar.ts`), not
+  stored. That is what makes it stable across visits and devices without a profile table, and it
+  is why a sign-out visibly changes it: it is a new identity, and it should not look like the old
+  one.
+- The **initials** come from the display name the viewer gave a room (`jam_members.display_name`),
+  because that is the only name the app keeps for them. With no name the circle shows a neutral
+  mark and the menu says "Signed in" — true, and short of inventing one. No email and no photo is
+  shown, because the app holds neither.
+- The avatar **never signs anyone in** to find out who they are. It watches the session and waits
+  for the sign-in the screens themselves cause, so a surface that only *shows* the viewer cannot
+  create one.
+- **Log out is a real sign-out**, not a local reset: Supabase ends the session, the identity module
+  forgets the id it confirmed this page load, and the next visit mints a new anonymous user with a
+  different id, a different colour and no rooms. Anything weaker would leave the menu offering an
+  action that does not do what it says.
+
+**Account is present, focusable and does nothing.** It is in the menu because the menu's shape is
+part of this slice and a later one owns the screen behind it; it opens nothing rather than
+pretending to. Its absence would have been the other kind of lie — a menu that looks finished.
+
+The cost is accepted and stated: an anonymous identity is per browser profile, so the same person
+on two devices is two viewers with two colours, and signing out discards the rooms that identity
+hosted or joined. Both follow from anonymous auth, which this repository chose earlier; neither is
+made better by drawing a fictional account over it.
+
+## 2026-09-20 — The film is stored as it streams, in pieces, muxed off the serving thread (RV-18)
+
+A director session is now stored while it runs, in pieces of roughly ten seconds,
+rather than as one file when it stops. Storage is what `REVERIE_DIRECTOR_RECORD`
+now means; the in-process WebM recorder that flag used to switch on is deleted.
+
+**Why pieces.** Two things at once. A process that dies mid-stream loses the piece
+in flight and nothing before it — the previous design held a temp file and wrote it
+at `stop()`, so a crash lost the session. And going to a given minute of the film is
+a matter of fetching the piece that contains it (`GET .../archive/:sessionId/pieces/:n`)
+rather than downloading everything before it. Each piece begins on a video keyframe
+and is served with the container's initial header in front, so it decodes from its
+first frame in a plain `<video>` element. The whole film is the same header followed
+by every piece in order (`.../video`).
+
+**Why off-thread.** Muxing on the serving thread was measured taking the server down:
+99% CPU, event loop stalled, `/end` unreachable — and `/end` is the route that stops
+the paid session. The muxer (`directorPieceMuxer.ts`) runs in a worker thread
+(`directorPieceWorker.ts`); the main thread's whole per-packet cost is `serialize()`
+and a `postMessage` (`directorPieces.ts`). A dead worker is reported as
+`worker_failed`, distinct from a codec refusal, and never touches the session.
+Stopping is bounded at two seconds: the tail of the film is worth a moment, the
+route that settles the spend is worth more.
+
+**Why WebM, and where fMP4 belongs.** werift's offer is VP8-only today, so VP8 is
+what fal answers — an answer to a VP8-only offer, which is not fal's preference and
+says nothing about what it would answer to an offer preferring H.264. That offer is
+RV-19's change, and the reply is unprobed. WebM is the container that holds VP8, so
+it stores what comes back today. This WebM muxer explicitly refuses H.264: accepting
+H.264 here would emit WebM/Matroska bytes and risk labelling them as MP4. RV-19's
+fMP4 muxer is the H.264 path, selected before muxing. Both implement the same
+`DirectorSegmentSink` shape by agreement: one selected muxer per stream, many sinks,
+one timeline. The archive layer accepts either declared container but never guesses.
+
+**Verified with real bytes, not a description.** Fabricated VP8 RTP — the payload
+format is simple enough to build honestly — pushed through the real werift pipeline
+and across the real worker thread is cut at the first keyframe past the target, with
+the last piece settled by the muxer's own end-of-stream rather than a guess at stop.
+The cut points observed — `[0–10s] [10–20s] [20–end]` — are what those synthetic
+keyframes produced: they measure werift's pipeline and the worker boundary, not
+fal's chunking. **Not** verified with fal's own media:
+no real session has yet run with recording on. The unknowns that only a live run can
+settle are the provider's keyframe cadence, which sets real piece length, and the
+worker's CPU on a real 480p stream.
+
+End to end against the local stack's real Postgres and real Storage, with the real
+worker: three pieces uploaded and indexed with no failed uploads, the session row
+carrying `webm`/`vp8`, and `pieces/1` served as 893 bytes of `video/webm` beginning
+with the EBML magic — header prepended, playable on its own, fetched without the
+2035 bytes of film around it.
+
+## 2026-09-19 — A jam is live, then playing, then ended, and ended is terminal (RV-18)
+
+A room now has one readable state instead of an implied one. `live` is a room that
+exists and can be joined; `playing` is a room generating; `ended` is a room whose
+recording is what remains of it. Previously "is this room running" was inferred from
+whether a session id happened to be open in a browser tab, which no two clients
+agreed on and no reopened tab could recover.
+
+Server-owned, like every other room transition (`JamStore.advanceLifecycle`). The
+browser projects it and never decides it: `start` and `stop` both answer with the
+resulting lifecycle, so a client does not have to re-read the jam to find out what it
+just did, and a client that missed a stop reads `ended` on its next look.
+
+**`ended` is terminal, and the director refuses to open a session on an ended room.**
+While a room is playing it may still hold the established one-stream-per-configuration
+set; stopping one does not strand another paid stream behind an ended lifecycle. The
+room becomes ended only after its last configuration stream stops, and its archive
+collection is the artifact. Once ended, opening another stream is a new jam instead.
+The refusal is checked before the spend ledger is touched, so it costs nothing, and
+starting is hidden in the UI rather than offered and refused.
+
+**The recording plays without a player library.** WebM is its initial header followed
+by clusters, and fMP4 is an init segment followed by media segments, so concatenating
+the matching layout in order is a valid file:
+`GET /api/jams/:id/director/archive/:sessionId/video` streams them and a finished
+session plays in a plain `<video>` element. Streamed as assembled rather than
+buffered, because a session archive can be hundreds of megabytes. An archive missing
+its init segment is refused rather than served unplayable, and a missing segment
+truncates rather than corrupting the tail. Segments stay individually addressable for
+anything that wants to seek, and an HLS VOD playlist remains available later without
+changing what is stored.
+
+**Known limit, unverified: seeking, and only seeking.** A concatenated fMP4 plays
+start to finish in the ordinary case; what it lacks is a `sidx` or fragment index, so
+players differ on whether they will let a viewer scrub one. The `<video controls>` element offers a
+scrub bar regardless, so if scrubbing matters it needs testing in Safari as well as
+Chrome, and the fix is the HLS VOD playlist over the same segment rows rather than a
+change to what is stored.
+
+Verified by tests, including the reopened-tab case, and end to end against the local
+stack's real Postgres: a session opened, a direction reached `jam_director_audit` as
+it was sent, and the room read `live` then `playing` then `ended`. **Not** verified
+with real director media: the archive has only been exercised with synthetic
+segments. `REVERIE_DIRECTOR_RECORD` gates the piece recorder and remains off by
+default pending one real session confirming `/end` answers while the worker is
+mid-piece. The former in-thread recorder was removed; `PieceMuxer` is the off-thread
+implementation this flag now enables.
+
+**A live route answers an ended room with `409 jam_ended` and a pointer, not `404`.**
+The room exists and so does its recording; only the live stream is gone, and a
+missing-thing answer sends a viewer looking for something that is right there. The
+pointer is the archive COLLECTION rather than a resolved session, since which session
+was the last one is a read the archive side already does. Applied to the live relay's
+`watch` route here; any other route that serves a live stream answers the same way.
+
+**The audit trail is now durable.** `DirectorAuditLog` takes an optional listener and
+the director route writes each entry to `jam_director_audit` as it is recorded —
+fire-and-forget, so a durable write that fails or hangs cannot stall the stream it
+describes, and the bounded in-memory trail the live session reads is unaffected. The
+session row is opened WITH the session rather than at its end, because the audit rows
+reference it and a session that dies mid-stream must still have somewhere for what it
+managed to record.
+
+## 2026-09-19 — A director session reproduces from durable rows, not from a closing process (RV-18)
+
+The archive is written as the session runs and read back by reconstruction, not
+written once at the end.
+
+**One selected muxer, many sinks** (agreed with RV-19). `DirectorStream` owns the
+track and feeds a single muxer; the archive sink consumes its numbered pieces now,
+and live delivery can consume the same timeline when it lands. Two independent muxers
+were rejected because they produce two
+timelines for one session, and the audit trail records which beat and script offset
+each direction landed on — if the audit describes one timeline and the archive is
+another, the join drifts silently and a reproduction can no longer be explained.
+
+**Segments, not one file at stop.** Each segment is uploaded as produced and its row
+written only after that upload succeeds. A crash therefore costs the segment in
+flight, not the session; and a reader can trust that every indexed segment exists,
+because nothing is indexed before its bytes land. The previous design held a temp
+file and persisted at `stop()`, which lost everything if the process died — the
+failure that has actually been observed.
+
+**Nothing reproduction needs is written at the end.** The segmenter delivers
+`finish()` fire-and-forget and does not await it, so `/end` can return, and the
+process exit, before any closing write completes. The playlist is therefore BUILT
+FROM `jam_director_segments` when requested rather than uploaded at close, and
+`complete` stays false for a session that died. A partial archive is reported as
+partial. A failed init or piece upload truncates at the last durable prefix instead
+of indexing later pieces across a gap.
+
+**The record lives in Postgres, the bytes in Storage.** `jam_director_sessions`
+carries the configuration key and script revision — a `<jamId>/<sessionId>` pair
+does not say what was being watched, since streams are keyed by jam AND
+configuration. This is the container server's first Postgres write path; it holds a
+service-role key, which the Vercel functions deliberately never do. The tables carry
+RLS with no policies and grants only to `service_role`, so no browser identity
+reaches them.
+
+Consequence worth stating: every reproduction route is a plain read of durable state,
+with no in-process stream map and no container-local file, so reproducing a session
+could run as a serverless function even though the live director cannot.
+
+Verified 2026-09-19 against the local stack's real Postgres and real Storage: session,
+segments and audit round-tripped, the API reported `durable: true`, and archived bytes
+were served by our own route. **Not** verified against hosted Supabase, and no real
+director media has been through this path. The piece recorder that feeds the archive
+is off by default (`REVERIE_DIRECTOR_RECORD`) pending one real session's measurement;
+the off-thread muxing it depends on is built, not pending.
+
+
+## 2026-09-19 — The local stack runs Storage, and it found two broken paths (RV-18)
+
+`docker/compose.yaml` had no Storage service. Postgres, Auth, PostgREST and Realtime
+ran; nothing served `/storage/v1`. Every media store therefore fell back to memory
+locally and reported success, and the guarded bucket migrations skipped, so
+`SupabasePortionMediaStore` and `SupabaseDirectorRecordingStore` had never once
+addressed a real bucket. A storage path that is never exercised is not a storage path.
+
+The stack now runs `supabase/storage-api:v1.19.3`, ordered **before** `migrate` so
+`to_regclass('storage.buckets')` finds a real schema and the guards actually fire.
+Three things had to be true that were not obvious:
+
+- Storage connects as `supabase_admin` and creates the `storage` schema itself, so
+  an existing `reverie-db` volume needs no recreation.
+- It grants nothing to the API roles. `service_role` had no `usage` on the schema, and
+  an unqualified lookup then reports `relation "buckets" does not exist` rather than a
+  permission error. `apply-migrations.sh` grants it, and only it: the buckets are
+  private and no browser identity reads them.
+- Its healthcheck must use `127.0.0.1`. The server binds IPv4 only and the image's
+  `wget` resolves `localhost` to `::1`.
+
+**Two real defects surfaced the moment a real bucket existed**, both in
+`SupabaseDirectorRecordingStore`, both previously invisible:
+
+1. **Every director upload would have been rejected.** It wrote `video/webm` into
+   `jam-portions`, a bucket whose `allowed_mime_types` is `{video/mp4}` and whose size
+   limit is 64MB against the store's own 512MB cap. Verified by upload: `video/webm`
+   refused, `video/mp4` accepted. `persistRecording()` swallows storage errors so the
+   session can still close, so this would have lost every archive in silence. The
+   archive now has its own bucket (`jam-director`, WebM + fMP4 + HLS playlist, 512MB)
+   created by `20260919236000_jam_director_archive.sql`.
+2. **A missing recording was reported as a store outage.** Storage answers a missing
+   object with **HTTP 400** and a body whose `statusCode` is `"404"`, so the
+   `status === 404` check never matched and the route returned 503 instead of 404.
+   The director store now checks the body for that wrapped 404; unrelated HTTP 400
+   responses remain real storage errors rather than being hidden as missing objects.
+
+Observed on the local stack on 2026-09-19 against `storage-api` v1.19.3, not against
+hosted Supabase. The object key now follows the negotiated container (`.webm` or
+`.mp4`) and a read tries each, because the codec fal answers is still unprobed.
+
 ## 2026-09-20 — Every integration goes through a PR; nobody pushes to `main` directly (RV-20)
 
 `AGENTS.md` and `docs/CONTRIBUTING.md` described a two-tier delivery model: a "primary agent"
@@ -215,7 +789,6 @@ happened, about code that no longer exists.
 is one session's stream, kept under `director/<jamId>/<sessionId>.webm`, and the durable
 reproduction of a jam is RV-18's work. Until then, stopping a stream is the only way to keep it,
 and a server without a service-role key keeps it only in memory.
-
 ## 2026-09-19 — Probe receipt: the director handshake works, and it speaks SSE (RV-16)
 
 First live run of `minimax/h3-max/director` with a valid key, via

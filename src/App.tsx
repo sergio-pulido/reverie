@@ -1,5 +1,7 @@
 import { FormEvent, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { CatalogScreen } from "./catalog/CatalogScreen";
 import { providerIdOf, type CatalogueTitle } from "./catalogue/contract";
+import { CommunityScreen } from "./community/CommunityScreen";
 import type { Jam as GeneratedJam, JamSource } from "./core/jam";
 import { FilmPage } from "./discover/FilmPage";
 import { TMDB_ATTRIBUTION_FALLBACK } from "./discover/TmdbAttribution";
@@ -9,14 +11,20 @@ import {
   DEFAULT_PORTION_MIN_SECONDS,
   DEFAULT_TOTAL_SECONDS,
 } from "./core/script";
+import { openEscapeRoom, readScenarios, type ScenarioCard } from "./lib/escapeRoom";
 import { safeMessageOf } from "./lib/errors";
 import { createJam as createJamRoom, type JamPersistence, type JamRoom, type JamVisibility } from "./lib/jams";
 import {
   DESTINATION_PATH,
   JAMS_PATH,
+  LANDING_PATH,
   DISCOVER_PATH,
   JOIN_PATH,
   NEW_JAM_PATH,
+  destinationOf,
+
+  directorPath,
+  directorSlugFromPath,
   filmFromPath,
   filmPath,
   jamSlugFromPath,
@@ -25,8 +33,10 @@ import {
   type Screen,
 } from "./lib/routes";
 import { hasSupabaseConfiguration } from "./lib/supabase";
+import { useViewerSource } from "./shell/ViewerContext";
 import { ScriptScreen } from "./ScriptScreen";
 import { CreateRoom, type SourceKind } from "./screens/CreateRoom";
+import { DirectorScreen } from "./director/DirectorScreen";
 import { JamRegistry } from "./screens/JamRegistry";
 import { JoinRoom } from "./screens/JoinRoom";
 import { PreviewStudio } from "./screens/PreviewStudio";
@@ -43,7 +53,14 @@ import { useRemoteConventions } from "./shell/useRemoteConventions";
 const LandingRoute = lazy(() => import("./landing/LandingRoute"));
 
 /** Screens with no rows of their own to land in: a remote arrives on their top bar. */
-const LANDS_ON_TOP_BAR: ReadonlySet<Screen> = new Set(["jams", "create", "join", "script", "studio"]);
+const LANDS_ON_TOP_BAR: ReadonlySet<Screen> = new Set(["catalog", "community", "jams", "create", "join", "script", "studio", "director"]);
+
+/**
+ * Screens a film page is drawn as a layer over rather than in place of, so they keep their scroll,
+ * what they have loaded and their focus target while the page is open. Every other film page
+ * belongs to Discover, which is also where one reached by URL lands.
+ */
+const FILM_LAYER_OVER: ReadonlySet<Screen> = new Set(["home", "catalog"]);
 
 function inviteCodeFromLocation() {
   return new URLSearchParams(window.location.search).get("code") ?? "";
@@ -56,13 +73,27 @@ let searchRequests = 0;
 
 type Location = { screen: Screen; slug: string | null; film: ReturnType<typeof filmFromPath>; from: string | null; inviteCode: string };
 
+/** The jam a path names, whether it is the room's or its Director session's. */
+function slugOf(pathname: string) {
+  return jamSlugFromPath(pathname) ?? directorSlugFromPath(pathname);
+}
+
 /** Where the viewer is. */
 function readLocation(): Location {
   const { pathname } = window.location;
-  return { screen: screenFromPath(pathname), slug: jamSlugFromPath(pathname), film: filmFromPath(pathname), from: entryFrom(), inviteCode: inviteCodeFromLocation() };
+  return { screen: screenFromPath(pathname), slug: slugOf(pathname), film: filmFromPath(pathname), from: entryFrom(), inviteCode: inviteCodeFromLocation() };
 }
 
-export function App() {
+export type AppProps = {
+  /** Leaves the authenticated shell for the public document. Injectable for component tests. */
+  leaveForLanding?: () => void;
+};
+
+function replaceWithLanding() {
+  window.location.replace(LANDING_PATH);
+}
+
+export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
   const [location, setLocation] = useState<Location>(readLocation);
   const { screen, slug, film, from, inviteCode } = location;
   const [searchRequest, setSearchRequest] = useState<SearchRequest | null>(null);
@@ -76,6 +107,10 @@ export function App() {
   const [persistence, setPersistence] = useState<JamPersistence>(hasSupabaseConfiguration() ? "remote" : "preview");
   const [sourceKind, setSourceKind] = useState<SourceKind>("from-scratch");
   const [importedScript, setImportedScript] = useState("");
+  /** The escape rooms this build ships, read from the server, never invented here. */
+  const [scenarios, setScenarios] = useState<readonly ScenarioCard[]>([]);
+  const [scenarioId, setScenarioId] = useState("");
+  const [scenariosNotice, setScenariosNotice] = useState<string | null>(null);
   // Seeded from the format defaults rather than repeated here: when the
   // model's limits moved, a second copy of them in this form is what silently
   // started posting jams the server refuses.
@@ -95,7 +130,7 @@ export function App() {
     const state = replace ? replacingEntry() : pushedEntry();
     if (replace) window.history.replaceState(state, "", path);
     else window.history.pushState(state, "", path);
-    setLocation({ screen: next, slug: jamSlugFromPath(path), film: filmFromPath(path), from: entryFrom(state), inviteCode: inviteCodeFromLocation() });
+    setLocation({ screen: next, slug: slugOf(path), film: filmFromPath(path), from: entryFrom(state), inviteCode: inviteCodeFromLocation() });
     setSearchRequest(null);
     setNotice(null);
   }
@@ -111,14 +146,33 @@ export function App() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
+  /** The escape rooms are this server's own data, so they are read when they are needed. */
+  useEffect(() => {
+    if (screen !== "create" || scenarios.length > 0) return;
+    let cancelled = false;
+    void readScenarios()
+      .then((cards) => {
+        if (cancelled) return;
+        setScenarios(cards);
+        setScenarioId((current) => current || (cards[0]?.id ?? ""));
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setScenariosNotice(safeMessageOf(error, "This server did not list any escape rooms."));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [screen, scenarios.length]);
+
   /** A screen with nothing of its own to focus lands on its top bar, so a remote is never lost. */
   useEffect(() => {
     if (LANDS_ON_TOP_BAR.has(screen) && focusIsLost()) focusTopBar({ scroll: false });
   }, [screen, slug]);
 
   const filmOpen = screen === "discover" && film !== null;
-  /** A film opened from the home (at whatever path it was served) is a layer over the home. */
-  const filmOrigin: Destination = filmOpen && from !== null && screenFromPath(from) === "home" ? "home" : "discover";
+  /** Where the open film was chosen (at whatever path that screen was served), or Discover. */
+  const openedFrom = filmOpen && from !== null ? screenFromPath(from) : null;
+  const filmOrigin: Destination = openedFrom && FILM_LAYER_OVER.has(openedFrom) ? destinationOf(openedFrom) : "discover";
 
   /** Back from the top bar. Answers false on the home, whose Back belongs to the platform. */
   function leave() {
@@ -159,6 +213,8 @@ export function App() {
     window.scrollTo({ top: 0 });
   }
 
+  const viewerSource = useViewerSource();
+
   const shell = useMemo<Shell>(() => {
     function search() {
       searchRequests += 1;
@@ -185,8 +241,16 @@ export function App() {
         navigate(destination === "jam" ? "jams" : destination, DESTINATION_PATH[destination]);
       },
       search,
+      /**
+       * A real sign-out, then the public landing. `/` is deliberately outside the app's own
+       * screens: nothing the signed-out viewer was looking at is carried into it.
+       */
+      async logOut() {
+        await viewerSource.signOut();
+        leaveForLanding();
+      },
     };
-  }, [screen, filmOpen, filmOrigin, from]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [screen, filmOpen, filmOrigin, from, viewerSource, leaveForLanding]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function applyJam(jam: JamRoom, mode: JamPersistence) {
     setRoomTitle(jam.title);
@@ -201,7 +265,11 @@ export function App() {
     const source: JamSource = sourceKind === "from-scratch"
       ? { kind: "from-scratch", prompt: premise.trim() }
       : { kind: "imported-script", scriptTitle: roomTitle.trim() };
-    const roomPremise = sourceKind === "from-scratch" ? premise.trim() : "A Movie Jam created from an imported script.";
+    const roomPremise = sourceKind === "from-scratch"
+      ? premise.trim()
+      : sourceKind === "escape-room"
+        ? "A Movie Jam played inside an authored escape room."
+        : "A Movie Jam created from an imported script.";
     setIsCreating(true);
     setNotice(null);
     try {
@@ -210,6 +278,14 @@ export function App() {
         : await createJamRoom({ id: crypto.randomUUID(), title: roomTitle.trim(), premise: roomPremise.slice(0, 280), visibility });
       setRegisteredRoom(created.jam);
       applyJam(created.jam, created.persistence);
+      // An escape room has no screenplay to write: the world is authored and
+      // the film is whatever the room makes the character do. So it opens the
+      // room and goes straight into it, with no script screen in between.
+      if (sourceKind === "escape-room") {
+        await openEscapeRoom(created.jam.id, scenarioId);
+        navigate("studio", `/jams/${created.jam.slug}`);
+        return;
+      }
       const response = await fetch("/api/jams", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -261,6 +337,19 @@ export function App() {
         />
       </>;
     }
+    const filmOverCatalog = filmOpen && filmOrigin === "catalog";
+    if (screen === "catalog" || filmOverCatalog) {
+      // One tree for both, so the catalogue stays mounted (pages, scroll, focus) under a film.
+      return <>
+        {filmOverCatalog && film && <FilmPage
+          providerId={"id" in film ? film.id : null}
+          seed={filmSeed && "id" in film && filmSeed.providerId === film.id ? filmSeed.title : undefined}
+          origin="catalog"
+          attributionFallback={TMDB_ATTRIBUTION_FALLBACK}
+        />}
+        <CatalogScreen inert={filmOverCatalog} onOpenFilm={(title) => openFilm(title, providerIdOf(title.id))} />
+      </>;
+    }
     if (screen === "discover") {
       return <SearchScreen
         film={film}
@@ -270,9 +359,17 @@ export function App() {
         onStartJam={startJamFrom}
       />;
     }
-    if (screen === "jams") return <JamRegistry onNew={startJam} onOpen={(jam, mode) => { applyJam(jam, mode); navigate("studio", `/jams/${jam.slug}`); }} />;
+    if (screen === "community") return <CommunityScreen />;
+    if (screen === "director") return <DirectorScreen slug={slug} />;
+    if (screen === "jams") {
+      return <JamRegistry
+        onNew={startJam}
+        onOpen={(jam, mode) => { applyJam(jam, mode); navigate("studio", `/jams/${jam.slug}`); }}
+        onDirect={(jam, mode) => { applyJam(jam, mode); navigate("director", directorPath(jam.slug)); }}
+      />;
+    }
     if (screen === "create") {
-      return <CreateRoom title={roomTitle} premise={premise} visibility={visibility} sourceKind={sourceKind} importedScript={importedScript} totalSeconds={totalSeconds} portionMinSeconds={portionMinSeconds} portionMaxSeconds={portionMaxSeconds} onTitle={setRoomTitle} onPremise={setPremise} onVisibility={setVisibility} onSourceKind={setSourceKind} onImportedScript={setImportedScript} onTotalSeconds={setTotalSeconds} onPortionMinSeconds={setPortionMinSeconds} onPortionMaxSeconds={setPortionMaxSeconds} onSubmit={createRoom} isCreating={isCreating} notice={notice} />;
+      return <CreateRoom title={roomTitle} premise={premise} visibility={visibility} sourceKind={sourceKind} importedScript={importedScript} scenarios={scenarios} scenarioId={scenarioId} scenariosNotice={scenariosNotice} onScenarioId={setScenarioId} totalSeconds={totalSeconds} portionMinSeconds={portionMinSeconds} portionMaxSeconds={portionMaxSeconds} onTitle={setRoomTitle} onPremise={setPremise} onVisibility={setVisibility} onSourceKind={setSourceKind} onImportedScript={setImportedScript} onTotalSeconds={setTotalSeconds} onPortionMinSeconds={setPortionMinSeconds} onPortionMaxSeconds={setPortionMaxSeconds} onSubmit={createRoom} isCreating={isCreating} notice={notice} />;
     }
     if (screen === "script" && generatedJam) {
       return <ScriptScreen jam={generatedJam} roomTitle={roomTitle} onStudio={() => setLocation((current) => ({ ...current, screen: "studio" }))} />;
@@ -294,5 +391,7 @@ export function App() {
 function isAt(destination: Destination, screen: Screen) {
   if (destination === "home") return screen === "home";
   if (destination === "discover") return screen === "discover";
+  if (destination === "catalog") return screen === "catalog";
+  if (destination === "community") return screen === "community";
   return screen === "jams";
 }

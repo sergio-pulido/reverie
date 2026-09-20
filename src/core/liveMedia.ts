@@ -4,8 +4,25 @@
 
 import { z } from "zod";
 
+/** What a membership may publish to the live stage. */
 export const LIVE_TRACK_KINDS = ["camera", "microphone", "screen"] as const;
 export type LiveTrackKind = (typeof LIVE_TRACK_KINDS)[number];
+
+/**
+ * Appearing in the film the room is making is its own grant, with its own purpose, and it
+ * belongs in this register beside the track kinds rather than in a second one.
+ *
+ * It is deliberately NOT a track kind: it permits no publishing at all. Turning on a camera
+ * and agreeing to appear are separate decisions, and `permittedKinds` below is what keeps
+ * one from ever being read as the other.
+ */
+export const LIKENESS_CONSENT_KIND = "likeness";
+export const LIVE_CONSENT_KINDS = [...LIVE_TRACK_KINDS, LIKENESS_CONSENT_KIND] as const;
+export type LiveConsentKind = (typeof LIVE_CONSENT_KINDS)[number];
+
+export function isTrackKind(kind: LiveConsentKind): kind is LiveTrackKind {
+  return (LIVE_TRACK_KINDS as readonly string[]).includes(kind);
+}
 
 export const liveRoleSchema = z.enum(["subscriber", "publisher", "moderator"]);
 export type LiveRole = z.infer<typeof liveRoleSchema>;
@@ -26,7 +43,7 @@ export const liveConsentSchema = z.object({
   id: z.string().uuid(),
   jam_id: z.string().uuid(),
   owner_id: z.string().uuid(),
-  kind: z.enum(LIVE_TRACK_KINDS),
+  kind: z.enum(LIVE_CONSENT_KINDS),
   purpose: z.string(),
   asset_ref: z.string(),
   granted_at: z.string(),
@@ -55,17 +72,23 @@ export function effectiveConsents(consents: readonly LiveConsent[], now = Date.n
   return consents.filter((consent) => isConsentEffective(consent, now));
 }
 
-/** Which of a participant's own track kinds are currently permitted to publish. */
+/**
+ * Which of a participant's own track kinds are currently permitted to publish.
+ *
+ * A likeness grant is filtered out here, not merely absent by accident: agreeing to appear
+ * in the film must never start a camera, a microphone or a screen share.
+ */
 export function permittedKinds(
   consents: readonly LiveConsent[],
   ownerId: string,
   now = Date.now(),
 ): Set<LiveTrackKind> {
-  return new Set(
-    effectiveConsents(consents, now)
-      .filter((consent) => consent.owner_id === ownerId)
-      .map((consent) => consent.kind),
-  );
+  const kinds = new Set<LiveTrackKind>();
+  for (const consent of effectiveConsents(consents, now)) {
+    if (consent.owner_id !== ownerId) continue;
+    if (isTrackKind(consent.kind)) kinds.add(consent.kind);
+  }
+  return kinds;
 }
 
 export function normalizePurpose(raw: string): { ok: true; value: string } | { ok: false; message: string } {
@@ -111,4 +134,12 @@ export const MEDIA_OUTCOME_MESSAGE: Record<MediaPermissionOutcome, string> = {
   unavailable: "No matching device was found on this machine.",
   in_use: "That device is already in use by another application.",
   failed: "That device could not be started.",
+};
+
+/** One name per consent kind, shared by every panel that lists the register. */
+export const CONSENT_KIND_LABEL: Record<LiveConsentKind, string> = {
+  camera: "Camera",
+  microphone: "Microphone",
+  screen: "Screen",
+  likeness: "Appearing in the film",
 };

@@ -16,6 +16,14 @@ These are Reverie application contracts, not provider API endpoints.
   - `200 { "status": "live_not_configured", "code": "LIVE_NOT_CONFIGURED", "safeMessage", "missing": [...] }` — live media is switched off or not credentialed.
   - `4xx/5xx { "status": "error", "code", "safeMessage", "retryable" }` — `METHOD_NOT_ALLOWED`, `CROSS_ORIGIN_BLOCKED`, `RATE_LIMITED`, `INVALID_REQUEST`, `LIVE_UNAUTHENTICATED`, `LIVE_FORBIDDEN`, `LIVE_UNAVAILABLE`, `LIVE_UNAUTHORIZED`, `LIVE_TIMEOUT`, `LIVE_UNREACHABLE`, `LIVE_UPSTREAM_ERROR`, `LIVE_INVALID_RESPONSE`. None carries a credential, an upstream URL or an upstream body.
   - Identity comes from Supabase Auth verifying the presented access token; membership comes from the caller's own RLS-filtered `jam_members` row. The function holds no service-role key. Sessions are created with `archiveMode=manual`: nothing is recorded, broadcast or transformed. See `docs/specs/jam-live-media-vonage.md`.
+- **Appearing in the film** (Node server only; `docs/specs/appearing-in-the-film.md`). Every route takes `Authorization: Bearer <Supabase access token>`, resolves identity through Supabase Auth, and reads the caller's own membership and the room's consent register under the same RLS the browser is subject to. The server holds no privileged read of the register: it cannot see a consent the caller could not see themselves. Without Supabase configuration every route is `503 likeness_not_configured` — a server that cannot check consent does not act on it.
+  - `PUT /api/jams/:id/likeness/:assetRef` — attaches the approved frame to the caller's own standing likeness grant. Body is the raw image (`image/jpeg` or `image/png`), at most 512 KB, square-ish, 256–1024 pixels each side. The reference was issued by the register's trigger; this route never mints one. `201 { assetRef, width, height, durable, expiresAt }`. Refusals: `frame_type_unsupported`, `frame_too_large`, `frame_unreadable`, `frame_too_small`, `frame_too_big` (400); `consent_not_found` (404); `not_yours`, `not_a_likeness_consent`, `withdrawn_or_expired` (403). "Not yours" and "not a likeness consent" carry the same sentence, so neither answer tells a prober anything about the other.
+  - `GET /api/jams/:id/likeness/:assetRef` — the owner's own frame, `no-store`. It is never served to another participant, and no storage or signed URL ever reaches a browser. `404 no_frame` when a grant has no frame behind it.
+  - `DELETE /api/jams/:id/likeness/:assetRef` — discards the frame behind the caller's own grant. A grant that has ended is the expected case here, not a refusal: the client calls this immediately after withdrawing.
+  - `POST /api/jams/:id/beats/:index/video` — generates one beat from the portion at that flat index. **Whether anyone appears in it is not in the request body**: the server reads the register fresh at the instant of submission and `usableLikenesses` answers, so a withdrawal a second earlier is honoured without any cache to invalidate. At most three references, in the order granted, sent inline as `data:` URIs. `201 { index, model, requestId, generatedAt, elapsedMs, likeness: { standing, ownerIds }, durable, remainingBudgetUsd }`. `standing` is `none｜standing｜withdrawn_since`; `ownerIds` names owners, never references. Refusals: `frame_missing` (409) when a grant's frame never arrived — never a plain beat generated without that person; `budget_exhausted` (409); `beat_in_flight` (409); `too_many_beats` (429); `generation_disabled` (503) with no provider, never a mock; `beat_provider_unreachable`, `beat_provider_refused`, `beat_provider_unusable`, `beat_provider_timeout`, `beat_clip_too_large`, none of which carries a provider body, URL or credential.
+  - `GET /api/jams/:id/beats/:index` — `{ index, model, requestId, generatedAt, elapsedMs, likeness }`. The `likeness` block is re-derived from the register on every read, so a beat made before a withdrawal reports `withdrawn_since` rather than `none`.
+  - `GET /api/jams/:id/beats/:index/video` — the clip, served by this server. No provider or storage address is ever handed to a browser.
+  - Server-owned model allowlist: `minimax/h3-max/text-to-video` for a plain beat, `minimax/h3-max/reference-to-video` when at least one grant stands. No request body, environment variable or provider response can widen it. Both reserve against the same `FAL_ASSET_BUDGET_USD` as the live director.
 - `POST /api/discover/turn` and `POST /api/discover/rank`: Discover's conversation. Same-origin only, `POST` only, `Authorization: Bearer <Supabase access token>` verified by Supabase Auth before any model call, per-instance rate limits of 20 and 30 requests per minute, at most 6 model calls in flight per instance, body caps of 80 KB and 96 KB. The browser holds the preference state and sends it; the server validates it with the engine's schema and trusts nothing in it. Nebius is called only here, only when `REVERIE_LIVE_ENABLED=true` and `NEBIUS_API_KEY` is set, with the model from the server allowlist; a client that disconnects aborts the call.
   - Turn body `{ "message": 1–500 chars, "state": <PreferenceState>, "previousQuestion": string | null }` → `200 { "status": "ok", "source": "nebius", "model", "turn": <TurnInput>, "acknowledgement", "question": string | null }`. `turn` has already been accepted by `applyTurn` against the sent state; the browser applies it again. A session that has used its 12 turns gets `409 TURN_LIMIT` without a model call. Budget: 700 output tokens, 12 s per attempt, 20 s overall, one retry.
   - Rank body `{ "state": <PreferenceState>, "candidates": [1–48 of { id, title, year?, genres, runtimeMinutes?, originalLanguage?, rating?, synopsis? ≤ 280 chars }] }` → `200 { "status": "ok", "source": "nebius", "model", "stateVersion", "ranking": [{ candidateId, utility }], "reasons": [≤ 3 of { candidateId, reason ≤ 160 chars }] }`. Candidates the state rules out are dropped before the model sees them; the ranking has passed `acceptFullRanking`, so it names only supplied, eligible ids. Budget: 1,200 output tokens, 15 s per attempt, 25 s overall, one retry.
@@ -66,13 +74,22 @@ bounds probing from one session rather than making enumeration impossible. `p_ex
 | `jam_messages` | active members | active members, `author_id = auth.uid()` (defaulted, never sent by the browser) |
 | `jam_proposals` | active members | active members, `status = 'queued'` |
 | `jam_live_sessions` | active members | none (written only by `ensure_jam_live_session`) |
-| `jam_live_consents` | active members | own row, `owner_id = auth.uid()`, active members |
+| `jam_live_consents` | active members | own row, `owner_id = auth.uid()`, active members; one standing `likeness` row per participant per jam |
 
 No update or delete policy exists on `jam_messages` or `jam_proposals`: both are append-only
 until the versioned scene contract below is implemented. `jam_live_consents` has no update or
 delete policy either: a consent is granted by an insert and retired only by
 `withdraw_live_consent`, and its `asset_ref` and expiry are stamped by a trigger, never by the
 browser. A consent is effective only while `withdrawn_at is null and expires_at > now()`.
+
+`kind` is `camera`, `microphone`, `screen` or `likeness`. The first three permit publishing a
+track to the live stage; `likeness` permits a participant's own approved frame to seed a
+generated beat and permits no publishing at all, which `permittedKinds` enforces by filtering to
+track kinds rather than by omission. The trigger issues a `likeness:` reference for a likeness
+grant and a `live:` reference otherwise, and a partial unique index
+(`jam_live_consents_one_standing_likeness`) allows one standing likeness grant per participant
+per jam, so a withdrawal always withdraws the whole of what was agreed. See
+`docs/specs/appearing-in-the-film.md`.
 
 The three invite columns on `jams` are excluded from the column grants to `authenticated`
 for both `select` and `update`. RLS answers which rows a caller may read; which columns of
@@ -174,7 +191,8 @@ with the current `revision`), `mechanism` (`direct | vote | poll | chat`, defaul
 `authorId`. Admission checks, in order: the jam exists (`404 not_found`), a provider is configured
 (`503 generation_disabled`), the beat exists (`400 invalid_command`), the beat is editable
 (`409 portion_locked`), the revision is current, the queue has room (`409 queue_full`, at most 10 waiting).
-A replayed `requestId` returns `200` with the record the first request created.
+A room that has ended is refused `409 jam_ended`: its recording is the artifact and its story no
+longer moves. A replayed `requestId` returns `200` with the record the first request created.
 
 Edits are processed one at a time per jam. The cascade completion runs outside the per-jam critical
 section; the commit takes it once and lands every rewritten portion as one revision, refusing
@@ -182,6 +200,79 @@ section; the commit takes it once and lands every rewritten portion as one revis
 replaced twice. The edit record's `status` is `queued | processing | landed | failed`, with
 `baseRevision`, `revision`, a typed `error`, and `direction: { sent, refused }` for the beat sent to
 open streams after the commit. Durations and structure are never rewritten.
+
+## The escape room
+
+An escape room is a Movie Jam with a fixed world and a goal (`docs/specs/escape-room-scenario.md`).
+It adds no room concept: the invite code, the QR, the lobby, admission, the roster and the chat
+are the jam's. What it adds is the scenario's state, the turn the room is on, and the segments
+generated from them. These routes run on the local Node server only, like the script, session and
+director routes, and their state is in that process's memory.
+
+**These are the only routes on this Express host that check who is asking.** They move a world a
+whole room can see and they spend from a budget, so identity is Supabase Auth's answer to the
+presented access token and the role is the caller's own `jam_members` row read under RLS with that
+same token — this server holds no service-role key for it and can see no more than the participant
+it is acting for. The answer is cached for 20 seconds on a SHA-256 digest of the token (never the
+token), so a room polled by six people does not make twelve Supabase calls a second; the cost is
+that an admission or a removal takes up to 20 seconds to be felt. Every command body is strict: an
+unknown field is rejected rather than dropped.
+
+| Route | Who | Contract |
+| --- | --- | --- |
+| `GET /api/escape-room/scenarios` | anyone | `200 { scenarios: [{ id, title, logline, characterName, goal, locationCount }] }` — this repository's own scenario files. Unauthenticated: the create screen offers them before anybody is a member of anything. |
+| `POST /api/jams/:id/escape-room` | host | Body `{ scenarioId }`. `201 <snapshot>`. Refusals: `unknown_scenario` (400), `already_open` (409), `too_many_rooms` (409). |
+| `GET /api/jams/:id/escape-room` | active member | `200 <snapshot>`, or `404 not_open` — which is the answer "this jam is not an escape room", not a failure. |
+| `POST /api/jams/:id/escape-room/proposals` | active member | Body `{ body ≤ 280 chars, authorName? ≤ 32 }`. `201 { proposalId, snapshot }`. The author is the caller's own user id; an `authorId` in the body is rejected, never honoured. Refusals: `session_over`, `too_many_proposals` (24 a turn). |
+| `POST /api/jams/:id/escape-room/votes` | active member | Body `{ proposalId }`. `200 <snapshot>`. One effective vote per participant; a second replaces the first. A proposal not on this turn's table is `404 not_found`. |
+| `POST /api/jams/:id/escape-room/settle` | host | Closes the vote. Most votes wins; a tie, including a turn nobody voted on, goes to whichever was proposed first. The winner is resolved and filmed, the rest are discarded, and the next turn opens. `200 { beatId, snapshot }`. Refusals: `no_proposals` (409), `session_over` (409). |
+| `GET /api/jams/:id/escape-room/segments/:mediaId` | active member | The clip's own bytes, from this server's storage. Never a provider or storage URL. `404 not_found`, or `503 media_unavailable`. |
+
+Authorization failures are `escape_unauthenticated` (401), `escape_forbidden` (403) and
+`escape_unavailable` (503), in the same `{ error: { code, safeMessage, retryable } }` shape as the
+rest of this server. None carries a token, an upstream URL or an upstream body.
+
+A `<video src>` sends no `Authorization` header, so the browser fetches a segment with the
+viewer's own token and plays it as an object URL. The alternative was a credential in a URL or a
+route that trusted an unguessable id.
+
+### The snapshot
+
+`EscapeSnapshot` (`src/core/escape/session.ts`) is the only thing the screen draws, and every
+field is scenario state, the room's own vote, or the status of a generation this server actually
+started:
+
+- `location` — where the character is, with the author's description.
+- `loop` and each beat's `media` — a `SegmentView`: `status` is `absent`, `generating`, `ready`,
+  `failed`, `forgotten` (it was generated and this server no longer holds it — a server with no
+  object storage keeps only its most recent segments), `not_configured` (no fal key or the live
+  flag is off) or `ceiling_reached` (the spend ceiling refused it, or the session ended before it
+  ran; nothing was sent to the provider). `seconds` is the clip's **measured**
+  length, read from the file, not the length that was asked for.
+- `progress` — what has been found, what is still shut, what is carried, how many things have
+  happened, and whether the goal is reached. Counted from scenario state.
+- `turn` — the proposals on the table with their real vote counts, this viewer's vote, and how
+  many people have voted.
+- `beats` — what the room has done, each with its narration and whether the model or the
+  scenario's author wrote it.
+- `ended` — `{ reason: "goal" | "spend_ceiling", tell }`, or null.
+- `spend` — real money committed against `FAL_ASSET_BUDGET_USD`.
+- `mediaDurable` — false when this server has no object storage, so segments die with it.
+
+### Video
+
+Segments are generated through the fal adapter's queue half
+(`apps/server/providers/falSegments.ts`) with `minimax/h3-max/text-to-video`, entry `[0]` of a
+server-owned allowlist that `FAL_MODEL` may select from and nothing else. Only an outcome that
+advanced the world is filmed: a refusal already carries the sentence its author wrote. A beat's
+duration comes from the scenario's action, clamped to the model's published `[5, 15]` band; a
+location's loop is 5 seconds. What the model returns is measured
+(`src/core/mediaDuration.ts`) rather than assumed — see `docs/DECISIONS.md` for the numbers.
+
+Money is committed before the provider is called and settled after. A submit fal never accepted is
+refunded; anything that failed after fal accepted the request is not, because fal may well have
+run it. The director and the escape room debit **one** `SpendAccount`, so
+`FAL_ASSET_BUDGET_USD` stays a ceiling on the process rather than one each feature gets a copy of.
 
 ## Beat locking and the live director
 
@@ -197,7 +288,23 @@ Before the first chunk arrives, beat `0` is already locked: `configure` carried 
 
 The same boundary answers both routes. `POST /api/jams/:id/director/session/:sessionId/direct` refuses a direction naming a closed beat with `beat_locked` (`retryable: false`, carries the beat window), and a script `PATCH`/`revert` at or below the boundary is refused with `portion_locked`. A jam may hold one stream per configuration, and an edit is only safe if it is ahead of all of them, so the strictest open stream sets the boundary (`DirectorStreamRegistry`). The JamStore stays persistence-only: edit and revert take `minEditablePortionIndex` and throw below it, and the router reads the guard in the same critical section as the mutation it protects, so the boundary cannot move between check and write.
 
-**There is no per-portion generation.** Video is produced by one continuous director session, not by a queue of clips; the events `portion.locked`, `media.requested`, `media.ready` and `media.delayed` described elsewhere in this document belong to a pipeline that no longer exists.
+**Two ways of producing video, and they are not the same thing.** The live director is one continuous session billed by the second: it holds a peer connection and is directed as it runs. Beat generation (`POST /api/jams/:id/beats/:index/video`, above) is submit-and-wait: one finished clip per portion, which is the only path that can carry a participant's likeness, because a reference image is an input to a queued generation and not something that can be handed to an open stream. A jam may use either. The events `portion.locked`, `media.requested`, `media.ready` and `media.delayed` described elsewhere in this document still belong to a pipeline that does not exist; beat generation is a synchronous route, not an event stream, and the director's beat lock window does not apply to it.
+
+### Director spend
+
+Every director session response (`POST .../director/session`, `GET .../director/session/:sessionId`) carries `spend`:
+
+| Field | Meaning |
+| --- | --- |
+| `budgetUsd` | The ceiling, from `FAL_ASSET_BUDGET_USD`. `0` when it is not set, which means nothing can be generated. |
+| `usdPerSecond` | fal's price per generated second, from `REVERIE_DIRECTOR_USD_PER_SECOND`. |
+| `minBilledSeconds` | The provider's per-session minimum (60), billed whether or not it is used. |
+| `sessionUsd` | What this session has cost, from the seconds it has generated, capped at its reservation. |
+| `remainingUsd` | The ceiling less everything committed, including this session. |
+
+`GET /api/jams/:id/director/budget` answers the same `spend` with `sessionUsd: 0`, plus `configured` — whether a director is configured on this server at all, which is a different fact from having money left. It does not look the jam up: the budget belongs to the process, not to a room.
+
+The figure is derived from generated seconds, never from the reservation. The reservation is the worst case the ledger commits up front so a dead browser tab cannot leak budget (`apps/server/directorSessions.ts`); quoting it back as spend would overstate every session that ran short. Currency is USD because fal prices in USD; it is never converted or re-labelled.
 
 ## Planned Supabase mutation and Realtime contracts
 

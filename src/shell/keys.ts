@@ -31,8 +31,8 @@ export function backAction({ key, keyCode = 0, editable, handled, inTopBar, repe
 }
 
 /**
- * Where leaving a screen goes: its parent. Home, Search and Movie Jam are siblings under the
- * home; a jam's screens sit under Movie Jam; the script goes back to its setup; a film page goes
+ * Where leaving a screen goes: its parent. Home, Discover, Catalog, Movie Jam and Community are
+ * siblings under the home; a jam's screens sit under Movie Jam; the script goes back to its setup; a film page goes
  * back to wherever it was opened from, or to search when it was reached by URL. The home has no
  * parent: Back there belongs to the platform.
  */
@@ -45,11 +45,15 @@ export function parentPath(screen: Screen, filmOpen: boolean, from: string | nul
     case "home":
       return null;
     case "discover":
+    case "catalog":
     case "jams":
+    case "community":
     case "join":
       return HOME_PATH;
     case "create":
     case "studio":
+    // A Director session is opened from the Movie Jam list, and Back returns there.
+    case "director":
       return JAMS_PATH;
     case "script":
       return NEW_JAM_PATH;

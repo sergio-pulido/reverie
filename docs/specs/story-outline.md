@@ -385,6 +385,7 @@ provider body or an internal prompt.
 | `queue_full` | ten edits already wait for this jam | yes |
 | `invalid_cascade` | the model's rewrite did not cover the tail exactly, twice; nothing was written | yes, as a new edit |
 | `generation_failed` | the provider did not answer or rejected the call; nothing was written | yes, as a new edit |
+| `jam_ended` | the room has finished; its recording is the artifact and its story no longer moves | no |
 | `beat_locked` | a direction names a beat the stream has already committed to (director route; recorded on the edit as a refused direction) | no |
 
 `portion_locked` at admission is an HTTP `409` on the `POST`; the same code after admission is a
@@ -415,9 +416,11 @@ write path per field rather than re-deriving a beat on every prose edit.
   routes). The Studio hides the controls from non-members; the server does not refuse them.
   Room-scoped authorization for the local host is one decision for all of these routes, not one
   per route.
-- **The ended room.** RV-18 adds a jam lifecycle (`live | playing | ended`). An ended room's
-  recording is its artifact, so its script should freeze; when that field is on `main`, the edit
-  route should refuse with `jam_ended`. Agreed with stream-storage, not yet enforced.
+- ~~The ended room.~~ **Settled and enforced.** A jam carries a lifecycle
+  (`live | playing | ended`, `src/core/jamLifecycle.ts`). An ended room's recording is its
+  artifact, so its story stops moving: an edit is refused `409 jam_ended` at admission, and an
+  edit already queued when the room ends fails with the same code rather than rewriting a film
+  that was already shot.
 - The vote tally rule, and whether it is per jam, per host or global. This spec fixes that the
   rule is server-owned, not what it is.
 - How a chat turn is pinned to a beat index — by the model, by the participant, or by both.
@@ -440,8 +443,8 @@ edited beat as a direction to every open stream; `DirectorStreamRegistry.beatWin
 Earlier (RV-17): the `summary` field, `buildOutline` and `beatAt` (`src/core/outline.ts`), and
 the cascade schema and application (`src/core/outlineCascade.ts`).
 
-Not implemented: the vote, poll and chat adapters; route authorization; the `jam_ended` refusal;
-a durable store for the script and the ledger (RV-21).
+Not implemented: the vote, poll and chat adapters; route authorization; a durable store for the
+script and the ledger (RV-21).
 
 **What the tests actually prove**, since "tested" is not one claim: that an edit rewrites the tail
 and lands as one revision while settled beats are untouched; that durations survive a cascade;

@@ -26,6 +26,10 @@ type ComposerProps = {
  * same field takes a film's name or a request in the viewer's own words; the screen decides
  * which. OK in the field sends, Escape first clears it, and Left from its start reaches the
  * microphone.
+ *
+ * Three controls do not share 360 pixels evenly. On a phone the microphone keeps its circle at a
+ * size a thumb can hit and the send button shrinks to a square arrow, so the field — the thing
+ * being read while typing — keeps the rest of the row rather than being squeezed by two labels.
  */
 export function Composer({ draft, onDraft, onSend, pending, placeholder, voice, inputRef, voiceRef, status }: ComposerProps) {
   const canSend = !pending && draft.trim().length > 0;
@@ -101,7 +105,12 @@ export function Composer({ draft, onDraft, onSend, pending, placeholder, voice, 
               onSend();
             }}
           >
-            {pending ? "Thinking…" : "Send"}
+            {/* The word is the control on a television; on a phone it is the arrow, and the word
+                is left for a screen reader, so the field keeps the width the word would take. */}
+            <span className="search-send-word">{pending ? "Thinking…" : "Send"}</span>
+            <span className="search-send-mark" aria-hidden="true">
+              {pending ? "…" : "↑"}
+            </span>
           </button>
         )}
       </form>

@@ -7,7 +7,7 @@ import { dialogKey } from "./dialog";
 import type { CardHover } from "./ResultCard";
 import { ResultRow } from "./ResultRow";
 import { snapshotOf } from "./results";
-import { useRows, type Row } from "./useRows";
+import { useRows, type Row } from "../shell/useRows";
 
 type FilterPanelProps = {
   state: PreferenceState;

@@ -1,3 +1,4 @@
+import { FalBudget } from "./falBudget";
 import { DIRECTOR_MIN_BILLED_SECONDS } from "./providers/falDirector";
 
 /**
@@ -9,6 +10,10 @@ import { DIRECTOR_MIN_BILLED_SECONDS } from "./providers/falDirector";
  * and closing it refunds the difference between that and what it actually ran.
  * A session nobody closes expires on its own, because the alternative is a
  * budget that leaks whenever a browser tab dies.
+ *
+ * The budget itself is shared (./falBudget): beat generation spends the same
+ * FAL_ASSET_BUDGET_USD, so a room streaming and a room generating beats cannot
+ * between them commit twice the total the server was given.
  */
 
 /** fal's list price per generated second; the promotional rate is lower. */
@@ -73,13 +78,17 @@ export interface OpenSession {
 
 export class DirectorSessionLedger {
   private readonly sessions = new Map<string, OpenSession>();
-  private spentUsd = 0;
+  private readonly settlers = new Map<string, (actualUsd: number) => void>();
   private counter = 0;
+  private readonly budget: FalBudget;
 
   constructor(
     private readonly limits: DirectorSessionLimits,
     private readonly now: () => number = () => Date.now(),
-  ) {}
+    budget?: FalBudget,
+  ) {
+    this.budget = budget ?? new FalBudget(limits.budgetUsd);
+  }
 
   /** Worst-case cost of a session that runs to its allowed limit. */
   private reservationUsd(): number {
@@ -95,11 +104,11 @@ export class DirectorSessionLedger {
   }
 
   get committedUsd(): number {
-    return this.spentUsd;
+    return this.budget.spentUsd;
   }
 
   get remainingUsd(): number {
-    return Math.max(0, this.limits.budgetUsd - this.spentUsd);
+    return this.budget.remainingUsd;
   }
 
   open(streamKey: string): OpenSession | SessionRefusal {
@@ -117,9 +126,8 @@ export class DirectorSessionLedger {
       return "too_many_sessions";
     }
     const reservedUsd = this.reservationUsd();
-    if (this.spentUsd + reservedUsd > this.limits.budgetUsd) {
-      return "budget_exhausted";
-    }
+    const settle = this.budget.reserve(reservedUsd);
+    if (!settle) return "budget_exhausted";
     this.counter += 1;
     const at = this.now();
     const session: OpenSession = {
@@ -129,7 +137,7 @@ export class DirectorSessionLedger {
       lastSeenAt: at,
       reservedUsd,
     };
-    this.spentUsd += reservedUsd;
+    this.settlers.set(session.sessionId, settle);
     this.sessions.set(session.sessionId, session);
     return session;
   }
@@ -152,7 +160,8 @@ export class DirectorSessionLedger {
   release(sessionId: string): boolean {
     const session = this.sessions.get(sessionId);
     if (!session) return false;
-    this.spentUsd -= session.reservedUsd;
+    this.settlers.get(sessionId)?.(0);
+    this.settlers.delete(sessionId);
     this.sessions.delete(sessionId);
     return true;
   }
@@ -167,8 +176,8 @@ export class DirectorSessionLedger {
 
   private settle(session: OpenSession): void {
     const ranSeconds = (this.now() - session.startedAt) / 1000;
-    const billed = Math.min(session.reservedUsd, this.billedUsd(ranSeconds));
-    this.spentUsd = this.spentUsd - session.reservedUsd + billed;
+    this.settlers.get(session.sessionId)?.(this.billedUsd(ranSeconds));
+    this.settlers.delete(session.sessionId);
     this.sessions.delete(session.sessionId);
   }
 
@@ -180,7 +189,12 @@ export class DirectorSessionLedger {
   expireIdle(): void {
     const cutoff = this.now() - SESSION_IDLE_TIMEOUT_MS;
     for (const session of [...this.sessions.values()]) {
-      if (session.lastSeenAt <= cutoff) this.sessions.delete(session.sessionId);
+      if (session.lastSeenAt > cutoff) continue;
+      // Settled at the full reservation, not at elapsed time: the server cannot
+      // know fal stopped generating, and guessing low would understate spend.
+      this.settlers.get(session.sessionId)?.(session.reservedUsd);
+      this.settlers.delete(session.sessionId);
+      this.sessions.delete(session.sessionId);
     }
   }
 

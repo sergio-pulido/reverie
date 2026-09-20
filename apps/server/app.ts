@@ -6,16 +6,50 @@ import liveToken from "../../api/live/token";
 import discoverTurn from "../../api/discover/turn";
 import discoverRank from "../../api/discover/rank";
 import voiceTranscribe from "../../api/voice/transcribe";
-import { createJamsRouter, InMemoryJamStore, type JamStore, type PlaybackGuard } from "./jams";
-import { createDirectorRouter, DirectorStreamRegistry } from "./director";
+import {
+  createJamsRouter,
+  InMemoryJamStore,
+  type JamStore,
+  type PlaybackGuard,
+} from "./jams";
 import { createOutlineRouter } from "./outline";
+import {
+  createDirectorRouter,
+  DirectorStreamRegistry,
+  type DirectorRouterOptions,
+} from "./director";
+import { createDirectorArchiveRouter } from "./directorArchiveRoutes";
+import {
+  resolveDirectorRecordingStore,
+  type DirectorRecordingStore,
+} from "./directorRecordings";
+import {
+  resolveDirectorIndexStore,
+  type DirectorIndexStore,
+} from "./directorIndex";
+import { createEscapeRouter } from "./escape";
 import { createSessionsRouter } from "./sessions";
+import { resolveSpendAccount } from "./spendLedger";
+import { FalBudget } from "./falBudget";
+import { createLikenessRouter } from "./likeness";
+import { resolveDirectorLimits, DirectorSessionLedger } from "./directorSessions";
 
 /**
  * API wiring shared by the real server and tests. Order matters: the JSON
  * 404 catch-all must come AFTER the routers, or it shadows every API route.
  */
-export function createApiApp(store: JamStore = new InMemoryJamStore()): Express {
+export interface ApiAppOptions {
+  /** Shared by the live writer and archive reader, including in-memory mode. */
+  directorIndex?: DirectorIndexStore;
+  directorRecordings?: DirectorRecordingStore;
+  /** Test/provider seams; shared stores and the registry are owned by this app. */
+  director?: Omit<DirectorRouterOptions, "index" | "recordings" | "registry">;
+}
+
+export function createApiApp(
+  store: JamStore = new InMemoryJamStore(),
+  options: ApiAppOptions = {},
+): Express {
   const app = express();
 
   app.get("/api/health", health);
@@ -43,13 +77,26 @@ export function createApiApp(store: JamStore = new InMemoryJamStore()): Express 
   // beat, and the script routes refuse an edit to the same portion. Two
   // answers to one question would be worse than either alone.
   const streams = new DirectorStreamRegistry();
+  // Resolve each fallback once. When Supabase is absent these are in-memory
+  // stores, so separate instances would let the live router write an archive
+  // that the read router could never see.
+  const directorIndex = options.directorIndex ?? resolveDirectorIndexStore();
+  const directorRecordings =
+    options.directorRecordings ?? resolveDirectorRecordingStore();
+  // FAL_ASSET_BUDGET_USD is a ceiling on this process, so the director, the
+  // escape room and beat generation all debit one account. The budget is a
+  // second face on that same account, not a second pot.
+  const account = resolveSpendAccount();
+  const budget = new FalBudget(account.budgetUsd, account);
+  // One boundary, read by the script routes and by the outline queue, inside
+  // the same per-jam critical section as the mutation it protects.
   const guard: PlaybackGuard = (jamId) => ({
     minEditablePortionIndex: streams.minEditablePortionIndex(jamId),
     stateVersion: 0,
   });
   app.use(createJamsRouter(store, guard));
-  // The outline queue reads the same guard inside the same critical section,
-  // and sends a landed beat to the same streams the director holds.
+  // The outline queue sends a landed beat to the same streams the director
+  // holds, so one edited phrase drives the script and the stream alike.
   app.use(
     createOutlineRouter(store, guard, {
       window: (jamId) => streams.beatWindow(jamId),
@@ -57,7 +104,19 @@ export function createApiApp(store: JamStore = new InMemoryJamStore()): Express 
     }),
   );
   app.use(createSessionsRouter(store));
-  app.use(createDirectorRouter(store, { registry: streams }));
+  app.use(createDirectorRouter(store, {
+    ...options.director,
+    registry: streams,
+    index: directorIndex,
+    recordings: directorRecordings,
+    budget,
+  }));
+  app.use(createDirectorArchiveRouter(store, {
+    index: directorIndex,
+    recordings: directorRecordings,
+  }));
+  app.use(createEscapeRouter({ account }));
+  app.use(createLikenessRouter(store, { budget }));
   app.use("/api", (_request, response) => {
     response.status(404).json({ code: "NOT_FOUND", safeMessage: "API route not found." });
   });

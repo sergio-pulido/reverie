@@ -1,4 +1,10 @@
 import { randomUUID } from "node:crypto";
+import {
+  applyLifecycle,
+  INITIAL_LIFECYCLE,
+  type JamLifecycleEvent,
+  type LifecycleTransition,
+} from "../../src/core/jamLifecycle";
 import express, { type Response, type Router } from "express";
 import {
   createJamCommandSchema,
@@ -60,6 +66,14 @@ export interface JamStore {
     minEditablePortionIndex: number,
     options?: RevisionOptions & { expectedRevision?: number },
   ): Promise<ScriptRevision>;
+  /**
+   * Moves a room through its life, refusing a transition that is not allowed.
+   *
+   * The server owns this, not the browser: a client that thinks a room is
+   * playing cannot make it so, and a stop that a client never saw is still
+   * the truth on its next read.
+   */
+  advanceLifecycle(jamId: string, event: JamLifecycleEvent): Promise<LifecycleTransition>;
   updatePortion(
     jamId: string,
     portionIndex: number,
@@ -158,6 +172,17 @@ export class InMemoryJamStore implements JamStore {
       createdAt: this.clock().toISOString(),
     });
     this.jams.set(jam.id, { jam, history });
+  }
+
+  async advanceLifecycle(
+    jamId: string,
+    event: JamLifecycleEvent,
+  ): Promise<LifecycleTransition> {
+    const entry = this.jams.get(jamId);
+    if (!entry) throw new JamStoreError("This jam does not exist.", "jam_not_found");
+    const result = applyLifecycle(entry.jam.lifecycle, event);
+    if (result.ok) entry.jam = { ...entry.jam, lifecycle: result.lifecycle };
+    return result;
   }
 
   async getJam(id: string): Promise<Jam | null> {
@@ -316,6 +341,9 @@ export function createJamsRouter(
           source: data.source,
           format: data.format,
           script,
+          // A new room is live: it exists and can be joined, and nothing is
+          // being generated in it yet.
+          lifecycle: INITIAL_LIFECYCLE,
         };
         // Beats are born with the script. Import has nothing that wrote its
         // portions, so the one fill-in call runs here when a provider is
@@ -377,6 +405,7 @@ export function createJamsRouter(
         source: command.data.source,
         format: command.data.format,
         script,
+        lifecycle: INITIAL_LIFECYCLE,
       };
       const scriptMarkdown = renderScriptMarkdown(script, jam.source);
       await store.createJam(jam, { initialMarkdown: scriptMarkdown });

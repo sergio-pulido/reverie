@@ -8,7 +8,7 @@ import {
   normalizePurpose,
   type LiveConsent,
   type LiveTokenResponse,
-  type LiveTrackKind,
+  type LiveConsentKind,
 } from "../core/liveMedia";
 import { JamError, notConfigured, toJamError } from "./errors";
 import { supabase } from "./supabase";
@@ -90,7 +90,7 @@ export async function loadLiveConsents(jamId: string): Promise<LiveConsent[]> {
  * a database trigger issues the reference and clamps the expiry, so neither is the
  * browser's to choose.
  */
-export async function grantLiveConsent(jamId: string, kind: LiveTrackKind, rawPurpose: string): Promise<LiveConsent> {
+export async function grantLiveConsent(jamId: string, kind: LiveConsentKind, rawPurpose: string): Promise<LiveConsent> {
   if (!supabase) throw notConfigured("Granting live consent");
   const purpose = normalizePurpose(rawPurpose);
   if (!purpose.ok) throw new JamError("invalid_input", purpose.message);

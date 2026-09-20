@@ -128,6 +128,7 @@ async function newJam(): Promise<Jam> {
     source: { kind: "from-scratch", prompt: "A keeper finds a door at the bottom of the sea." },
     format: DEFAULT_SCRIPT_FORMAT,
     script: scriptOf(),
+    lifecycle: "live",
   };
   await store.createJam(jam);
   return jam;
@@ -529,4 +530,39 @@ test("with no provider configured no cascade is fabricated", async () => {
   } finally {
     disabled.close();
   }
+});
+
+test("a room that has ended keeps the story its recording shows", async () => {
+  const jam = await newJam();
+  await store.advanceLifecycle(jam.id, "start");
+  await store.advanceLifecycle(jam.id, "stop");
+  const response = await post(jam.id, setEdit(2, "after the fact"));
+  assert.equal(response.status, 409);
+  const body = await response.json();
+  assert.equal(body.error.code, "jam_ended");
+  assert.equal(body.error.retryable, false);
+  assert.equal(cascadeCalls, 0);
+  // The outline is still readable; it is the editing that stops.
+  const outline = await fetch(`${baseUrl}/api/jams/${jam.id}/outline`);
+  assert.equal(outline.status, 200);
+});
+
+test("a room ending under a queued edit fails it rather than rewriting a finished film", async () => {
+  const jam = await newJam();
+  const held = gate();
+  behaviour = async (script, edit, call) => {
+    if (call === 1) await held.held;
+    return rewriteTail(script, edit, call);
+  };
+  const first = await (await post(jam.id, setEdit(2, "still live"))).json();
+  const second = await (await post(jam.id, setEdit(3, "waiting behind it"))).json();
+
+  await store.advanceLifecycle(jam.id, "start");
+  await store.advanceLifecycle(jam.id, "stop");
+  held.release();
+
+  assert.equal((await settleEdit(jam.id, first.edit.id)).status, "landed");
+  const failed = await settleEdit(jam.id, second.edit.id);
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.error?.code, "jam_ended");
 });

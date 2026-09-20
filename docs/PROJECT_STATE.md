@@ -1327,6 +1327,9 @@ open a PR, merge the PR. The previous split between a "primary agent" pushing di
   director are one container process, so the per-jam critical section is real. The
   cross-instance row in `docs/specs/intended-vs-implemented.md` is closed as a deployment
   constraint rather than left unowned.
+- **An ended room's story is frozen.** Now that a jam carries a lifecycle, an edit to an `ended`
+  room is refused `jam_ended` at admission, and one already queued when the room ends fails with
+  the same code rather than rewriting a film that was already shot.
 - **Delivery to the director.** After a commit the edited beat's phrase is sent to every open
   stream of the jam as a direction carrying `beatIndex`; refusals are recorded on the edit and
   never fail it. No session is opened for it.
@@ -1346,6 +1349,450 @@ open a PR, merge the PR. The previous split between a "primary agent" pushing di
   repository, so every claim about the quality of a rewritten tail is specification, not
   observation. Delivery into a live director stream is exercised only against a fake stream. The
   route authorization gap is unchanged (no script route on the Express host checks the caller).
+
+## 2026-09-20 — The shell opens: five destinations, and a real account menu
+
+- **Two new screens.** `/catalog` (`src/catalog/CatalogScreen.tsx`) and `/community`
+  (`src/community/CommunityScreen.tsx`) are screens of their own in `src/lib/routes.ts`, each with
+  its path constant (`CATALOG_PATH`, `COMMUNITY_PATH`) and each a top-bar destination. Both go back
+  to the home, as Discover does. Nothing redirects to or away from either. Both are deliberately
+  placeholders — the shared bar, a heading and one sentence saying the page is being built — and
+  both read no data, so the slices that take those files over start from a blank body.
+- **The bar's destinations** are now Home (`/home`), Discover (`/discover`), Catalog (`/catalog`),
+  Movie Jam (`/jams`) and Community (`/community`), in that order, on every screen, declared once
+  as `BAR_DESTINATIONS`.
+- **An account menu at the trailing edge** (`src/shell/AccountMenu.tsx`). The avatar is a circle
+  carrying the initials of the display name the viewer gave a room (`jam_members.display_name`),
+  over a colour *derived* from their Supabase user id (`src/shell/avatar.ts`), so it is the same on
+  every visit without anything being stored. With no name it shows a neutral mark and no initials;
+  no name, email or photo is invented. The menu shows the name (or "Signed in"), Account — present,
+  focusable and deliberately doing nothing yet — and Log out. See `docs/DECISIONS.md` for why this
+  surfaces the real anonymous session rather than a fabricated identity.
+- **Log out is a real sign-out.** `signOutViewer` (`src/lib/session.ts`) ends the Supabase session
+  and forgets the identity confirmed during this page load, so the next `ensureUserId` mints a new
+  anonymous user; the app then leaves for `/`.
+- **Remote traversal.** The avatar is the last stop on the bar's Left/Right axis, OK opens the
+  menu and focus moves into it, Up and Down walk its items and stop at its ends, Back (`Escape`,
+  `GoBack`, `BrowserBack`, `XF86Back`, Backspace, the TV key codes) closes it and returns focus to
+  the avatar without leaving the screen. Focus is trapped while it is open: Tab cycles inside it
+  and the bar's own Left/Right does not run underneath.
+- **The bar on a phone.** The brand and the account are pinned and the destinations strip shrinks
+  and scrolls inside the bar, so five destinations plus the avatar fit 360px with no horizontal
+  page scroll.
+- **Verified.** `npx tsc --noEmit` clean; `pnpm test` 766/766 (was 728), including routes and Back
+  parents for both new screens, the five destinations in order on every screen, the avatar colour
+  being stable for a given user id, the menu's traversal and focus return, Account doing nothing,
+  Log out signing out and landing on `/`, and the CSS contract behind the 360px fit.
+- **Measured in a browser** against the hosted Supabase project, at 360×780 and 1920×1080:
+  `document.documentElement.scrollWidth - window.innerWidth` is `0` at both widths on `/catalog`,
+  `/community` and `/home`; at 360px the destinations strip is 265px holding 424px of content and
+  scrolls inside the bar, and at 1920px it does not scroll at all. Log out was run for real: the
+  stored session was removed, the app landed on `/`, and the next visit signed in as a different
+  anonymous user (`c2f120dd…` → `3965a8c4…`) whose avatar drew a different derived colour.
+
+## 2026-09-20 — Search on a phone
+
+`/search` was drawn for a television and read badly in one hand. The screen now has a phone
+layout of its own, inside `src/search/` only:
+
+- At rest the heading and the field stand near the top of the screen instead of its middle, so a
+  software keyboard opening under them covers nothing. A phone keyboard does not resize the page —
+  it shrinks what is visible and leaves the page its height — so `useViewport` reads the visual
+  viewport and publishes the height left and what is covered; the sticky dock and both layers
+  stand on that, and `dvh` covers the browsers that resize the page instead.
+- The field has its own shorter invitations: the television's eight-word placeholder was cut
+  mid-word in a 264-pixel field.
+- The composer's send button keeps its arrow and gives its word to a screen reader, which returns
+  40 pixels to the field; the microphone keeps a thumb-sized circle at the field's leading edge.
+- A turn's row runs from the gutter off the right edge, snaps its cards to the gutter and keeps a
+  sideways drag to itself. The strip's chips are 44 pixels tall and Filters stays at its leading
+  edge. The filter panel's chips wrap rather than scroll, and Done stays against the bottom.
+- The preview fills the screen as a sheet rather than being a centred dialog taller than the
+  screen, and carries a close control there — a full-height sheet leaves no backdrop to press. A
+  remote still closes it with Back and never sees one.
+
+Nothing about the engine, the turn snapshots, the two preview actions or the remote's focus model
+changed. Verified in Chrome at 360×800 and 390×844, and held by DOM tests at 360 that read the
+real stylesheet at that width (`tests/searchPhone.dom.test.tsx`).
+
+## 2026-09-20 — Director archive review hardening (RV-18)
+
+- The live writer and archive reader now share one resolved index and recording store. In
+  fallback mode this matters: two separate in-memory instances made a successfully written
+  archive invisible to the read routes in the same process.
+- Every live-session route scopes a session id to the jam id in its URL. A session id from one
+  room can no longer direct, watch, renew, read, or end another room's stream or completion row.
+- A playing room may keep its existing configuration-keyed streams; it becomes `ended` only
+  when the last one stops, so ending one language cannot strand another paid stream.
+- The WebM muxer refuses H.264 until the fMP4 muxer is selected upstream. It no longer accepts
+  H.264 WebM output that the archive could mislabel as `video/mp4`.
+- Archive writes truncate at the last durable prefix after an init or piece failure, Storage's
+  wrapped 404 is distinguished from unrelated HTTP 400 failures, empty archives do not render a
+  broken player, and the audit identity sequence is explicitly granted to `service_role`.
+- After integrating the latest shell work, logging out now leaves the authenticated shell through
+  an injectable navigation boundary. Production replaces the document with the static `/` landing;
+  raw component tests can verify the route without asking Node to resolve Vite-only landing assets.
+- Verified locally: `pnpm typecheck`; 87/87 affected tests covering the app wiring, archive,
+  worker boundary, routes, lifecycle, and DOM surface; full `pnpm test` 814/814; `pnpm build`.
+
+## 2026-09-20 — Catalog browses the whole catalogue; Discover keeps the conversation
+
+The repository now has two ways to reach a film, and they do not overlap. `/discover` is the
+conversation (RV-15). `/catalog` is browsing: a title search field, the refinement chips, a grid of
+posters that grows as the viewer reaches the end of it, and the TMDB attribution. There is no
+conversation bar and no voice control on it, and nothing on it turns a title down. See
+`docs/DECISIONS.md` for why the two are kept apart.
+
+**What the screen is made of** (`src/catalog/`):
+
+- `CatalogScreen.tsx` — the screen. It reads `/api/catalogue` through the same
+  `CatalogueReadContext` the home and search read, so a test renders it over its own titles.
+- `useCatalogue.ts` — page 1 of a query and the feed that grows from it. Unrefined it pages at
+  `CATALOGUE_LIMITS.pageSizeDefault` (24); refined it reads one shortlist of
+  `CATALOGUE_LIMITS.shortlistSize` (48) with every filter applied in Postgres, and stops paging. A
+  typed query is debounced 320 ms; a new query or refinement starts again from page 1 and aborts
+  whatever the old one had in flight.
+- `pageFeed.ts` — the feed, its single in-flight request and the two triggers that ask for the next
+  page: focus reaching the last row (a remote moves focus, not the scrollbar) and the end of the
+  grid nearing the viewport (mouse and touch). A trigger during a request is dropped, not queued;
+  a page repeating titles already shown appends only the new ones, so nothing on screen moves and
+  focus stays where it was. After a failure nothing is retried behind the viewer's back.
+- `gridMove.ts` / `useGridNavigation.ts` — roving focus over the grid. Arrows move one poster and
+  stop at the edges, a short last row is reachable from the row above, Home/End jump to the row
+  edges, OK opens, and Back is left to the app, which returns it to the top bar. The column count
+  is read from the live grid layout rather than assumed.
+- `RefinementBar.tsx` — the chips, and a second rail naming everything currently narrowing the
+  grid, each removable, with the live match count. Every chip maps to data the catalogue holds
+  (genre, runtime, release year); there is no mood or pace chip, because nothing could honour one.
+- `catalog.css` — the screen's own styles. It sits on `.discover-shell` for the page frame, the
+  poster box, the status panels, the retry, the spinner and the attribution, and adds the head, the
+  chips, the grid and the end of the feed.
+
+**Ranking is named, never implied.** Unrefined, the grid is the order the catalogue query answers
+and nothing claims otherwise. Refined, the shortlist is ordered by the deterministic scorer
+(`orderShortlist(..., { phase: "idle" }, false)`) and the line above the grid says *Ranked by genre
+match*. Catalog never calls the assistant, so it can never show a model's order or a "Ranking…"
+state it will not reach.
+
+**A film opens over the catalogue.** Choosing a poster navigates to `/discover/:id`, and the app
+draws the film page as a layer over `CatalogScreen`, which stays mounted and `inert` underneath —
+so its pages, its scroll and its focus target survive. However the page closes (Escape, the bar's
+Catalog, the browser's Back), focus returns to the poster it was opened from. `App.tsx` now decides
+that from the history entry the film was opened from (`FILM_LAYER_OVER`), which makes the home's
+previous special case one rule covering both screens; every other film page, including one reached
+by URL, still belongs to Discover.
+
+**Remote and phone.** A remote lands on the bar, Down reaches the search field, Down again the
+chips, Down again the grid; Up from the grid's top row returns to the chips. On a phone the
+backdrop and the spotlight step aside, the head becomes the search alone, the chip rails scroll
+sideways at a 44px-tall hit size, and the grid is two posters across.
+
+**Verified.** `npx tsc --noEmit` clean. `pnpm test` 832 passing, including 24 new tests: the pure
+feed and grid rules (`tests/pageFeed.test.ts`, `tests/gridNavigation.test.ts`) and the screen
+through the whole app (`tests/catalog.dom.test.tsx`) — the first page and its attribution, one
+field and no conversation or voice, the bar→field→chips→grid walk and Back, a typed title, growing
+by a page without moving what is shown, narrowing to a named shortlist and widening again, and a
+film opening over the catalogue and handing its poster back the focus.
+
+**Measured in a browser** against the hosted Supabase project, at 1440×900 and 390×844: scrolling
+to the end appended pages 2 and 3 (`/api/catalogue?query=&page=2|3&pageSize=24`, 72 posters, the
+first 24 unmoved); the *Something scary* chip issued
+`/api/catalogue?query=&page=1&pageSize=48&includeGenres=horror`, reported "4,055 titles match",
+captioned the grid *Ranked by genre match* and removed the feed end; typing "blade runner" answered
+with the Blade Runner titles; opening a poster left the catalogue mounted, `inert` and at scroll
+1200, and closing it returned focus to that same poster, still on screen.
+`document.documentElement.scrollWidth - clientWidth` is `0` at both widths.
+
+**Known gap, not caused by this work.** Six tests in `tests/directorPieces.test.ts` and
+`tests/directorPieceMuxer.test.ts` (the muxer worker boundary) fail on this machine — 2 failed, 4
+cancelled — identically before and after this change, on an untouched checkout of `main`. Nothing
+in this slice touches the director.
+
+## 2026-09-20 — A Director session: one person, one film, at /director/:slug
+
+- **A screen of its own, under Movie Jam.** `/director/:slug` is a `director`
+  screen in `src/lib/routes.ts` whose Back parent is `/jams`
+  (`src/shell/keys.ts`) and whose top-bar destination is `jam`. **No sixth
+  destination was added**: `BAR_DESTINATIONS` still holds five, and they still
+  fit 360px. The Movie Jam list gains the second way to start — **With
+  people** (the Studio) or **Alone** (the Director session) — which is where
+  the choice belongs. See `docs/DECISIONS.md` for why.
+- **Three zones.** *The stage* in three states: empty (it asks for the first
+  shot), generating (the live stream, the seconds it has produced and the beat
+  it is on), and still (the finished session held as a frame, with the room's
+  shared playback clock under it, a playhead and a tick at each beat
+  boundary). *The timeline*: every beat with its number, start, duration and
+  phrase, in one of five states — written (dashed), generating (solid accent),
+  ready (outlined), locked (solid muted) and blocked (marked differently
+  again). The closing rule is `src/core/directorBeats.ts`'s, asked through
+  `isBeatLocked` rather than restated. *The direction column*: the session's
+  turns, each carrying the beat it steered in that beat's own treatment, with
+  hover and focus in either direction lighting the other.
+- **The shared playback clock now has a client.** The four security-definer
+  functions and their migration have existed since the playback work and were
+  exercised by `verify:realtime`, but nothing in the app read them.
+  `src/lib/playbackClock.ts` and `src/core/playbackClock.ts` bind them: the
+  database stays the authority, and a browser only advances the reading it was
+  given by time it measured locally.
+- **Spend is real.** Director session responses carry `spend`, and
+  `GET /api/jams/:id/director/budget` answers before a paid session exists,
+  with `configured` alongside it. The session figure is derived from the
+  seconds the provider generated, honours fal's 60-second per-session minimum,
+  is capped at the session's reservation, and is shown in USD against
+  `FAL_ASSET_BUDGET_USD` — never converted, never a placeholder. When the
+  budget left cannot pay for a beat's seconds that beat is blocked on the
+  timeline and the composer says so on its own line.
+- **The composer** is press-and-hold to speak (the app's existing SLNG relay,
+  recorder and partial merge, with a `hold` gesture added to the shared voice
+  control), a text field, and attach. Direct sends each finished transcript on
+  its own; Review is stopped and closes the microphone.
+- **Deliverables**, in a drawer, each in its real state: the script as
+  markdown (served, ready when this server holds a script), the timed script
+  (written in the browser from the outline's own offsets), the audio
+  description (**not made — nothing in this build writes one**) and the video
+  file (absent, then generating while a session runs, then the session's
+  recording). A row that is not ready carries no control at all.
+- **Built for 1920, 1440 and 390.** Two columns on a desk with the direction
+  column at its own measure; one column on a phone with the composer sticky at
+  the bottom and the beats running off the gutter. The remote's focus model is
+  the app's own (`useRows`, moved from `src/search/` to `src/shell/` because it
+  is the app's axis convention, not Discover's).
+- **Not implemented, and drawn as absent rather than faked:** per-beat stills
+  (the stream is recorded whole and never sampled per beat), per-beat variants
+  (nothing generates a second take), a reference library, and the audio
+  description. **Attach fans out its four intents for real and then stops**:
+  there is no upload route and no reference store, so nothing can carry an
+  image or clip to the film, and the composer says so
+  (`docs/specs/multimodal-creative-turns.md`).
+- **Verified.** `npx tsc --noEmit` clean; `pnpm test` 870/870 (was 776),
+  including the beat states and the turn-to-beat link, the spend arithmetic and
+  the server's spend responses, the deliverables' states, the route and its
+  Back parent, and the screen itself at 1920, 1440 and 390 against the real
+  stylesheet.
+- **Measured in a browser** at 1920×1080, 1440×900 and 390×844 against the
+  hosted Supabase project, on a jam created through the app from an imported
+  script (6 beats, 0:30): `document.documentElement.scrollWidth -
+  window.innerWidth` is `0` or negative at all three; the timeline's row
+  scrolls inside its zone (356px visible of 874px at 390) instead of widening
+  its column; the deliverables drawer served
+  `/api/jams/<id>/script.md`; and the attach flow produced its four labels and
+  then the "no reference store" line. `GET .../director/budget` answered
+  `{"configured":false,...,"budgetUsd":20}` — this machine has
+  `FAL_ASSET_BUDGET_USD` set and no director credential — so the stage said
+  "The live director is not configured on this server" and refused to open a
+  session.
+- **Not verified:** a live Director stream. No fal director credential is
+  configured here, so no session has been opened, no frame generated and no
+  recording written from this screen. The generating and still stage states,
+  the live beat states, the turn trail and the video deliverable are exercised
+  by tests against a fake server, not against fal.
+
+## 2026-09-20 — The escape room: an authored world, rules that decide, and a loop that covers the wait
+
+An **escape room** is a Movie Jam with a fixed world and a goal. The room shares control of one
+character; the film is what the character does. It reuses the jam wholesale — invite code, QR,
+lobby, admission, roster, chat — and is drawn as a configuration of the jam screen, in the slot
+the live director occupies otherwise, rather than as a screen of its own. It is the third source
+on create, beside starting from scratch and importing a script.
+
+- **Three original scenarios ship as data** (`src/core/escape/scenarios/`), each with a different
+  spine so the rooms do not play the same: *The Night Audit* (killing the magnetic lock takes the
+  lights with it), *Cold Sill* (the bulkhead will not undog while the porch is filling) and *The
+  Understudy* (the trap is counterweighted and the score is inside the hamper standing on it).
+  All three are solvable in ten or eleven steps. The format is specified in
+  `docs/specs/escape-room-scenario.md`.
+- **The rules decide what happened; the model only tells it.** `src/core/escape/rules.ts` is
+  pure — no network, no React, no clock, no randomness — and resolves a proposal into exactly one
+  of three outcomes: it advances the world, it fails for a sentence the author wrote, or it is
+  impossible here and now. The model is handed the resolved outcome and writes the prose and the
+  shot; it is never asked whether the key fits the drawer. A beat the model did not narrate says
+  the scenario told it.
+- **The turn.** Participants propose in their own words, vote (one effective vote each,
+  replaceable), and the host closes it. The winner is resolved and filmed; every other proposal is
+  discarded rather than queued.
+- **Latency is answered by the idle loop.** A location's five-second loop is generated once on
+  arrival and plays while the room argues and while the next beat renders. A finished beat cuts in
+  over it exactly once and hands the screen back when it ends. A late beat is simply a longer
+  loop; one that fails leaves the loop running and says so.
+- **Video** is `minimax/h3-max/text-to-video` through the fal adapter's queue half
+  (`apps/server/providers/falSegments.ts`), entry `[0]` of a server-owned allowlist. The director
+  and the escape room debit one `SpendAccount`, so `FAL_ASSET_BUDGET_USD` stays a ceiling on the
+  process. The session ends when the goal is reached or when that ceiling refuses the next
+  segment.
+- **These routes check who is asking**, unlike the other routes on this Express host: identity is
+  Supabase Auth's answer to the presented token, the role is the caller's own `jam_members` row
+  read under RLS, and the answer is cached for 20 seconds on a digest of the token.
+
+**Measured against the live model** on 2026-09-20 (`scripts/probe-escape-segment.mts`, two
+generations): 15s asked → **15.104s** measured, 9,795,075 bytes, playable 25.3s after submit; 5s
+asked → **5.184s**, 3,792,092 bytes, playable 8.7s after submit. Both `video/mp4`. The model
+overshoots and not proportionally, so a clip's length is read from its own header
+(`src/core/mediaDuration.ts`) rather than assumed, and a beat takes longer to make than it takes
+to watch — which is why the loop exists.
+
+**Verified live in a browser**, against the hosted Supabase project and the real model, on
+2026-09-20: a room opened from the create screen (loop committed $0.40), "grab the deck spanner
+off the wall" resolved, was narrated by Nebius ("Ozan Rills unclips the deck spanner from the
+wall, its metal cold against his wet palm.") and filmed at a measured 15.1s (committed $1.60
+total); the losing proposal was discarded; the beat cut in over the loop and handed the screen
+back when it ended; and "undog the bulkhead door and get through" was refused with the author's
+sentence, not filmed, with spend unchanged.
+
+**Three dead screens the browser found and no test had.** A `<video src>` sends no Authorization
+header, so every clip 401'd — the bytes are now fetched with the viewer's own token and played as
+an object URL, and the loop is held while a beat's bytes arrive rather than swapped out for it.
+`autoPlay` on a muted video left the element on its first frame, so it is asked to play when it
+appears and again when it says it can. And a hidden tab pauses its video with nothing to resume
+it, so playback restarts when the tab is visible.
+
+**Two more found by re-reading the seams.** A jam id out of the path was interpolated into the
+PostgREST query that reads the caller's membership, and Express decodes `%26` — so an id carrying
+`&` would have added filters to a query this server has to trust. RLS scopes every row to the
+caller either way, so this narrowed that read rather than widening it, but every id these routes
+mint or accept is a v4 UUID and is now required to be one, the media id on its way to an object
+key included. And rooms were never reclaimed: nothing closes one, so a server would fill its
+twenty-four slots and refuse the twenty-fifth host forever. A room nobody has read in half an
+hour is dropped when a new one is opened.
+
+**Two more from a code review.** A server with no object storage keeps only its most recent
+segments, and it was dropping them silently — leaving the session reporting a shot as `ready`
+behind a URL that answers 404, with the screen falling back to the loop saying nothing. A dropped
+segment is now its own status and says so. And a session that had ended on the spend ceiling could
+still buy the next location's idle loop, because only the beat checked; nothing is bought after a
+session ends now, and generation checks again when it runs rather than only when it is decided.
+
+**Verified:** `npx tsc --noEmit` clean; `pnpm test` 887/887 (766 before this work began);
+`pnpm build` succeeds. The tests cover the rules' three outcomes and their invariants, exhaustive
+solvability of all three scenarios, the turn and the spend ceiling, the fal adapter's allowlist
+and error shapes, the routes' authorization and id checks, idle room reclamation, a dropped
+segment, the mp4 duration reader, and the panel and create screen in a document.
+
+**Not implemented / not verified:** two browsers in one escape room; any of this on Vercel (these
+routes are local-Node only and their state is in that process's memory, like the script, session
+and director routes); Realtime events for the room (it polls every three seconds, one named
+constant); durable segments without `SUPABASE_SERVICE_ROLE_KEY`, which this environment does not
+have, so segments were held in memory and the panel said so; and a session actually ending on the
+spend ceiling against the live model — that path is covered by tests, not by a receipt. The
+room's own turn and votes live in the escape session on the server and do **not** use
+`jam_proposals`, which remains append-only with no vote: the versioned transactional scene
+contract is still unimplemented and still blocks the Movie Jam's own proposal queue.
+
+## 2026-09-20 — Appearing in the film, and the beat that is made from it
+
+A participant can choose to be a character in the film the room is generating. One frame from
+their own camera becomes the character reference and beats are generated with
+`minimax/h3-max/reference-to-video`. The consent model is the feature; the full rules are in
+`docs/specs/appearing-in-the-film.md`.
+
+- **The register grew a kind, not a twin.** `likeness` joins camera, microphone and screen in
+  `jam_live_consents` (`20260920100000_likeness_consent.sql`). The trigger issues its reference
+  with a `likeness:` prefix and still clamps the lifetime; the insert policy still pins
+  `owner_id = auth.uid()`; there is still no update or delete policy, so a grant is retired only
+  by `withdraw_live_consent`. A partial unique index allows one standing likeness grant per
+  participant per jam. `likeness` is not a track kind: `permittedKinds` filters to track kinds
+  explicitly, so agreeing to appear starts no camera and a camera grant seeds no beat.
+- **The frame is taken on a press, seen, and approved.** `AppearInFilm` opens the camera on a
+  press and takes nothing by opening, captures on a second press, shows the picture back, and
+  sends it only on a third press that declares what it is for. The camera closes as soon as the
+  picture is taken. The frame is square, 256–1024 pixels, at most 512 KB, and lives in the
+  private bucket under `likeness/<jamId>/<uuid>`; no signed URL is minted and `GET
+  /api/jams/:id/likeness/:assetRef` serves it to its owner alone.
+- **Withdrawal is one press, immediate, and honest about the past.** It stops the likeness being
+  used by any beat generated from then on. Beats already generated still show the person, and the
+  panel says exactly that rather than implying a recall. `describeBeatLikeness` is three-valued
+  (`none` / `standing` / `withdrawn_since`) so a withdrawal can never reclassify an existing beat
+  as having used nobody.
+- **Generation.** `POST /api/jams/:id/beats/:index/video` on the Node server. Whether anyone
+  appears is not in the request body: the server reads the register fresh under the caller's own
+  RLS at the instant of submission, and `usableLikenesses` answers, so there is no cache to
+  invalidate. Frames travel inline as `data:` URIs, at most three per beat. A grant whose frame
+  never arrived is `409 frame_missing`, never a plain beat generated without that person. No
+  provider is `503 generation_disabled` and no Supabase is `503 likeness_not_configured`; neither
+  is ever a mock.
+- **One budget.** `FAL_ASSET_BUDGET_USD` now covers both ways this process spends: the director's
+  session ledger and beat generation reserve against a shared `FalBudget`, so the stated total is
+  the real ceiling.
+- A jam where nobody has agreed generates a plain beat through
+  `minimax/h3-max/text-to-video`, exactly as it would have before this existed.
+
+### Verified against the live models
+
+`pnpm probe:beat-video`, 2026-09-20, 5-second 768p clips through the real adapter:
+
+| | model | submit → downloaded clip | reported inference | clip |
+| --- | --- | --- | --- | --- |
+| Plain beat | `minimax/h3-max/text-to-video` | 5.8 s | 2.5 s | 4.6 MB mp4 |
+| Likeness beat | `minimax/h3-max/reference-to-video` | 8.6 s | 3.0 s | 4.2 MB mp4 |
+
+A likeness beat took **1.48× the wall clock** and 1.2× the inference. Both models returned a
+playable mp4. Two earlier measured facts shaped the code: the queue tracks a request under
+`minimax/h3-max`, not under the endpoint id its published schema declares, so the adapter
+follows the `status_url` and `response_url` the submit response returns (validated to be https
+on the queue host) rather than constructing them; and a reference below 256×256 is refused with
+`image_too_small`, which is why `checkFrame` refuses it here first.
+
+**Cost was not measured.** No queue response carries a price, so the rates in `.env.example` are
+fal's published figures read from their model listing on 2026-09-20 — $0.08/s at 768p for
+reference-to-video against $0.04/s promotional for text-to-video — and both defaults are the
+list rate so a stale default never understates the bill. The reference frames themselves are free
+at our caps: the provider includes 4,096 reference tokens and a 1024×1024 image is 1,024, so
+three references fit inside the allowance.
+
+### Verified against a real Postgres
+
+The whole migration chain was applied in order to a scratch PostgreSQL 14 instance with the
+Supabase roles, `auth.uid()` and the default API-role grants in place. Every migration applied
+(`20260919220000_catalogue_titles.sql` needs Supabase's `extensions` schema and was skipped),
+and the consent rules were then exercised as two real participants:
+
+- a likeness insert carrying `https://evil.invalid/face.jpg` and a 99-hour expiry was stored
+  with a trigger-issued `likeness:` reference and a clamped lifetime
+- a camera grant in the same room still got the `live:` prefix
+- a second standing likeness grant was refused by `jam_live_consents_one_standing_likeness`
+- granting on another participant's behalf was refused by the row-level security policy
+- `update` reached 0 rows and `delete` removed none, there being no policy for either
+- a non-member read 0 rows of the register and, naming the consent id exactly, was refused
+  withdrawal; an active member of the room who was not the owner was refused identically; the
+  owner's own withdrawal succeeded, and a fresh grant was then allowed
+
+### Run in a browser, against the hosted project
+
+`pnpm dev` on port 4357, an imported-script jam created for the purpose
+(`likeness-check-4c3dc2f8`), Studio opened as its host:
+
+- The panel renders beside the live stage and reads the register without error. The stage's
+  own contribution selector still offers Camera, Microphone and Screen and nothing else, so the
+  new kind did not leak into the list of things that can be published.
+- With nobody agreed it says "Nobody has agreed to appear. Beats are generated without anyone
+  in the room," and the badge reads NOT IN IT.
+- Pressing "Turn on my camera" with camera access refused said "Your browser refused access.
+  Allow it in the address bar, then try again." Nothing was captured, nothing was claimed, and
+  the panel stayed at NOT IN IT. The capture and approval steps themselves were not reachable
+  in this environment, which has no camera.
+- **The hosted project has not had the migration applied, and it fails closed.** Driving the
+  real client path (`agreeToAppear`) returned "That consent could not be recorded"; the
+  underlying refusal was `23514`, the register's old kind check. The feature is inert there
+  until `20260920100000_likeness_consent.sql` is applied — it does not half-work.
+- That refusal was reported as `unavailable`, which read as a transient fault and invited a
+  retry that would send the same value again. `23514` is now mapped to `invalid_input`,
+  not retryable, naming a possibly missing migration.
+
+### Verification
+
+- `npx tsc --noEmit` clean, `pnpm test` 822/822 (was 790), `pnpm build` passes. New tests:
+  `tests/likeness.test.ts` (14, the pure rules), `tests/likenessRoutes.test.ts` (22, the routes
+  over a fake Supabase and a fake provider) and `tests/appearInFilm.dom.test.tsx` (9, the panel).
+- The consent gate was checked by breaking it: removing the effectiveness filter from
+  `usableLikenesses` fails 9 tests across all three files, including the three that hold
+  withdrawal, expiry and the standing of an already-generated beat.
+- **Not verified:** likeness *fidelity*. The probe's reference frame is a synthesised 512×512
+  image, which measures the round trip honestly and says nothing about how well a face survives
+  it; no photograph of a person has been sent. The migration has not been applied to the hosted
+  Supabase project. The whole path has not been run end to end in a browser against a live room,
+  so the panel's capture, approval and withdrawal are covered by DOM tests and the routes by
+  their own tests, but the two have not been exercised together. Durable frame and clip storage
+  needs `SUPABASE_SERVICE_ROLE_KEY`; without it both stay in memory and the routes report
+  `durable: false`.
 
 ## Next milestones
 

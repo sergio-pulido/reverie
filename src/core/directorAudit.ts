@@ -50,15 +50,58 @@ export interface DirectorAuditEntry {
 /** Bounded so one long session cannot grow without limit in memory. */
 export const MAX_AUDIT_ENTRIES_PER_SESSION = 500;
 
+/**
+ * Notified as each entry is recorded, so the trail can outlive the process.
+ *
+ * Deliberately fire-and-forget from the log's point of view: the in-memory
+ * trail is the one the live session reads, and a durable write that fails or
+ * hangs must not stall the stream it is describing.
+ */
+export type DirectorAuditListener = (entry: DirectorAuditEntry) => void;
+
+/** Whether fal applied, refused, or has not yet answered a direction. */
+export type DirectionOutcome = "applied" | "rejected" | "pending";
+
+/**
+ * Resolves a direction's outcome by its prompt version, reading backwards so
+ * the latest verdict wins. `pending` is a real state, not an error: a
+ * direction takes effect at the next undispatched chunk.
+ *
+ * A free function because the trail is read in two places that do not share a
+ * type — the log the server appends to, and the plain array a browser is
+ * given — and two copies of this rule would eventually answer differently.
+ */
+export function outcomeOf(
+  entries: readonly DirectorAuditEntry[],
+  promptVersion: number,
+): DirectionOutcome {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (entry.promptVersion !== promptVersion) continue;
+    if (entry.kind === "direction_applied") return "applied";
+    if (entry.kind === "direction_rejected") return "rejected";
+  }
+  return "pending";
+}
+
 export class DirectorAuditLog {
   private readonly entries: DirectorAuditEntry[] = [];
   private dropped = 0;
 
-  constructor(private readonly now: () => Date = () => new Date()) {}
+  constructor(
+    private readonly now: () => Date = () => new Date(),
+    private readonly onRecord?: DirectorAuditListener,
+  ) {}
 
   record(entry: Omit<DirectorAuditEntry, "at">): DirectorAuditEntry {
     const stored: DirectorAuditEntry = { ...entry, at: this.now().toISOString() };
     this.entries.push(stored);
+    try {
+      this.onRecord?.(stored);
+    } catch {
+      // A listener that throws loses this entry durably, not the session. The
+      // bounded in-memory trail below is unaffected either way.
+    }
     if (this.entries.length > MAX_AUDIT_ENTRIES_PER_SESSION) {
       // The oldest go first, and the count of what was dropped is kept: a
       // truncated log that does not say it was truncated is a misleading one.
@@ -82,18 +125,8 @@ export class DirectorAuditLog {
     return this.entries.filter((entry) => entry.kind === "direction_sent");
   }
 
-  /**
-   * Resolves a direction's outcome by its prompt version. `pending` means fal
-   * has neither applied nor refused it yet, which is a real state and not an
-   * error: a direction takes effect at the next undispatched chunk.
-   */
-  outcomeOf(promptVersion: number): "applied" | "rejected" | "pending" {
-    for (let index = this.entries.length - 1; index >= 0; index -= 1) {
-      const entry = this.entries[index];
-      if (entry.promptVersion !== promptVersion) continue;
-      if (entry.kind === "direction_applied") return "applied";
-      if (entry.kind === "direction_rejected") return "rejected";
-    }
-    return "pending";
+  /** This log's answer to `outcomeOf`, over the entries it still holds. */
+  outcomeOf(promptVersion: number): DirectionOutcome {
+    return outcomeOf(this.entries, promptVersion);
   }
 }

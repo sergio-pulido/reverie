@@ -87,3 +87,28 @@ export type AccessStatus = MemberStatus | "unknown";
 export function accessStatusOf(member: JamMember | null): AccessStatus {
   return member?.status ?? "unknown";
 }
+
+/**
+ * The name this viewer last gave a room — the only name the app keeps for them, and the one the
+ * account menu shows. `null` means they have never joined one, and the menu then says "Signed in"
+ * rather than inventing a name, an email or a photo.
+ *
+ * `jam_members` RLS already allows `user_id = auth.uid()`, so this opens no new read surface. It
+ * never signs anyone in: with no session there is nothing to name.
+ */
+export async function loadOwnDisplayName(): Promise<string | null> {
+  if (!supabase) return null;
+  const userId = await currentUserId();
+  if (!userId) return null;
+
+  const { data, error } = await supabase
+    .from("jam_members")
+    .select("display_name, joined_at")
+    .eq("user_id", userId)
+    .order("joined_at", { ascending: false })
+    .limit(1);
+  if (error) throw toJamError(error, "Your display name could not be read.");
+
+  const name = data?.[0]?.display_name;
+  return typeof name === "string" && name.trim() !== "" ? name : null;
+}

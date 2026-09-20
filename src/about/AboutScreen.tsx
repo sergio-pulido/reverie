@@ -46,7 +46,7 @@ const PROVIDERS: readonly Provider[] = [
     name: "fal, with MiniMax H3",
     role: "The pictures",
     detail:
-      "Video generation. A beat of the film is generated with h3-max/text-to-video, or with h3-max/reference-to-video when people in the room have agreed to appear in it. A Director session is the realtime H3 Director model instead: a video stream you talk to while it runs. Every model is on a server-owned allowlist and every generation draws on one declared budget.",
+      "Video generation. A beat of the film is generated with h3-max/text-to-video, or with h3-max/reference-to-video when people in the room have agreed to appear in it. A Director session is the realtime H3 Director model instead: a video stream you talk to while it runs. Every model is on a server-owned allowlist.",
   },
   {
     name: "TMDB",

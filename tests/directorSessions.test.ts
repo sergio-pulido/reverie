@@ -9,8 +9,6 @@ import {
 function ledgerAt(now: { value: number }, overrides = {}) {
   return new DirectorSessionLedger(
     {
-      budgetUsd: 20,
-      usdPerSecond: 0.08,
       maxConcurrentSessions: 1,
       maxSessionSeconds: 300,
       ...overrides,
@@ -19,12 +17,10 @@ function ledgerAt(now: { value: number }, overrides = {}) {
   );
 }
 
-test("limits fall back to list price and a single session", () => {
+test("limits fall back to a single session and a two-minute ceiling", () => {
   const limits = resolveDirectorLimits({});
-  assert.equal(limits.usdPerSecond, 0.08);
   assert.equal(limits.maxConcurrentSessions, 1);
-  assert.equal(limits.budgetUsd, 0);
-  // A session may not be capped below what fal bills as its minimum.
+  // A session may not be capped below fal's own minimum session unit.
   assert.equal(limits.maxSessionSeconds, 120);
   assert.equal(
     resolveDirectorLimits({ REVERIE_DIRECTOR_MAX_SESSION_SECONDS: "5" })
@@ -33,47 +29,18 @@ test("limits fall back to list price and a single session", () => {
   );
 });
 
-test("the shipped $20 budget can actually open a session", () => {
-  const limits = { ...resolveDirectorLimits({ FAL_ASSET_BUDGET_USD: "20" }) };
-  const ledger = new DirectorSessionLedger(limits, () => 0);
-  assert.notEqual(typeof ledger.open("jam"), "string");
-});
-
-test("a session with no budget cannot be opened at all", () => {
-  const now = { value: 0 };
-  const ledger = ledgerAt(now, { budgetUsd: 0 });
-  assert.equal(ledger.open("jam"), "budget_exhausted");
-});
-
-test("opening a session reserves its worst case, not its minimum", () => {
-  const now = { value: 0 };
-  const ledger = ledgerAt(now, { maxSessionSeconds: 300 });
-  // A 300s ceiling at $0.08/s reserves $24, which does not fit the
-  // $20 budget - even though the session would only bill $4.80 at the minimum.
-  assert.equal(ledger.open("jam"), "budget_exhausted");
-  assert.equal(ledger.committedUsd, 0);
-});
-
-test("a session that fits reserves its ceiling and refunds on close", () => {
+test("closing a session frees its slot and announces the close", () => {
   const now = { value: 0 };
   const ledger = ledgerAt(now, { maxSessionSeconds: 120 });
-  const session = ledger.open("jam");
-  assert.notEqual(typeof session, "string");
-  // 120s x $0.08 = $9.60 held while it runs.
-  assert.equal(ledger.committedUsd.toFixed(2), "9.60");
-
-  now.value = 10_000; // ran 10s, billed at the 60s minimum
-  assert.ok(ledger.close((session as { sessionId: string }).sessionId));
-  assert.equal(ledger.committedUsd.toFixed(2), "4.80");
-});
-
-test("a long session is never billed above its reservation", () => {
-  const now = { value: 0 };
-  const ledger = ledgerAt(now, { maxSessionSeconds: 120 });
+  const closed: string[] = [];
+  ledger.onClosed((sessionId) => closed.push(sessionId));
   const session = ledger.open("jam") as { sessionId: string };
-  now.value = 10_000_000;
-  ledger.close(session.sessionId);
-  assert.equal(ledger.committedUsd.toFixed(2), "9.60");
+  assert.equal(ledger.openCount, 1);
+
+  now.value = 10_000;
+  assert.ok(ledger.close(session.sessionId));
+  assert.equal(ledger.openCount, 0);
+  assert.deepEqual(closed, [session.sessionId]);
 });
 
 test("one stream per configuration, and a bounded number overall", () => {
@@ -86,20 +53,19 @@ test("one stream per configuration, and a bounded number overall", () => {
   assert.equal(ledger.open("jam:fr|"), "too_many_sessions");
 });
 
-test("an abandoned session is reclaimed but keeps its reservation spent", () => {
+test("an abandoned session is reclaimed and its slot freed", () => {
   const now = { value: 0 };
   const ledger = ledgerAt(now, { maxSessionSeconds: 60 });
-  ledger.open("jam");
+  const abandoned = ledger.open("jam") as { sessionId: string };
+  const closed: string[] = [];
+  ledger.onClosed((sessionId) => closed.push(sessionId));
   assert.equal(ledger.openCount, 1);
-  assert.equal(ledger.committedUsd.toFixed(2), "4.80");
 
   now.value = SESSION_IDLE_TIMEOUT_MS + 1;
-  // The slot is freed for a new jam...
+  // The slot is freed for a new jam, and the abandoned stream is torn down.
   assert.notEqual(typeof ledger.open("other"), "string");
   assert.equal(ledger.openCount, 1);
-  // ...but the abandoned session's spend is not refunded: the server cannot
-  // prove fal stopped generating, and guessing low would understate cost.
-  assert.equal(ledger.committedUsd.toFixed(2), "9.60");
+  assert.deepEqual(closed, [abandoned.sessionId]);
 });
 
 test("renew keeps a live session from being reclaimed", () => {
@@ -115,28 +81,13 @@ test("renew keeps a live session from being reclaimed", () => {
   assert.equal(ledger.renew("not-a-session"), false);
 });
 
-test("the budget refuses the session that would cross it", () => {
-  const now = { value: 0 };
-  const ledger = ledgerAt(now, {
-    budgetUsd: 10,
-    maxSessionSeconds: 60,
-    maxConcurrentSessions: 5,
-  });
-  assert.notEqual(typeof ledger.open("a"), "string"); // $4.80
-  assert.notEqual(typeof ledger.open("b"), "string"); // $9.60
-  assert.equal(ledger.open("c"), "budget_exhausted"); // would be $14.40
-  assert.equal(ledger.remainingUsd.toFixed(2), "0.40");
-});
-
-test("a handshake that never opened refunds its whole reservation", () => {
+test("a handshake that never opened drops its session", () => {
   const now = { value: 0 };
   const ledger = ledgerAt(now, { maxSessionSeconds: 120 });
   const session = ledger.open("jam") as { sessionId: string };
-  assert.equal(ledger.committedUsd.toFixed(2), "9.60");
 
-  // fal refused it, so there is no session to bill a 60-second minimum for.
+  // fal refused it, so there is no stream on either side to tear down.
   assert.ok(ledger.release(session.sessionId));
-  assert.equal(ledger.committedUsd, 0);
   assert.equal(ledger.openCount, 0);
   assert.equal(ledger.release(session.sessionId), false);
 });
@@ -144,12 +95,14 @@ test("a handshake that never opened refunds its whole reservation", () => {
 test("release and close are not interchangeable", () => {
   const now = { value: 0 };
   const ledger = ledgerAt(now, { maxSessionSeconds: 120, maxConcurrentSessions: 2 });
+  const closed: string[] = [];
+  ledger.onClosed((sessionId) => closed.push(sessionId));
   const opened = ledger.open("jam:ran|") as { sessionId: string };
   const refused = ledger.open("jam:never-ran|") as { sessionId: string };
 
-  ledger.close(opened.sessionId); // billed at the 60s minimum: $4.80
-  ledger.release(refused.sessionId); // billed nothing
-  assert.equal(ledger.committedUsd.toFixed(2), "4.80");
+  ledger.close(opened.sessionId); // a stream ran: its owners must tear it down
+  ledger.release(refused.sessionId); // nothing ran: there is nothing to release
+  assert.deepEqual(closed, [opened.sessionId]);
 });
 
 test("an open stream is found by its configuration so viewers can attach", () => {
@@ -168,7 +121,7 @@ test("a shared stream outlives one viewer leaving, and ends with the last", () =
   const now = { value: 1_000 };
   const closed: string[] = [];
   const ledger = new DirectorSessionLedger(
-    { budgetUsd: 20, usdPerSecond: 0.08, maxConcurrentSessions: 1, maxSessionSeconds: 60 },
+    { maxConcurrentSessions: 1, maxSessionSeconds: 60 },
     () => now.value,
   );
   ledger.onClosed((sessionId) => closed.push(sessionId));
@@ -214,7 +167,7 @@ test("an active viewer cannot extend a session past its paid ceiling", () => {
   const now = { value: 1_000 };
   const closed: string[] = [];
   const ledger = new DirectorSessionLedger(
-    { budgetUsd: 20, usdPerSecond: 0.08, maxConcurrentSessions: 1, maxSessionSeconds: 60 },
+    { maxConcurrentSessions: 1, maxSessionSeconds: 60 },
     () => now.value,
   );
   ledger.onClosed((sessionId) => closed.push(sessionId));
@@ -236,7 +189,7 @@ test("a stream every viewer abandoned is reclaimed, and the caller is told", () 
   const now = { value: 1_000 };
   const closed: string[] = [];
   const ledger = new DirectorSessionLedger(
-    { budgetUsd: 20, usdPerSecond: 0.08, maxConcurrentSessions: 1, maxSessionSeconds: 60 },
+    { maxConcurrentSessions: 1, maxSessionSeconds: 60 },
     () => now.value,
   );
   ledger.onClosed((sessionId) => closed.push(sessionId));
@@ -283,7 +236,7 @@ test("a dropped viewer's renewal does not keep the session's own clock alive", (
   const now = { value: 1_000 };
   const closed: string[] = [];
   const ledger = new DirectorSessionLedger(
-    { budgetUsd: 20, usdPerSecond: 0.08, maxConcurrentSessions: 1, maxSessionSeconds: 60 },
+    { maxConcurrentSessions: 1, maxSessionSeconds: 60 },
     () => now.value,
   );
   ledger.onClosed((sessionId) => closed.push(sessionId));

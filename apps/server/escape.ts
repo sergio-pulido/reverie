@@ -10,7 +10,6 @@ import {
 } from "./escapeAuth";
 import { EscapeRooms, type EscapeRoomsOptions } from "./escapeSessions";
 import { resolveEscapeMediaStore, type EscapeMediaStore } from "./escapeMedia";
-import { resolveSpendAccount, type SpendAccount } from "./spendLedger";
 import { scenarioCards } from "../../src/core/escape/scenarios";
 
 /**
@@ -23,7 +22,7 @@ import { scenarioCards } from "../../src/core/escape/scenarios";
  * screen, not a second product.
  *
  * Unlike the other routes on this Express host, these check who is calling.
- * They move a world the whole room can see and they spend from a budget, so
+ * They move a world the whole room can see and they call paid providers, so
  * identity comes from Supabase Auth and the role from the caller's own
  * membership row under RLS (./escapeAuth), never from the request body.
  */
@@ -55,7 +54,6 @@ const idSchema = z.uuid();
 
 export interface EscapeRouterOptions extends Partial<EscapeRoomsOptions> {
   media?: EscapeMediaStore;
-  account?: SpendAccount;
   authorize?: Authorize;
   rooms?: EscapeRooms;
 }
@@ -63,8 +61,7 @@ export interface EscapeRouterOptions extends Partial<EscapeRoomsOptions> {
 export function createEscapeRouter(options: EscapeRouterOptions = {}): Router {
   const router = express.Router();
   const media = options.media ?? resolveEscapeMediaStore();
-  const account = options.account ?? resolveSpendAccount();
-  const rooms = options.rooms ?? new EscapeRooms({ ...options, media, account });
+  const rooms = options.rooms ?? new EscapeRooms({ ...options, media });
   const authorize = options.authorize ?? createSupabaseAuthorize();
 
   router.use("/api/jams/:id/escape-room", (request, response, next) => {
@@ -154,7 +151,7 @@ export function createEscapeRouter(options: EscapeRouterOptions = {}): Router {
   });
 
   /**
-   * Closes the vote. Host-only, because it spends: the winner is resolved and
+   * Closes the vote. Host-only, because it generates: the winner is resolved and
    * filmed, and the losing proposals are discarded rather than queued.
    */
   router.post("/api/jams/:id/escape-room/settle", (request, response) => {

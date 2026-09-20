@@ -3,7 +3,6 @@ import {
   beatStates,
   JAM_ID,
   openDirector,
-  RICH_SPEND,
   SLUG,
   playButton,
   turnCards,
@@ -204,64 +203,6 @@ describe("the timeline", () => {
   });
 });
 
-describe("spend, against the server's ceiling", () => {
-  it("is zero before a session, in US dollars, against FAL_ASSET_BUDGET_USD", async () => {
-    server = await openDirector();
-    assert.equal(text(".director-spend-figure"), "$0.00 of $20.00");
-    assert.match(text(".director-spend-note"), /0:00 generated · \$20\.00 left/);
-  });
-
-  it("is the provider's real bill once a session is open, from generated seconds", async () => {
-    server = await openDirector({
-      spend: { ...RICH_SPEND, sessionUsd: 7.2, remainingUsd: 12.8 },
-      state: { status: "streaming", generatedSeconds: 90, chunksReceived: 6 },
-    });
-    await click(playButton());
-    await settle();
-    assert.equal(text(".director-spend-figure"), "$7.20 of $20.00");
-    assert.match(text(".director-spend-note"), /1:30 generated · \$12\.80 left/);
-  });
-
-  it("an unconfigured budget is zero and says nothing can be generated", async () => {
-    server = await openDirector({
-      spend: { ...RICH_SPEND, budgetUsd: 0, remainingUsd: 0 },
-    });
-    assert.equal(text(".director-spend-figure"), "$0.00 of $0.00");
-    assert.match(text(".director-spend-note"), /No director budget is configured/);
-  });
-});
-
-describe("when the ceiling is reached", () => {
-  it("blocks the next beat on the timeline and says so in the composer", async () => {
-    server = await openDirector({
-      spend: { ...RICH_SPEND, sessionUsd: 19.8, remainingUsd: 0.2 },
-    });
-    // $0.20 buys two and a half seconds: not one five-second beat.
-    assert.deepEqual(beatStates(), Array(6).fill("blocked"));
-    assert.match(notes(), /Only \$0\.20 of the director budget is left, so beat 1 onward is blocked/);
-  });
-
-  it("a spent budget refuses to open a session at all, and the stage says why", async () => {
-    server = await openDirector({
-      spend: { ...RICH_SPEND, sessionUsd: 20, remainingUsd: 0 },
-    });
-    assert.match(text(".director-stage-line"), /budget for this server is spent/);
-    assert.equal(playButton().disabled, true);
-  });
-
-  it("what the stream is doing is never overwritten by what the budget says", async () => {
-    // Twenty cents will not buy another five-second beat, but the stream is
-    // already running and keeps saying what it is doing.
-    server = await openDirector({
-      offsetSeconds: 12,
-      spend: { ...RICH_SPEND, sessionUsd: 19.8, remainingUsd: 0.2 },
-    });
-    await click(playButton());
-    await settle();
-    assert.deepEqual(beatStates(), ["ready", "ready", "generating", "locked", "blocked", "blocked"]);
-  });
-});
-
 describe("the direction column", () => {
   const trail: DirectorAuditEntry[] = [
     { at: "2026-09-20T10:00:02.000Z", kind: "direction_sent", promptVersion: 2, body: "Cut to the lighthouse at dusk.", scriptOffsetSeconds: 12 },
@@ -457,7 +398,7 @@ describe("what the screen does not know", () => {
     assert.equal(document.querySelectorAll(".director-deliverable a, .director-deliverable button").length, 0);
   });
 
-  it("a server with no director configured says that, not that the budget ran out", async () => {
+  it("a server with no director configured says so", async () => {
     server = await openDirector({ configured: false });
     assert.match(text(".director-stage-line"), /not configured on this server/);
   });

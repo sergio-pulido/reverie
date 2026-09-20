@@ -3,7 +3,6 @@ import { App } from "../src/App";
 import type { Jam } from "../src/core/jam";
 import type { DirectorAuditEntry } from "../src/core/directorAudit";
 import type { DirectorBeatWindow } from "../src/core/directorBeats";
-import type { DirectorSpend } from "../src/core/directorSpend";
 import { initialDirectorState, type DirectorState } from "../src/core/directorProtocol";
 import { beatWindowForScript } from "../src/core/directorBeats";
 import { buildScript } from "./helpers";
@@ -13,7 +12,7 @@ import { buildScript } from "./helpers";
  *
  * The room comes from this browser's own preview registry, which is where a
  * jam lives when Supabase is not configured — so nothing about the room is
- * mocked. The server is: the script, the budget and the session are the four
+ * mocked. The server is: the script, the limits and the session are the
  * routes the screen reads, and a test sets what each of them answers.
  */
 
@@ -21,14 +20,6 @@ export const SLUG = "preview-the-salt-door-91af20cd";
 export const JAM_ID = "6f2f8f4e-1f3a-4a0a-9a1a-000000000001";
 /** 6 beats of 5 seconds: 30 seconds of film. */
 export const SCRIPT = buildScript(5, 2, 3);
-
-export const RICH_SPEND: DirectorSpend = {
-  budgetUsd: 20,
-  usdPerSecond: 0.08,
-  minBilledSeconds: 60,
-  sessionUsd: 0,
-  remainingUsd: 20,
-};
 
 export function jamOf(script = SCRIPT): Jam {
   return {
@@ -45,7 +36,6 @@ export type ServerOptions = {
   /** The script this server holds, or null when it holds none. */
   jam?: Jam | null;
   configured?: boolean;
-  spend?: DirectorSpend;
   /** Where the stream has reached on the script's clock once a session opens. */
   offsetSeconds?: number | null;
   state?: Partial<DirectorState>;
@@ -68,7 +58,6 @@ export function fakeServer(options: ServerOptions = {}): FakeServer {
   const current: ServerOptions = {
     jam: jamOf(),
     configured: true,
-    spend: RICH_SPEND,
     offsetSeconds: null,
     audit: [],
     recordingDurable: true,
@@ -96,8 +85,8 @@ export function fakeServer(options: ServerOptions = {}): FakeServer {
     if (url === `/api/jams/${JAM_ID}`) {
       return current.jam ? json({ jam: current.jam }) : json({ error: { code: "not_found" } }, 404);
     }
-    if (url.endsWith("/director/budget")) {
-      return json({ configured: current.configured, spend: current.spend });
+    if (url.endsWith("/director/limits")) {
+      return json({ configured: current.configured, maxSessionSeconds: 120 });
     }
     if (url.endsWith("/director/session") && method === "POST") {
       const body = typeof init?.body === "string" ? JSON.parse(init.body) : {};
@@ -130,7 +119,6 @@ export function fakeServer(options: ServerOptions = {}): FakeServer {
           recordingDurable: current.recordingDurable,
           state: state(),
           beats: beats(),
-          spend: current.spend,
         },
         201,
       );
@@ -142,7 +130,6 @@ export function fakeServer(options: ServerOptions = {}): FakeServer {
         beats: beats(),
         audit: current.audit ?? [],
         droppedAuditEntries: 0,
-        spend: current.spend,
       });
     }
     return json({ error: { code: "not_found" } }, 404);

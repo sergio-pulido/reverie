@@ -120,7 +120,7 @@ export const actionSchema = z.object({
   shot: z.string().trim().min(16).max(600),
   /** What happened, in the author's words. The film's fallback narration. */
   tell: z.string().trim().min(8).max(400),
-  /** How long this beat wants to run. Clamped to the model's band at spend time. */
+  /** How long this beat wants to run. Clamped to the model's band at generation time. */
   seconds: z.number().int().min(5).max(15).default(15),
 });
 

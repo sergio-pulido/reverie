@@ -2,36 +2,31 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { DirectorAuditEntry } from "../src/core/directorAudit";
 import { beatOffsets, beatWindowForScript } from "../src/core/directorBeats";
-import { unopenedSpend, type DirectorRates, type DirectorSpend } from "../src/core/directorSpend";
 import {
   buildTimeline,
   beatOfTurn,
   directionTurns,
-  firstBlockedBeat,
   type TimelineInput,
 } from "../src/core/directorTimeline";
 import { buildScript } from "./helpers";
 
-const RATES: DirectorRates = { budgetUsd: 20, usdPerSecond: 0.08, minBilledSeconds: 60 };
 /** 6 beats of 5 seconds: 30 seconds of film, beats starting at 0,5,10,15,20,25. */
 const SCRIPT = buildScript(5, 2, 3);
-const RICH: DirectorSpend = { ...RATES, sessionUsd: 0, remainingUsd: 20 };
 
-function timelineAt(offsetSeconds: number | null, spend: DirectorSpend = RICH) {
+function timelineAt(offsetSeconds: number | null) {
   const input: TimelineInput = {
     window: beatWindowForScript(SCRIPT, offsetSeconds),
     producedThrough: offsetSeconds === null ? null : null,
-    spend,
   };
   return buildTimeline(SCRIPT, input);
 }
 
-function states(offsetSeconds: number | null, spend?: DirectorSpend) {
-  return timelineAt(offsetSeconds, spend).map((beat) => beat.state);
+function states(offsetSeconds: number | null) {
+  return timelineAt(offsetSeconds).map((beat) => beat.state);
 }
 
 test("with no session every beat is written, numbered from one, at its own offset", () => {
-  const beats = buildTimeline(SCRIPT, { window: null, producedThrough: null, spend: RICH });
+  const beats = buildTimeline(SCRIPT, { window: null, producedThrough: null });
   assert.deepEqual(beats.map((beat) => beat.state), Array(6).fill("written"));
   assert.deepEqual(beats.map((beat) => beat.number), [1, 2, 3, 4, 5, 6]);
   assert.deepEqual(beats.map((beat) => beat.startSeconds), [0, 5, 10, 15, 20, 25]);
@@ -69,7 +64,7 @@ test("at the last beat nothing is locked ahead of it", () => {
 });
 
 test("after the session stops, what it produced stays ready and nothing is generating", () => {
-  const beats = buildTimeline(SCRIPT, { window: null, producedThrough: 2, spend: RICH });
+  const beats = buildTimeline(SCRIPT, { window: null, producedThrough: 2 });
   assert.deepEqual(beats.map((beat) => beat.state), [
     "ready",
     "ready",
@@ -78,37 +73,6 @@ test("after the session stops, what it produced stays ready and nothing is gener
     "written",
     "written",
   ]);
-});
-
-test("a beat the budget cannot pay for is blocked, and the block starts where the money runs out", () => {
-  // $0.80 buys ten seconds: two 5-second beats, and no more.
-  const tight: DirectorSpend = { ...RATES, sessionUsd: 19.2, remainingUsd: 0.4 };
-  const beats = buildTimeline(SCRIPT, { window: null, producedThrough: null, spend: tight });
-  assert.deepEqual(beats.map((beat) => beat.state), Array(6).fill("written"), "$0.40 still buys a 5s beat");
-
-  const spent: DirectorSpend = { ...RATES, sessionUsd: 20, remainingUsd: 0 };
-  const blocked = buildTimeline(SCRIPT, { window: null, producedThrough: null, spend: spent });
-  assert.deepEqual(blocked.map((beat) => beat.state), Array(6).fill("blocked"));
-  assert.equal(firstBlockedBeat(blocked)?.number, 1);
-  assert.equal(firstBlockedBeat(beats), null);
-});
-
-test("an exhausted budget never overrides what the stream is actually doing", () => {
-  const spent: DirectorSpend = { ...RATES, sessionUsd: 20, remainingUsd: 0 };
-  assert.deepEqual(states(12, spent), [
-    "ready",
-    "ready",
-    "generating",
-    "locked",
-    "blocked",
-    "blocked",
-  ]);
-});
-
-test("with no budget configured at all, every beat is blocked", () => {
-  const none = unopenedSpend({ ...RATES, budgetUsd: 0 });
-  const beats = buildTimeline(SCRIPT, { window: null, producedThrough: null, spend: none });
-  assert.deepEqual(beats.map((beat) => beat.state), Array(6).fill("blocked"));
 });
 
 function sent(promptVersion: number, extra: Partial<DirectorAuditEntry> = {}): DirectorAuditEntry {

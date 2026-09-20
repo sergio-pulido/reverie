@@ -11,7 +11,7 @@ import {
 /**
  * Who is asking, for the escape-room routes.
  *
- * These routes spend money and move a shared world, so unlike the other
+ * These routes call paid providers and move a shared world, so unlike the other
  * routes this Express host serves, they do not take the browser's word for
  * who it is. Identity comes from Supabase Auth verifying the presented access
  * token, and the role comes from the caller's own `jam_members` row read

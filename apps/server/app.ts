@@ -30,8 +30,6 @@ import {
 } from "./directorIndex";
 import { createEscapeRouter } from "./escape";
 import { createSessionsRouter } from "./sessions";
-import { resolveSpendAccount } from "./spendLedger";
-import { FalBudget } from "./falBudget";
 import { createLikenessRouter } from "./likeness";
 import { resolveDirectorLimits, DirectorSessionLedger } from "./directorSessions";
 
@@ -87,11 +85,6 @@ export function createApiApp(
   const directorIndex = options.directorIndex ?? resolveDirectorIndexStore();
   const directorRecordings =
     options.directorRecordings ?? resolveDirectorRecordingStore();
-  // FAL_ASSET_BUDGET_USD is a ceiling on this process, so the director, the
-  // escape room and beat generation all debit one account. The budget is a
-  // second face on that same account, not a second pot.
-  const account = resolveSpendAccount();
-  const budget = new FalBudget(account.budgetUsd, account);
   // One boundary, read by the script routes and by the outline queue, inside
   // the same per-jam critical section as the mutation it protects.
   const guard: PlaybackGuard = (jamId) => ({
@@ -113,14 +106,13 @@ export function createApiApp(
     registry: streams,
     index: directorIndex,
     recordings: directorRecordings,
-    budget,
   }));
   app.use(createDirectorArchiveRouter(store, {
     index: directorIndex,
     recordings: directorRecordings,
   }));
-  app.use(createEscapeRouter({ account }));
-  app.use(createLikenessRouter(store, { budget }));
+  app.use(createEscapeRouter());
+  app.use(createLikenessRouter(store));
   app.use("/api", (_request, response) => {
     response.status(404).json({ code: "NOT_FOUND", safeMessage: "API route not found." });
   });

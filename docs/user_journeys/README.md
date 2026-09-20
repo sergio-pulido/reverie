@@ -99,7 +99,7 @@ a room.
 | `REVERIE_LIVE_ENABLED=true` | server | any script or video generation |
 | `NEBIUS_API_KEY` | server | script generation |
 | `FAL_KEY` | server | the live director |
-| `REVERIE_DIRECTOR_ENABLED` | server | the live director only. It bills per second with a 60-second minimum, so it is off unless set to `true` |
+| `REVERIE_DIRECTOR_ENABLED` | server | the live director only. It holds a live provider session, so it is off unless set to `true` |
 | `SUPABASE_URL`, `SUPABASE_ANON_KEY` | server | Discover titles from `public.catalogue_titles` (falls back to the `VITE_` pair) |
 | `NEBIUS_API_KEY` + `REVERIE_LIVE_ENABLED=true` | server | Discover conversation and assistant ranking (chips work without them) |
 

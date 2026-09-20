@@ -49,11 +49,10 @@ VONAGE_API_KEY=
 VONAGE_API_SECRET=
 VONAGE_APPLICATION_ID=
 VONAGE_PRIVATE_KEY=
-FAL_ASSET_BUDGET_USD=
 REVERIE_LIVE_ENABLED=
 ```
 
-`REVERIE_LIVE_ENABLED` remains off until each selected adapter has a dated, recorded probe. The server must enforce model allowlists, request size limits, session duration, concurrency and spend ceilings.
+`REVERIE_LIVE_ENABLED` remains off until each selected adapter has a dated, recorded probe. The server must enforce model allowlists, request size limits, session duration and concurrency. It does not track spend: see docs/DECISIONS.md.
 
 Vonage credentials are server-only. Session tokens are minted server-side. The browser receives a short-lived room/session token and never receives the API secret or application private key.
 

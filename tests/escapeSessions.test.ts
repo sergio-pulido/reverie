@@ -2,13 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { EscapeRooms, chooseWinner, type Proposal } from "../apps/server/escapeSessions";
 import { InMemoryEscapeMediaStore } from "../apps/server/escapeMedia";
-import { SpendAccount } from "../apps/server/spendLedger";
 import { findSegmentModel } from "../apps/server/providers/falSegmentModels";
 import type { FalSegmentConfig } from "../apps/server/providers/falSegments";
 import { fakeMp4 } from "./fakeMp4";
 
 /**
- * The turn, the spending and the loop. The rules themselves are tested in
+ * The turn, the generation and the loop. The rules themselves are tested in
  * tests/escapeRules.test.ts; nothing here decides what happened.
  */
 
@@ -47,18 +46,16 @@ function fakeFal(clipSeconds = 15.104) {
   return { submitted, restore: () => { globalThis.fetch = original; } };
 }
 
-function build(options: { account?: SpendAccount; fal?: FalSegmentConfig | null } = {}) {
+function build(options: { fal?: FalSegmentConfig | null } = {}) {
   const media = new InMemoryEscapeMediaStore();
-  const account = options.account ?? new SpendAccount(100);
   const rooms = new EscapeRooms({
     media,
-    account,
     fal: options.fal !== undefined ? options.fal : FAL,
     nebius: null,
-    limits: { usdPerSecond: 0.08, loopSeconds: 5, maxConcurrentGenerations: 2 },
+    limits: { loopSeconds: 5, maxConcurrentGenerations: 2 },
     sleep: async () => {},
   });
-  return { rooms, media, account };
+  return { rooms, media };
 }
 
 test("opening a room starts its first location's loop and nothing else", async () => {
@@ -128,13 +125,13 @@ test("the winning proposal is resolved and filmed; the losers are discarded", as
   }
 });
 
-test("a proposal the rules refuse becomes a beat, costs nothing, and says why", async () => {
+test("a proposal the rules refuse becomes a beat, films nothing, and says why", async () => {
   const fal = fakeFal();
   try {
-    const { rooms, account } = build();
+    const { rooms } = build();
     rooms.open("jam-3", "night-audit");
     await rooms.idle();
-    const spentOnTheLoop = account.committedUsd;
+    const filmedSoFar = fal.submitted.length;
 
     const proposal = rooms.propose("jam-3", { authorId: "a", authorName: "Ada", body: "push open the stack door" });
     assert.ok(typeof proposal !== "string");
@@ -143,7 +140,7 @@ test("a proposal the rules refuse becomes a beat, costs nothing, and says why", 
     assert.equal(beat.outcome, "failed");
     assert.equal(beat.narration, "The magnetic lock is still holding the door shut.");
     await rooms.idle();
-    assert.equal(account.committedUsd, spentOnTheLoop, "a refusal is not filmed");
+    assert.equal(fal.submitted.length, filmedSoFar, "a refusal is not filmed");
     assert.equal(rooms.snapshot("jam-3", "a")!.beats.at(-1)!.media.status, "absent");
   } finally {
     fal.restore();
@@ -202,29 +199,6 @@ test("reaching the goal ends the session in the author's words", async () => {
   }
 });
 
-test("the spend ceiling stops the session, and nothing is sent to the provider", async () => {
-  const fal = fakeFal();
-  try {
-    // Enough for one five-second loop ($0.40) and not for a beat ($1.20).
-    const { rooms, account } = build({ account: new SpendAccount(0.8) });
-    rooms.open("jam-6", "night-audit");
-    await rooms.idle();
-    assert.equal(account.committedUsd, 0.4);
-
-    rooms.propose("jam-6", { authorId: "a", authorName: "Ada", body: "open the counter hatch" });
-    rooms.settle("jam-6");
-    await rooms.idle();
-
-    const snapshot = rooms.snapshot("jam-6", "a")!;
-    assert.equal(snapshot.beats.at(-1)!.media.status, "ceiling_reached");
-    assert.equal(snapshot.ended?.reason, "spend_ceiling");
-    assert.equal(fal.submitted.length, 1, "only the loop was ever submitted");
-    assert.equal(snapshot.spend.remainingUsd, round(0.8 - 0.4));
-  } finally {
-    fal.restore();
-  }
-});
-
 test("a server that cannot generate says so rather than implying a film", async () => {
   const { rooms } = build({ fal: null });
   rooms.open("jam-7", "the-understudy");
@@ -244,13 +218,12 @@ test("a provider failure leaves the loop running and tells the room plainly", as
     return new Response("{}", { status: 500 });
   }) as typeof fetch;
   try {
-    const { rooms, account } = build();
+    const { rooms } = build();
     rooms.open("jam-8", "night-audit");
     await rooms.idle();
     const snapshot = rooms.snapshot("jam-8", "a")!;
     assert.equal(snapshot.loop.status, "failed");
     assert.match(snapshot.loop.message ?? "", /keeps running on the loop/);
-    assert.equal(account.committedUsd, 0, "a submit fal never accepted is refunded");
   } finally {
     globalThis.fetch = original;
   }
@@ -262,10 +235,9 @@ test("a segment the server has dropped says so instead of reading as ready", asy
     const media = new InMemoryEscapeMediaStore();
     const rooms = new EscapeRooms({
       media,
-      account: new SpendAccount(100),
-      fal: FAL,
+        fal: FAL,
       nebius: null,
-      limits: { usdPerSecond: 0.08, loopSeconds: 5, maxConcurrentGenerations: 2 },
+      limits: { loopSeconds: 5, maxConcurrentGenerations: 2 },
       sleep: async () => {},
     });
     rooms.open("jam-forget", "night-audit");
@@ -282,34 +254,6 @@ test("a segment the server has dropped says so instead of reading as ready", asy
     assert.equal(after.status, "forgotten");
     assert.equal(after.src, null, "and stops offering a URL that would 404");
     assert.match(after.message ?? "", /most recent shots/);
-  } finally {
-    fal.restore();
-  }
-});
-
-test("a session that has ended buys nothing else", async () => {
-  const fal = fakeFal();
-  try {
-    // Enough for the opening loop ($0.40) and a second one, but not a beat.
-    const { rooms, account } = build({ account: new SpendAccount(0.9) });
-    rooms.open("jam-stop", "night-audit");
-    await rooms.idle();
-    assert.equal(account.committedUsd, 0.4);
-
-    // This action moves to a new location, so a naive implementation would
-    // buy that location's loop after the beat had already ended the session.
-    for (const body of [
-      "open the counter hatch", "take the torch", "open the fuse box",
-      "throw the breakers", "switch on the torch", "go through the stack door",
-    ]) {
-      rooms.propose("jam-stop", { authorId: "a", authorName: "Ada", body });
-      rooms.settle("jam-stop");
-      await rooms.idle();
-    }
-    const snapshot = rooms.snapshot("jam-stop", "a")!;
-    assert.equal(snapshot.ended?.reason, "spend_ceiling");
-    assert.equal(account.committedUsd, 0.4, "nothing was bought after it ended");
-    assert.equal(fal.submitted.length, 1, "only the opening loop reached the provider");
   } finally {
     fal.restore();
   }
@@ -348,19 +292,14 @@ test("a participant has one effective vote, and may change it", () => {
   assert.equal(rooms.vote("jam-9", "a", "00000000-0000-4000-8000-000000000000"), false);
 });
 
-function round(usd: number): number {
-  return Math.round(usd * 100) / 100;
-}
-
 test("a room nobody has read in half an hour stops holding a slot", async () => {
   const media = new InMemoryEscapeMediaStore();
   let clock = 1_000;
   const rooms = new EscapeRooms({
     media,
-    account: new SpendAccount(100),
     fal: null,
     nebius: null,
-    limits: { usdPerSecond: 0.08, loopSeconds: 5, maxConcurrentGenerations: 2 },
+    limits: { loopSeconds: 5, maxConcurrentGenerations: 2 },
     now: () => clock,
     sleep: async () => {},
   });

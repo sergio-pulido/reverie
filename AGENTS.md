@@ -2,6 +2,22 @@
 
 Reverie is the public HackBarna 2026 Movie Jam project. Read `README.md`, `docs/PROJECT_STATE.md`, `docs/ARCHITECTURE.md`, and the task brief before changing code.
 
+## What this project is optimising for
+
+**A working product, demonstrable end to end, as fast as possible.** This is a hackathon demo, not
+a production service. When a choice is between shipping a path somebody can actually watch and
+building the machinery a long-lived system would want, ship the path. Correctness of what the
+demo claims still holds — never fake a provider, never state a result that was not observed — but
+completeness beyond the demo does not.
+
+**Cost is not tracked, deliberately.** There is no budget, no ledger, no per-second rate and no
+spend ceiling anywhere in this repository, and none is to be added. The accounting was costing
+more in complexity than the generation it guarded was worth: it reached across the server, the
+core, the API contract and four screens, and every feature had to thread money through to do
+anything. Paid generation is bounded by concurrency limits, session duration and the live-provider
+flags instead. Spending is controlled at the provider account, outside this codebase. See
+`docs/DECISIONS.md`.
+
 ## Product boundary
 
 - Build a shared, real-time creative room where a host and participants direct an original AI movie together.
@@ -12,17 +28,17 @@ Reverie is the public HackBarna 2026 Movie Jam project. Read `README.md`, `docs/
 
 - Keep `core` independent of React, browser APIs, provider SDKs, and UI concerns.
 - Isolate Nebius, SLNG, fal.ai, and future sponsor integrations behind typed provider adapters.
-- The server owns rooms, authorization, budgets, queue ordering, votes, scene transitions, and provider calls. Browser state is a projection, never the authority.
+- The server owns rooms, authorization, queue ordering, votes, scene transitions, and provider calls. Browser state is a projection, never the authority.
 - Validate all commands and external output with Zod. Treat participant input and model output as data, never executable instructions or HTML.
 - Deploy React/Vite and privileged Node functions on Vercel. Supabase owns Postgres, anonymous Auth, RLS and Realtime. Express is local development/static-preview tooling only.
 - Use Supabase Realtime for collaboration; never deploy a custom long-lived WebSocket server on Vercel. Do not add other infrastructure without a measured requirement.
 
-## Security and cost controls
+## Security and resource controls
 
 - Keep all secrets in ignored `.env.local`; never log, commit, print, or expose them to the client.
 - Use same-origin checks, short-lived session authorization, bounded payloads, per-room rate limits, and server-owned provider/model allowlists.
 - Raw audio is transient. Log safe identifiers, duration, state version, and typed errors instead of transcript or provider payload dumps.
-- Paid generation needs explicit concurrency and spend limits. Never silently fall back from a failed live provider to a mock or claim that an untested provider works.
+- Paid generation needs explicit concurrency limits and bounded session duration. It does NOT get a spend ledger: see "What this project is optimising for". Never silently fall back from a failed live provider to a mock or claim that an untested provider works.
 
 ## Worktrees and local environment
 

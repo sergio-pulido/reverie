@@ -18,7 +18,7 @@ The client can optimistically render a pending idea, but Supabase-backed server 
 - **live-media** — Vonage session/token lifecycle, participant media permissions, signaling, captions, broadcast/archive controls, and a normalized reference descriptor for the Jam core.
 - **server** — local Express development host; deployed privileged operations live in Vercel Node functions. No custom WebSocket lifecycle.
 - **supabase** — Postgres room state, Auth identities, Row Level Security, Realtime room events, and later media-reference metadata/storage.
-- **vercel** — frontend deployment plus Node functions for provider credentials, Vonage token creation, media signing, spend controls, and operations that cannot run in the browser.
+- **vercel** — frontend deployment plus Node functions for provider credentials, Vonage token creation, media signing, and operations that cannot run in the browser.
 - **web** — host console, participant/mobile room, audience display, transcript, queue, votes and generated media.
 
 ## Lifecycle and limits

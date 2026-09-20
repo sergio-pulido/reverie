@@ -20,7 +20,7 @@ import { portionCount } from "../../src/core/scriptHistory";
 
 // The two provider calls the outline makes, each bounded to two attempts
 // where the second is told what was wrong with the first. Both are paid; the
-// cap bounds worst-case spend when a model keeps returning something the
+// cap bounds worst-case tokens when a model keeps returning something the
 // schema refuses. The completion is injectable so the loops test offline.
 
 export const OUTLINE_ATTEMPTS = 2;

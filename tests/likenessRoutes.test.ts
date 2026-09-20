@@ -7,7 +7,7 @@ import { deflateSync } from "node:zlib";
 import type { Jam } from "../src/core/jam";
 import { InMemoryJamStore } from "../apps/server/jams";
 import { createLikenessRouter } from "../apps/server/likeness";
-import { FalBudget, type BeatSpendRates } from "../apps/server/falBudget";
+import type { BeatLimits } from "../apps/server/beatLimits";
 import { InMemoryObjectStore } from "../apps/server/privateObjects";
 import {
   BEAT_MODELS,
@@ -23,11 +23,7 @@ const BRUNO = "b0000000-0000-4000-8000-00000000000b";
 const SUPABASE = { url: "https://supabase.test", anonKey: "anon-key" };
 
 const BEAT_CONFIG: BeatVideoConfig = { apiKey: "test-key", resolution: "768P", aspectRatio: "16:9" };
-const RATES: BeatSpendRates = {
-  plainUsdPerSecond: 0.04,
-  likenessUsdPerSecond: 0.08,
-  maxConcurrentBeats: 2,
-};
+const LIMITS: BeatLimits = { maxConcurrentBeats: 2 };
 
 /** A valid PNG of the size the routes require, so tests exercise the real check. */
 function png(size: number): Buffer {
@@ -72,7 +68,6 @@ let submitted: BeatRequest[] = [];
 let generateFails: Error | null = null;
 
 const store = new InMemoryJamStore();
-const budget = new FalBudget(100);
 const frames = new InMemoryObjectStore(32);
 const clips = new InMemoryObjectStore(32);
 let server: Server;
@@ -145,8 +140,7 @@ before(async () => {
       supabase: SUPABASE,
       rest: { fetchImpl: fakeFetch },
       beatConfig: BEAT_CONFIG,
-      rates: RATES,
-      budget,
+      limits: LIMITS,
       frames,
       clips,
       generate,
@@ -415,49 +409,6 @@ test("the clip is served by this server and never as a provider address", async 
   assert.equal(byStranger.status, 401);
 });
 
-test("a beat spends against the shared budget and reports what is left", async () => {
-  const jam = await buildJam();
-  const before = budget.remainingUsd;
-  const response = await call("POST", `/api/jams/${jam.id}/beats/0/video`, "alice-token");
-  const body = await response.json();
-  // 5 seconds at the plain rate.
-  assert.equal(Number((before - budget.remainingUsd).toFixed(4)), 0.2);
-  assert.equal(body.remainingBudgetUsd, Number(budget.remainingUsd.toFixed(4)));
-});
-
-test("a spent budget refuses the beat rather than generating it", async () => {
-  const jam = await buildJam();
-  const spent = new FalBudget(0.01);
-  const app = express();
-  app.use(
-    createLikenessRouter(store, {
-      supabase: SUPABASE,
-      rest: { fetchImpl: fakeFetch },
-      beatConfig: BEAT_CONFIG,
-      rates: RATES,
-      budget: spent,
-      frames,
-      clips,
-      generate,
-      now: () => now,
-    }),
-  );
-  const local = await new Promise<Server>((resolve) => {
-    const s = app.listen(0, "127.0.0.1", () => resolve(s));
-  });
-  const address = local.address();
-  const port = typeof address === "object" && address ? address.port : 0;
-  currentToken = "alice-token";
-  const response = await fetch(`http://127.0.0.1:${port}/api/jams/${jam.id}/beats/0/video`, {
-    method: "POST",
-    headers: { authorization: "Bearer alice-token" },
-  });
-  assert.equal(response.status, 409);
-  assert.equal((await response.json()).error.code, "budget_exhausted");
-  assert.equal(submitted.length, 0);
-  local.close();
-});
-
 test("without a provider a beat is refused, never mocked", async () => {
   const jam = await buildJam();
   const app = express();
@@ -466,8 +417,7 @@ test("without a provider a beat is refused, never mocked", async () => {
       supabase: SUPABASE,
       rest: { fetchImpl: fakeFetch },
       beatConfig: null,
-      rates: RATES,
-      budget,
+      limits: LIMITS,
       frames,
       clips,
       generate,
@@ -497,8 +447,7 @@ test("a server that cannot check consent will not use anyone's likeness", async 
     createLikenessRouter(store, {
       supabase: null,
       beatConfig: BEAT_CONFIG,
-      rates: RATES,
-      budget,
+      limits: LIMITS,
       frames,
       clips,
       generate,

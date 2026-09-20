@@ -15,7 +15,7 @@ type DirectorComposerProps = {
   /** The beat a direction is aimed at, or null for wherever the stream is. */
   targetBeat: number | null;
   onClearTarget: () => void;
-  /** Lines under the field: why nothing can be sent, what the budget forbids. */
+  /** Lines under the field: why nothing can be sent, and what is refused. */
   notes: readonly string[];
   /** True when a direction cannot be sent at all. */
   blocked: boolean;
@@ -241,9 +241,9 @@ export function DirectorComposer({
         </div>
       )}
 
-      {/* Several things can be true at once — the stream is stopped, the budget
-          is short, and the reference you just picked cannot travel — and each
-          one is its own line rather than the first hiding the rest. */}
+      {/* Several things can be true at once — the stream is stopped and the
+          reference you just picked cannot travel — and each one is its own
+          line rather than the first hiding the rest. */}
       <div className="director-composer-notes" role="status">
         {[...notes, note, voice.notice].filter(Boolean).map((line, index) => (
           // eslint-disable-next-line react/no-array-index-key -- a fixed, ordered list of lines

@@ -128,18 +128,11 @@ describe("the room shows where it is in its life", () => {
         status,
         headers: { "content-type": "application/json" },
       });
-    const spend = {
-      budgetUsd: 20,
-      usdPerSecond: 0.08,
-      minBilledSeconds: 60,
-      sessionUsd: 4.8,
-      remainingUsd: 10.4,
-    };
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(typeof input === "string" ? input : input.toString());
       if (url.endsWith(`/api/jams/${JAM}`)) return json({ jam: { lifecycle: "playing" } });
-      if (url.endsWith("/director/budget")) {
-        return json({ configured: true, maxSessionSeconds: 120, spend: { ...spend, sessionUsd: 0, remainingUsd: 20 } });
+      if (url.endsWith("/director/limits")) {
+        return json({ configured: true, maxSessionSeconds: 120 });
       }
       if (url.endsWith(`/api/jams/${JAM}/director/session`) && init?.method === "POST") {
         return json({
@@ -161,7 +154,6 @@ describe("the room shows where it is in its life", () => {
             error: null,
           },
           beats: null,
-          spend,
         });
       }
       if (url.endsWith("/director/session/sess-live")) {
@@ -178,7 +170,6 @@ describe("the room shows where it is in its life", () => {
           },
           beats: null,
           audit: [],
-          spend,
         });
       }
       return json({});
@@ -195,11 +186,10 @@ describe("the room shows where it is in its life", () => {
       assert.ok(stop?.className.includes("button-primary"), "Stop is what the eye lands on");
       assert.equal(stop?.disabled, false);
 
-      // What it is costing, from the server's own figures, while it runs.
-      const cost = text('[data-testid="jam-director-cost"]');
-      assert.match(cost, /\$4\.80 so far/);
-      assert.match(cost, /\$10\.40 left of \$20\.00/);
-      assert.match(cost, /stops itself after 2:00/);
+      // What the take is doing, from the server's own figures, while it runs.
+      const take = text('[data-testid="jam-director-take"]');
+      assert.match(take, /This take is running/);
+      assert.match(take, /stops itself after 2:00/);
       // And what it is doing.
       assert.match(text('[data-testid="jam-director-status"]'), /Playing · 0:45 generated across 3 chunk/);
     } finally {
@@ -214,18 +204,8 @@ describe("the room shows where it is in its life", () => {
       const json = (body: unknown, status = 200) =>
         new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
       if (url.endsWith(`/api/jams/${JAM}`)) return json({ jam: { lifecycle: "live" } });
-      if (url.endsWith("/director/budget")) {
-        return json({
-          configured: true,
-          maxSessionSeconds: 120,
-          spend: {
-            budgetUsd: 20,
-            usdPerSecond: 0.08,
-            minBilledSeconds: 60,
-            sessionUsd: 0,
-            remainingUsd: 20,
-          },
-        });
+      if (url.endsWith("/director/limits")) {
+        return json({ configured: true, maxSessionSeconds: 120 });
       }
       if (url.endsWith(`/api/jams/${JAM}/director/session`)) {
         return json(
@@ -239,12 +219,11 @@ describe("the room shows where it is in its life", () => {
     try {
       await render(<JamDirector jamId={JAM} configuration={DEFAULT_CONFIGURATION} />);
       await settle();
-      const cost = text('[data-testid="jam-director-cost"]');
-      assert.match(cost, /\$4\.80 minimum for the first 60s/);
-      // The reservation is the number that surprises: a room with money left
-      // can still be refused a second take.
-      assert.match(cost, /holds \$9\.60 of the budget until the take settles/);
-      assert.match(cost, /\$20\.00 left of \$20\.00/);
+      const take = text('[data-testid="jam-director-take"]');
+      assert.match(take, /Play opens a live session with the provider/);
+      // The self-stop is the fact that surprises: a take ends on its own
+      // whether or not the room is done with it.
+      assert.match(take, /stops itself after 2:00/);
     } finally {
       globalThis.fetch = original;
     }
@@ -357,7 +336,7 @@ describe("the room shows where it is in its life", () => {
       );
       assert.ok(
         notice.compareDocumentPosition(
-          document.querySelector('[data-testid="jam-director-cost"]')!,
+          document.querySelector('[data-testid="jam-director-take"]')!,
         ) === Node.DOCUMENT_POSITION_FOLLOWING,
         "and sits with the controls rather than at the foot of the card",
       );

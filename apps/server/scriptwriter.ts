@@ -16,7 +16,7 @@ import { completeJson, NebiusError, type NebiusConfig } from "./providers/nebius
 
 // Each attempt is a paid provider call. The writer feeds the previous failure
 // back to the model, so the expected number of calls is small; the cap bounds
-// worst-case spend when a provider keeps returning an unusable draft.
+// worst-case tokens when a provider keeps returning an unusable draft.
 export const SCRIPT_ATTEMPTS = 4;
 
 /** One provider completion. Injectable so the retry loop is testable offline. */

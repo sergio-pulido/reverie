@@ -81,8 +81,6 @@ test("the live writer and archive reader share the app's resolved index", async 
         record: false,
       },
       limits: {
-        budgetUsd: 100,
-        usdPerSecond: 0.08,
         maxConcurrentSessions: 1,
         maxSessionSeconds: 60,
       },

@@ -7,7 +7,7 @@
  * carry their own tools.
  *
  * Direct is not an open microphone. Continuous transcription of a session is
- * a spend question rather than a feature one (`docs/specs/
+ * a provider-load question rather than a feature one (`docs/specs/
  * multimodal-creative-turns.md`), so the gesture bounds it: audio is captured
  * while the control is held and at no other time.
  */

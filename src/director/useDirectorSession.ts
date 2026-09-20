@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { DirectorAuditEntry } from "../core/directorAudit";
 import type { DirectorBeatWindow } from "../core/directorBeats";
 import { initialDirectorState, type DirectorState } from "../core/directorProtocol";
-import { unopenedSpend, type DirectorSpend } from "../core/directorSpend";
 import type { SessionSettings } from "../core/session";
 import {
   attachDirectorSession,
@@ -10,7 +9,7 @@ import {
   directorRecordingSrc,
   DirectorSessionError,
   endDirectorSession,
-  readDirectorBudget,
+  readDirectorLimits,
   readDirectorSession,
   renewDirectorSession,
   sendDirection,
@@ -33,13 +32,6 @@ const POLL_MS = 2_000;
 const RENEW_MS = 30_000;
 const ATTACH_MS = 3_000;
 
-/** Until the server answers, a budget of nothing: it is what cannot be disproved. */
-const UNKNOWN_SPEND: DirectorSpend = unopenedSpend({
-  budgetUsd: 0,
-  usdPerSecond: 0,
-  minBilledSeconds: 0,
-});
-
 export interface DirectorSession {
   sessionId: string | null;
   live: boolean;
@@ -50,7 +42,6 @@ export interface DirectorSession {
   /** Highest beat this screen has seen the stream reach, kept after it stops. */
   producedThrough: number | null;
   audit: DirectorAuditEntry[];
-  spend: DirectorSpend;
   /** False when no director is configured on this server at all. */
   configured: boolean;
   /** False when the server has no storage: the recording is lost on restart. */
@@ -77,7 +68,6 @@ export function useDirectorSession(
   const [beats, setBeats] = useState<DirectorBeatWindow | null>(null);
   const [producedThrough, setProducedThrough] = useState<number | null>(null);
   const [audit, setAudit] = useState<DirectorAuditEntry[]>([]);
-  const [spend, setSpend] = useState<DirectorSpend>(UNKNOWN_SPEND);
   const [configured, setConfigured] = useState(true);
   const [recordingDurable, setRecordingDurable] = useState(true);
   const [recording, setRecording] = useState<string | null>(null);
@@ -109,7 +99,6 @@ export function useDirectorSession(
     setViewerId(opened.viewerId ?? null);
     setLiveDelivery(opened.liveDelivery ?? false);
     setState(opened.state);
-    setSpend(opened.spend);
     setAttached(opened.attached);
     setRecordingDurable(opened.recordingDurable);
     setProducedThrough(null);
@@ -148,19 +137,18 @@ export function useDirectorSession(
     };
   }, [adopt, configuration, jamId, sessionId]);
 
-  // What this server will spend, read before anything is spent on it.
+  // What this server allows, read before a session exists.
   useEffect(() => {
     if (!jamId) return;
     let active = true;
-    void readDirectorBudget(jamId)
-      .then((budget) => {
+    void readDirectorLimits(jamId)
+      .then((limits) => {
         if (!active) return;
-        setConfigured(budget.configured);
-        setSpend(budget.spend);
+        setConfigured(limits.configured);
       })
       .catch(() => {
-        // A server that cannot answer leaves the budget unknown, which reads
-        // as nothing available — never as an unlimited one.
+        // A server that cannot answer leaves `configured` as it was rather
+        // than claiming a director this screen has not confirmed.
       });
     return () => {
       active = false;
@@ -177,7 +165,6 @@ export function useDirectorSession(
         if (cancelled) return;
         setState(snapshot.state);
         setAudit(snapshot.audit);
-        setSpend(snapshot.spend);
         remember(snapshot.beats);
       } catch {
         // A closed session stops answering; the stop path owns that state.
@@ -321,7 +308,6 @@ export function useDirectorSession(
     beats,
     producedThrough,
     audit,
-    spend,
     configured,
     recordingDurable,
     recording,

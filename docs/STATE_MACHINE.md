@@ -46,9 +46,9 @@ While a scene is `generating`, new inputs continue entering the next queue. One 
   advance, a refusal or something impossible, becomes a beat, and — if it advanced the world — is
   generated. Every other proposal is discarded rather than queued, and the next turn opens
   immediately. Generation runs after the turn has moved on, never inside it.
-- **finished**: the goal's conditions hold, or the process spend ceiling refused a segment. There
-  is no timer: the ceiling that already exists is what stops a session that is not going to
-  finish.
+- **finished**: the goal's conditions hold. There is no timer and no spend ceiling; a session
+  that is not going to finish is left for the room to abandon, and its rooms are reclaimed when
+  nobody has read them for half an hour.
 
 **Implemented** (`apps/server/escapeSessions.ts`, `docs/specs/escape-room-scenario.md`). This is a
 narrower mechanism than the scene lifecycle above and does **not** implement it: an escape room's

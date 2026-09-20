@@ -1,5 +1,46 @@
 # Decisions
 
+## 2026-09-20 — Spend tracking is removed, and will not come back (RV-26)
+
+This repository carried a full cost-accounting layer: `SpendAccount` and `FalBudget` on the
+server, `directorSpend` in core, a `spend` block on three director responses and on the escape
+room snapshot, a `/director/budget` route, a dollar readout on the Director screen, a cost line
+on the jam player, a `blocked` beat state, and five environment variables
+(`FAL_ASSET_BUDGET_USD`, `REVERIE_DIRECTOR_USD_PER_SECOND`, `REVERIE_BEAT_USD_PER_SECOND`,
+`REVERIE_BEAT_LIKENESS_USD_PER_SECOND`, `REVERIE_ESCAPE_USD_PER_SECOND`).
+
+**All of it is gone.** The reason is proportion, not disagreement with the idea. This is a
+hackathon demo, and the goal is a working product somebody can watch end to end, as fast as
+possible. The accounting reached into the server, the core, the API contract and four screens;
+every new feature had to thread money through it before it could generate anything; and the
+figures it reported were never invoices. The rates were configured constants read from fal's
+published listing — no provider response on any path carries a price — so the ledger was a
+*model* of what fal might charge, presented to participants as a dollar figure. It cost more in
+entropy than the generation it guarded was worth.
+
+**What still bounds paid generation**, and is what to reach for instead:
+
+- The live flags and provider keys. Nothing generates unless `REVERIE_LIVE_ENABLED` and the
+  relevant per-feature flag are on and a key is present.
+- Concurrency. `REVERIE_DIRECTOR_MAX_SESSIONS`, `REVERIE_BEAT_MAX_CONCURRENT` and
+  `REVERIE_ESCAPE_MAX_GENERATIONS` cap how much can be in flight at once.
+- Session duration. `REVERIE_DIRECTOR_MAX_SESSION_SECONDS` is a hard lifetime: a take stops
+  itself at the ceiling, and `DirectorSessionLedger` still reclaims a session whose viewers
+  stopped checking in. That ledger now counts sessions and seconds and nothing else.
+- The provider account. Spend limits belong there, outside this codebase, where the numbers are
+  real.
+
+**Consequences worth naming.** `GET /api/jams/:id/director/budget` is now
+`GET /api/jams/:id/director/limits` and answers `{ configured, maxSessionSeconds }`. The
+`budget_exhausted` refusal is gone from the director and beat routes. The escape room's
+`EndReason` is `"goal"` alone — a room no longer ends because a ceiling was reached — and the
+segment status `ceiling_reached` is now `session_over`, which is the only case it still
+described. The Director timeline lost its `blocked` beat state, so a beat is `written`,
+`locked`, `generating` or `ready`. Beat responses no longer carry `remainingBudgetUsd`.
+
+**Do not add it back** without a decision that reverses this one. Recorded in `AGENTS.md` and
+`README.md` so it is read before the code is.
+
 ## 2026-09-20 — Play and stop belong to the room, and a stopped room plays again (RV-23)
 
 Opening a jam with "With people" showed everybody but the host a player with no controls:

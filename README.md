@@ -26,6 +26,20 @@ Reverie is an open-source HackBarna 2026 project with two separate modes. **Disc
 - **Opt-in live camera, microphone and screen (Vonage Video API).** Nothing is published until the participant consents. Each consent records its owner, purpose and expiry, and withdrawing it stops the track. Nothing is recorded. Opening a session and minting a token have been proven against Vonage, but a live stage between two browsers has not been tested.
 - **Choosing to appear in the film.** A participant can agree to be a character in the film the room is generating. One frame from their own camera, taken on their own press and approved by them before it is used, becomes the character reference, and beats are generated with `minimax/h3-max/reference-to-video` so the person on screen is them. Agreeing is its own grant in the same consent register, separate from joining the room and separate from turning on a camera. Withdrawing is one press and stops the next beat immediately; beats already generated still show the person, and the room is told exactly that rather than being promised a recall. The frame never reaches another participant's browser. Both models were measured live; a room where nobody has agreed generates as it always did. See [the spec](docs/specs/appearing-in-the-film.md).
 
+## What this project optimises for
+
+A working product, demonstrable end to end, as fast as possible. This is a HackBarna demo, not a
+production service: where a choice is between shipping a path somebody can watch and building the
+machinery a long-lived system would want, the path wins. What the demo claims is still held to be
+true — no faked provider, no unobserved result stated as fact.
+
+**Cost is not tracked, on purpose.** There is no budget, ledger, per-second rate or spend ceiling
+anywhere in this repository. The accounting reached across the server, the core, the API contract
+and four screens, and every feature had to thread money through to do anything — more complexity
+than the generation it guarded was worth for a demo. Paid generation is bounded by concurrency
+limits, session duration and the live-provider flags instead, and spending is controlled at the
+provider account, outside this codebase. See [Decisions](docs/DECISIONS.md).
+
 ## Not built yet
 
 - Voting on a Movie Jam's own proposal queue, and turning an accepted proposal into a scene. The Studio says this on screen. (An escape room has its own turn and vote, which are a narrower mechanism and do not implement that contract.)
@@ -48,7 +62,7 @@ The Studio's scene panel is a static illustration, not generated output.
 | Validation | Zod | Command and provider-response schemas at every boundary |
 | Reasoning | Nebius (`Qwen/Qwen3-30B-A3B-Instruct-2507` for Discover) | Script generation and the Discover conversation, both verified live |
 | Live media | Vonage Video API | Implemented. `pnpm probe:vonage` passed; the two-browser stage is untested. |
-| Generated media | fal.ai | Two surfaces behind one model allowlist and one spend ceiling: `minimax/h3-max/text-to-video` for escape-room segments, verified live; the realtime `minimax/h3-max/director` handshake, whose media track is unverified |
+| Generated media | fal.ai | Two surfaces behind one model allowlist: `minimax/h3-max/text-to-video` for escape-room segments, verified live; the realtime `minimax/h3-max/director` handshake, whose media track is unverified |
 
 | Generated media | fal.ai | Adapter behind a server-owned model allowlist. `minimax/h3-max/text-to-video` and `minimax/h3-max/reference-to-video` verified live (`pnpm probe:beat-video`); the live director's model is not. |
 | Speech | SLNG | Planned, no code |

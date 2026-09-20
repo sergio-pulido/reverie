@@ -111,7 +111,7 @@ export interface DirectorState {
   /** Highest version this client has sent; fal rejects anything stale. */
   sentPromptVersion: number;
   chunksReceived: number;
-  /** Seconds of video the session has produced, for the spend readout. */
+  /** Seconds of video the session has produced. */
   generatedSeconds: number;
   /**
    * Where the stream has reached on the SCRIPT's clock, as fal reports it.

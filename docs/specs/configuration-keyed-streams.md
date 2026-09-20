@@ -25,14 +25,14 @@ the number of **distinct configurations actually present in the room**, not the 
   Configuration keys are normalized so cosmetic differences (surrounding whitespace, language
   tag casing) do not multiply streams.
 
-## Budget cap
+## Concurrency cap
 
 - The number of distinct configurations held at once is **capped** by a server-owned limit, so
   paid generation and stored streams stay bounded no matter how many people join or how many
   variations they invent.
-- The cap sits alongside the existing spend controls — the provider model allowlist, the
-  generation concurrency gate, and per-jam media/spend caps. It is a budget control first, a
-  product limit second.
+- The cap sits alongside the other resource controls — the provider model allowlist, the
+  generation concurrency gate, and bounded session duration. This build does not track spend
+  (`docs/DECISIONS.md`), so the cap is the bound, not an accounting of one.
 - The limit and its enforcement live on the server. The browser never decides how many streams
   may be generated.
 
@@ -43,7 +43,7 @@ the number of **distinct configurations actually present in the room**, not the 
 - Instead, the screen shows the **active configurations** in the room, and the participant
   **attaches to one** — adopting that configuration and its stream.
 - This turns the cap into a visible, shared choice rather than a silent failure or an unbounded
-  bill. It must never silently degrade to a mock, nor generate outside the budget.
+  number of streams. It must never silently degrade to a mock, nor generate past the cap.
 
 ## Open questions (unspecified)
 
@@ -73,10 +73,10 @@ Split, because the two playback paths are in different places.
 - `POST /api/jams/:id/director/session` takes an optional `configuration`. A configuration that
   already has a stream returns **200 with `attached: true` and the same `sessionId`** instead of
   refusing; a different configuration opens its own stream, still bounded by concurrency and
-  budget. Two sessions with the same configuration therefore receive the same stream.
+  session duration. Two sessions with the same configuration therefore receive the same stream.
 - Configuration keys are normalized in one place (`configurationKey`, `src/core/portionPlayback.ts`
   — language tag lowercased, ambientation trimmed and its whitespace collapsed) so cosmetic
-  differences cannot multiply paid streams.
+  differences cannot multiply provider streams.
 - Everyone on a configuration is *delivered* the same stream, not merely told they share one:
   one HLS playlist and one set of fMP4 segments per configuration, fetched over plain HTTP
   (RV-19, `docs/DECISIONS.md`). Segment addresses are per session, so the shared stream is shared
@@ -101,5 +101,5 @@ Split, because the two playback paths are in different places.
   configurations — do not mistake one for the other.
 
 **Nothing on the provider path is probed.** No Director session has been opened with a valid key,
-so "one paid stream per configuration" is how the code is built, not a measured claim about what
-fal bills. See the register in `docs/specs/intended-vs-implemented.md`.
+so "one provider stream per configuration" is how the code is built, not a measured claim about
+how fal behaves. See the register in `docs/specs/intended-vs-implemented.md`.

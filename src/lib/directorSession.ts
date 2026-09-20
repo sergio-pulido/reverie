@@ -1,7 +1,6 @@
 import type { DirectorState } from "../core/directorProtocol";
 import type { DirectorAuditEntry } from "../core/directorAudit";
 import type { DirectorBeatWindow } from "../core/directorBeats";
-import type { DirectorSpend } from "../core/directorSpend";
 import type { SessionSettings } from "../core/session";
 import type { JamLifecycle } from "../core/jamLifecycle";
 
@@ -45,7 +44,6 @@ export interface OpenedDirectorSession {
   lifecycle: JamLifecycle;
   state: DirectorState;
   beats: DirectorBeatWindow;
-  spend: DirectorSpend;
 }
 
 export interface DirectorSnapshot {
@@ -53,16 +51,14 @@ export interface DirectorSnapshot {
   beats: DirectorBeatWindow;
   audit: DirectorAuditEntry[];
   droppedAuditEntries: number;
-  spend: DirectorSpend;
 }
 
-/** What this server will spend on generation, before any of it is spent. */
-export interface DirectorBudget {
+/** What this server allows a take to do, before one is opened. */
+export interface DirectorLimits {
   /** False when no director is configured here: nothing can be generated at all. */
   configured: boolean;
   /** Where a take stops itself, so the commitment can be stated before the press. */
   maxSessionSeconds: number;
-  spend: DirectorSpend;
 }
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
@@ -98,9 +94,9 @@ export function startDirectorSession(
 /**
  * Joins the stream running for a configuration, and never starts one.
  *
- * This is how everyone but the host arrives. Opening a stream bills a
- * sixty-second minimum, so walking into a room must not be able to start one:
- * a participant attaches to what the host is already paying for, or is told
+ * This is how everyone but the host arrives. A room has one provider stream
+ * per configuration, so walking into a room must not be able to start a
+ * second: a participant attaches to the one already running, or is told
  * `no_stream` and waits. The same call serves the host reopening the jam, which
  * is why it is not gated on who is asking.
  */
@@ -116,14 +112,14 @@ export function attachDirectorSession(
 }
 
 /**
- * The server's director budget, read before a paid session exists.
+ * The server's director limits, read before a session exists.
  *
- * Its own route rather than a field on the jam: the ceiling belongs to this
- * process, and a screen has to be able to say what a beat would cost before
- * it offers to generate one.
+ * Its own route rather than a field on the jam: the limits belong to this
+ * process, and a screen has to be able to say how long a take may run before
+ * it offers to start one.
  */
-export function readDirectorBudget(jamId: string): Promise<DirectorBudget> {
-  return call<DirectorBudget>(`/api/jams/${jamId}/director/budget`);
+export function readDirectorLimits(jamId: string): Promise<DirectorLimits> {
+  return call<DirectorLimits>(`/api/jams/${jamId}/director/limits`);
 }
 
 export function readDirectorSession(

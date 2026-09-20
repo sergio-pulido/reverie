@@ -28,8 +28,6 @@ import {
   type FalSegmentConfig,
 } from "./providers/falSegments";
 import { clampDuration } from "./providers/falSegmentModels";
-import { readPositive, type SpendAccount } from "./spendLedger";
-import { DEFAULT_USD_PER_SECOND } from "./directorSessions";
 
 /**
  * An escape room in progress: the scenario's state, the turn the room is on,
@@ -37,7 +35,7 @@ import { DEFAULT_USD_PER_SECOND } from "./directorSessions";
  *
  * The state itself is owned by the pure rules module; nothing here decides
  * what happened. This file does the three things the rules must not: it holds
- * the room's turn, it spends money, and it waits.
+ * the room's turn, it calls the providers, and it waits.
  *
  * Latency is the product problem, and the answer is here: a location's idle
  * loop is generated once and played for the rest of the session, and a beat is
@@ -63,17 +61,18 @@ const MAX_ROOMS = 24;
 const ROOM_IDLE_TIMEOUT_MS = 30 * 60_000;
 const MAX_BEATS_KEPT = 60;
 
+function readPositive(raw: string | undefined, fallback: number): number {
+  const value = Number(raw?.trim());
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
 export interface EscapeLimits {
-  usdPerSecond: number;
   loopSeconds: number;
   maxConcurrentGenerations: number;
 }
 
 export function resolveEscapeLimits(env: NodeJS.ProcessEnv): EscapeLimits {
   return {
-    // fal's list price per generated second, which never understates the
-    // bill. It is a configured rate, not an invoice this repository has seen.
-    usdPerSecond: readPositive(env.REVERIE_ESCAPE_USD_PER_SECOND, DEFAULT_USD_PER_SECOND),
     loopSeconds: Math.round(readPositive(env.REVERIE_ESCAPE_LOOP_SECONDS, DEFAULT_LOOP_SECONDS)),
     maxConcurrentGenerations: Math.max(
       1,
@@ -103,8 +102,6 @@ interface Segment {
   /** The file's own length, once it exists. */
   seconds: number | null;
   message: string | null;
-  /** Money held against this generation, refunded if it never reached fal. */
-  reservedUsd: number;
 }
 
 interface Beat {
@@ -137,7 +134,6 @@ export type SettleRefusal = "no_proposals" | "session_over";
 
 export interface EscapeRoomsOptions {
   media: EscapeMediaStore;
-  account: SpendAccount;
   limits?: EscapeLimits;
   /** Null means this server cannot generate; it never pretends otherwise. */
   fal?: FalSegmentConfig | null;
@@ -148,7 +144,7 @@ export interface EscapeRoomsOptions {
 }
 
 function idleSegment(): Segment {
-  return { status: "absent", mediaId: null, seconds: null, message: null, reservedUsd: 0 };
+  return { status: "absent", mediaId: null, seconds: null, message: null };
 }
 
 export class EscapeRooms {
@@ -276,8 +272,8 @@ export class EscapeRooms {
 
     if (outcome.kind === "advanced") {
       // Only an outcome that changed the world is filmed. A refusal already
-      // carries the author's sentence, and spending a paid segment on it
-      // would shorten the session the room is actually trying to finish.
+      // carries the author's sentence, and filming a refusal would only
+      // slow the session the room is actually trying to finish.
       //
       // The status is set here rather than inside the work, because the work
       // asks the narrator first: a snapshot taken during those few seconds
@@ -327,11 +323,6 @@ export class EscapeRooms {
       },
       beats: room.beats.map((beat) => beatView(jamId, beat)),
       ended: room.ended,
-      spend: {
-        budgetUsd: this.options.account.budgetUsd,
-        committedUsd: round(this.options.account.committedUsd),
-        remainingUsd: round(this.options.account.remainingUsd),
-      },
       mediaDurable: this.options.media.durable,
     };
   }
@@ -420,21 +411,13 @@ export class EscapeRooms {
       return;
     }
     const wanted = clampDuration(this.fal.model, seconds);
-    const reservedUsd = wanted * this.limits.usdPerSecond;
     // Checked again here, not just at the call: generation is asynchronous,
     // so a session can end between deciding to film something and filming it.
     if (room.ended) {
-      segment.status = "ceiling_reached";
+      segment.status = "session_over";
       segment.message = "The session ended before this could be generated.";
       return;
     }
-    if (!this.options.account.commit(reservedUsd)) {
-      segment.status = "ceiling_reached";
-      segment.message = "The spend ceiling for this server is reached, so nothing was generated.";
-      this.endForSpend(room);
-      return;
-    }
-    segment.reservedUsd = reservedUsd;
     segment.status = "generating";
     segment.message = null;
 
@@ -444,9 +427,6 @@ export class EscapeRooms {
       try {
         requestId = await submitSegment(this.fal, { prompt, durationSeconds: wanted });
       } catch (error) {
-        // Nothing was accepted, so nothing will be billed.
-        this.options.account.refund(reservedUsd);
-        segment.reservedUsd = 0;
         throw error;
       }
       const deadline = this.now() + GENERATION_DEADLINE_MS;
@@ -475,14 +455,6 @@ export class EscapeRooms {
     } finally {
       this.releaseSlot();
     }
-  }
-
-  private endForSpend(room: Room): void {
-    if (room.ended) return;
-    room.ended = {
-      reason: "spend_ceiling",
-      tell: "The spend ceiling for this server is reached. The room stops here.",
-    };
   }
 
   /** At most `maxConcurrentGenerations` requests are in flight at once. */
@@ -554,10 +526,6 @@ function beatView(jamId: string, beat: Beat): BeatView {
     media: viewOf(jamId, beat.segment),
     at: beat.at,
   };
-}
-
-function round(usd: number): number {
-  return Math.round(usd * 100) / 100;
 }
 
 /** A misconfigured provider must not stop the server from starting. */

@@ -40,21 +40,6 @@
 .director-head h1 { margin: 0 0 8px; font-size: clamp(32px, 2.6vw, 50px); }
 .director-head .intro { margin: 0; font-size: 16px; }
 
-/* What this session has spent, against the server's ceiling. */
-.director-spend { flex: 0 0 auto; width: 260px; }
-.director-spend .eyebrow { margin: 0 0 8px; }
-.director-spend-figure {
-  margin: 0 0 10px;
-  font: 500 34px/1 "DM Mono", monospace;
-  letter-spacing: .02em;
-  color: #eef2ff;
-  font-variant-numeric: tabular-nums;
-}
-.director-spend-ceiling { color: #8e94a8; font-size: 18px; }
-.director-spend-bar { height: 6px; border: 1px solid #3f4a68; background: #10162a; }
-.director-spend-bar span { display: block; height: 100%; background: #bbc9ff; }
-.director-spend-note { margin: 8px 0 0; color: #949bad; font-size: 12px; line-height: 1.5; }
-
 .director-grid {
   width: min(1720px, 100%);
   margin: 0 auto;
@@ -115,7 +100,6 @@
 .director-tick { position: absolute; top: 0; bottom: 0; left: calc(var(--at) * 100%); width: 1px; background: #4c587d; }
 .director-tick[data-state="ready"] { background: #7fb894; }
 .director-tick[data-state="generating"] { background: #bbc9ff; }
-.director-tick[data-state="blocked"] { background: #c98189; }
 .director-playhead { position: absolute; top: -3px; bottom: -3px; left: calc(var(--playhead) * 100%); width: 2px; background: #f6f4ee; box-shadow: 0 0 10px rgba(246, 244, 238, .7); }
 .director-transport-clock { margin: 0; font: 500 14px "DM Mono", monospace; color: #eef2ff; font-variant-numeric: tabular-nums; }
 .director-transport-state { color: #8e94a8; letter-spacing: .1em; text-transform: uppercase; font-size: 11px; }
@@ -177,12 +161,11 @@
 .director-beat-unnamed { color: #6c7488; font-style: italic; }
 .director-beat-foot { display: flex; justify-content: space-between; gap: 8px; font: 400 10px "DM Mono", monospace; letter-spacing: .1em; text-transform: uppercase; color: #9aa3bd; }
 
-/* The four treatments, plus blocked, which is marked differently again. */
+/* The four treatments. */
 .director-beat[data-state="written"] { border-style: dashed; border-color: #4c587d; }
 .director-beat[data-state="generating"] { border-style: solid; border-color: #bbc9ff; background: #2b3768; color: #f2f4ff; }
 .director-beat[data-state="ready"] { border-style: solid; border-color: #7fb894; }
 .director-beat[data-state="locked"] { border-style: solid; border-color: #3a4159; background: #262b3a; color: #98a0b5; }
-.director-beat[data-state="blocked"] { border-style: dotted; border-width: 2px; border-color: #c98189; background: repeating-linear-gradient(135deg, rgba(201, 129, 137, .12) 0 6px, transparent 6px 12px); color: #e4bfc3; }
 
 .director-beat[data-linked], .director-beat:hover, .director-beat:focus-visible { outline: 2px solid #f6f4ee; outline-offset: 2px; }
 .director-beat[aria-pressed="true"] { box-shadow: inset 0 0 0 2px rgba(246, 244, 238, .5); }
@@ -194,7 +177,6 @@
 .director-legend li[data-state="generating"] .director-legend-swatch { border-style: solid; border-color: #bbc9ff; background: #2b3768; }
 .director-legend li[data-state="ready"] .director-legend-swatch { border-style: solid; border-color: #7fb894; }
 .director-legend li[data-state="locked"] .director-legend-swatch { border-style: solid; border-color: #3a4159; background: #262b3a; }
-.director-legend li[data-state="blocked"] .director-legend-swatch { border-style: dotted; border-width: 2px; border-color: #c98189; }
 
 /* The direction column. */
 .director-turns { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; max-height: 44vh; overflow-y: auto; }
@@ -219,7 +201,6 @@
 .director-tag[data-state="generating"] { border-style: solid; border-color: #bbc9ff; background: #2b3768; }
 .director-tag[data-state="ready"] { border-style: solid; border-color: #7fb894; }
 .director-tag[data-state="locked"] { border-style: solid; border-color: #3a4159; background: #262b3a; color: #98a0b5; }
-.director-tag[data-state="blocked"] { border-style: dotted; border-width: 2px; border-color: #c98189; color: #e4bfc3; }
 .director-tag-none { color: #6c7488; font-style: italic; }
 
 /* The composer. */
@@ -307,7 +288,6 @@
 @media (max-width: 700px) {
   .director-head { flex-direction: column; align-items: stretch; gap: 22px; padding: 26px 16px 16px; }
   .director-head h1 { font-size: clamp(30px, 9vw, 40px); }
-  .director-spend { width: auto; }
   .director-grid { padding: 0 16px 24px; gap: 14px; }
   .director-stage, .director-timeline, .director-directions, .director-review, .director-composer { padding: 16px; }
   .director-zone-head { flex-direction: column; gap: 8px; }

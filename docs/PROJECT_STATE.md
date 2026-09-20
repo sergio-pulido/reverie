@@ -2168,6 +2168,34 @@ the existing `:root:not([data-input="pointer"])` guard.
 - **Not verified:** no fal session was opened, so the live cost line has been exercised against
   a fake spend payload rather than a real take.
 
+## 2026-09-20 — Spend tracking removed (RV-26)
+
+- Deleted `apps/server/spendLedger.ts` (`SpendAccount`), `src/core/directorSpend.ts` and their
+  tests. `apps/server/falBudget.ts` became `apps/server/beatLimits.ts`, keeping only
+  `maxConcurrentBeats`; the USD-per-second rate constants went with it.
+- `DirectorSessionLedger` no longer reserves, settles or refunds. It counts sessions, enforces
+  `maxConcurrentSessions` and `maxSessionSeconds`, and reclaims idle sessions exactly as before;
+  `release` still drops a refused handshake without announcing a close, and `close` still
+  notifies. `SessionRefusal` lost `budget_exhausted`.
+- `GET /api/jams/:id/director/budget` → `GET /api/jams/:id/director/limits`, answering
+  `{ configured, maxSessionSeconds }`. The `spend` block is gone from `POST /director/session`,
+  `GET /director/session/:id` and the escape-room snapshot. Beat responses lost
+  `remainingBudgetUsd`.
+- UI: the Director screen's dollar readout and its `blocked` beat state are gone (with their
+  CSS), the jam player's cost line is now a take line (`data-testid` `jam-director-cost` →
+  `jam-director-take`) saying what Play opens and when it stops itself, and the escape room's
+  spend paragraph is now a durability note only.
+- Escape room: `EndReason` is `"goal"` alone and the segment status `ceiling_reached` is
+  `session_over`. A room can no longer be ended by a ceiling.
+- Removed from `.env.example`: `FAL_ASSET_BUDGET_USD`, `REVERIE_DIRECTOR_USD_PER_SECOND`,
+  `REVERIE_BEAT_USD_PER_SECOND`, `REVERIE_BEAT_LIKENESS_USD_PER_SECOND`,
+  `REVERIE_ESCAPE_USD_PER_SECOND`. Nothing reads them any more.
+- Documented as a standing rule in `AGENTS.md` ("What this project is optimising for") and
+  `README.md`, alongside the demo-first goal, with the reasoning in `docs/DECISIONS.md`.
+- Verified: `pnpm typecheck` clean; `pnpm test` 1297/1297. **Not verified:** no provider session
+  was opened, so nothing on the fal path was re-probed — this change removes accounting around
+  those calls and does not touch the calls themselves.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

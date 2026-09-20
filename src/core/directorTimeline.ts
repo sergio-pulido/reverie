@@ -5,7 +5,6 @@ import {
   isBeatLocked,
   type DirectorBeatWindow,
 } from "./directorBeats";
-import { canAfford, type DirectorSpend } from "./directorSpend";
 import { buildOutline, type Beat } from "./outline";
 import type { JamScript } from "./script";
 
@@ -27,10 +26,9 @@ import type { JamScript } from "./script";
  * - `generating` — it is with the provider right now.
  * - `locked` — closed to direction but not yet produced: the beat committed
  *   ahead of playback, which is exactly the gap the closing rule creates.
- * - `blocked` — the budget left cannot pay for its seconds.
  * - `written` — in the script, not generated, still open to direction.
  */
-export type BeatState = "written" | "blocked" | "locked" | "generating" | "ready";
+export type BeatState = "written" | "locked" | "generating" | "ready";
 
 export interface TimelineBeat extends Beat {
   /** What the row numbers it: one-based, the way a person counts shots. */
@@ -46,13 +44,12 @@ export interface TimelineInput {
    * finished film still says which beats exist. Null when none was reached.
    */
   producedThrough: number | null;
-  spend: DirectorSpend;
 }
 
-/** One beat's state, from the stream's window and what the budget can pay for. */
+/** One beat's state, from the stream's window alone. */
 export function beatStateOf(
   beat: Beat,
-  { window, producedThrough, spend }: TimelineInput,
+  { window, producedThrough }: TimelineInput,
 ): BeatState {
   if (window) {
     if (window.currentBeatIndex === null) {
@@ -67,7 +64,7 @@ export function beatStateOf(
   } else if (producedThrough !== null && beat.portionIndex <= producedThrough) {
     return "ready";
   }
-  return canAfford(spend, beat.durationSeconds) ? "written" : "blocked";
+  return "written";
 }
 
 /** The film's beats in order, each carrying its state. */
@@ -77,11 +74,6 @@ export function buildTimeline(script: JamScript, input: TimelineInput): Timeline
     number: beat.portionIndex + 1,
     state: beatStateOf(beat, input),
   }));
-}
-
-/** The first beat the budget cannot pay for, or null when it can pay for all of them. */
-export function firstBlockedBeat(beats: readonly TimelineBeat[]): TimelineBeat | null {
-  return beats.find((beat) => beat.state === "blocked") ?? null;
 }
 
 /** One direction the session sent, and what became of it. */

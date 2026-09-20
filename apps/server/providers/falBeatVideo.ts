@@ -3,7 +3,7 @@ import { z } from "zod";
 /**
  * One beat of the film as a finished clip, through fal's queue.
  *
- * Two models, one provider, one key, one budget. They differ only in whether the beat is
+ * Two models, one provider, one key. They differ only in whether the beat is
  * seeded by the faces of the participants who agreed to appear:
  *
  * - `minimax/h3-max/text-to-video` — a plain beat, nobody in the room in it.
@@ -325,8 +325,7 @@ export async function generateBeatVideo(
     await sleep(pollIntervalMs);
   }
 
-  // The request may still be running and may still bill. The budget already holds its
-  // reservation, so giving up here never understates what was spent.
+  // The request may still be running at fal; this only stops us waiting on it.
   throw new BeatVideoError("beat_provider_timeout", "That beat did not finish in time.", true);
 }
 

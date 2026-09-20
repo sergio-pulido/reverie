@@ -16,8 +16,8 @@ import {
  * for one reason: it must not run on the thread that serves HTTP. Depacketizing
  * and muxing a real 480p session on the main thread drove Node to 99% CPU and
  * stalled the event loop — /api/health stopped answering, and so did the route
- * that ends the paid session (docs/DECISIONS.md). A server that cannot answer
- * is a server that cannot stop spending, so the muxer runs in a worker and this
+ * that ends the provider session (docs/DECISIONS.md). A server that cannot
+ * answer is a server that cannot stop generating, so the muxer runs in a worker and this
  * class knows nothing about peers, tracks, sockets or HTTP. It takes serialized
  * RTP and hands back bytes.
  */

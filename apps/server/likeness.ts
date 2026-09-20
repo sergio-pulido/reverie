@@ -17,12 +17,7 @@ import {
   usableLikenesses,
   type BeatLikenessUse,
 } from "../../src/core/likeness";
-import {
-  beatCostUsd,
-  resolveBeatSpendRates,
-  type BeatSpendRates,
-  type FalBudget,
-} from "./falBudget";
+import { resolveBeatLimits, type BeatLimits } from "./beatLimits";
 import { sendError, type JamStore } from "./jams";
 import { checkFrame, frameObjectName, FRAME_REFUSAL_MESSAGE, resolveFrameStore } from "./likenessFrames";
 import { MediaStorageError } from "./objectStorage";
@@ -59,8 +54,7 @@ export interface LikenessRouterOptions {
   supabase?: SupabaseConfig | null;
   rest?: SupabaseRestOptions;
   beatConfig?: BeatVideoConfig | null;
-  rates?: BeatSpendRates;
-  budget: FalBudget;
+  limits?: BeatLimits;
   frames?: PrivateObjectStore;
   clips?: PrivateObjectStore;
   generate?: typeof generateBeatVideo;
@@ -81,11 +75,11 @@ interface BeatRecord {
 
 type Caller = { userId: string; accessToken: string; supabase: SupabaseConfig };
 
-export function createLikenessRouter(store: JamStore, options: LikenessRouterOptions): Router {
+export function createLikenessRouter(store: JamStore, options: LikenessRouterOptions = {}): Router {
   const router = express.Router();
   const env = options.env ?? process.env;
   const rest = options.rest ?? {};
-  const rates = options.rates ?? resolveBeatSpendRates(env);
+  const limits = options.limits ?? resolveBeatLimits(env);
   const frames = options.frames ?? resolveFrameStore(env);
   const clips = options.clips ?? resolvePrivateObjectStore("beats", 16, env);
   const generate = options.generate ?? generateBeatVideo;
@@ -308,7 +302,7 @@ export function createLikenessRouter(store: JamStore, options: LikenessRouterOpt
         sendError(response, 409, "beat_in_flight", "That beat is already being generated.", true);
         return;
       }
-      if (inFlight.size >= rates.maxConcurrentBeats) {
+      if (inFlight.size >= limits.maxConcurrentBeats) {
         sendError(response, 429, "too_many_beats", "Too many beats are generating right now.", true);
         return;
       }
@@ -349,11 +343,6 @@ export function createLikenessRouter(store: JamStore, options: LikenessRouterOpt
       }
 
       const seconds = clampBeatSeconds(portion.durationSeconds);
-      const settle = options.budget.reserve(beatCostUsd(rates, seconds, loaded.length > 0));
-      if (!settle) {
-        sendError(response, 409, "budget_exhausted", "The generation budget for this server is spent.", false);
-        return;
-      }
 
       inFlight.add(key);
       try {
@@ -381,16 +370,11 @@ export function createLikenessRouter(store: JamStore, options: LikenessRouterOpt
               },
         };
         beats.set(key, record);
-        settle(beatCostUsd(rates, seconds, loaded.length > 0));
         response.status(201).json({
           ...projectBeat(record, register, now()),
           durable: clips.durable,
-          remainingBudgetUsd: Number(options.budget.remainingUsd.toFixed(4)),
         });
       } catch (error) {
-        // The request may have been billed, so the reservation stands rather than being
-        // refunded on a guess.
-        settle(beatCostUsd(rates, seconds, loaded.length > 0));
         if (error instanceof BeatVideoError) {
           sendError(response, error.retryable ? 502 : 500, error.code, error.message, error.retryable);
           return;

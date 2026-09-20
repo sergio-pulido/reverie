@@ -35,11 +35,11 @@ export const DIRECTOR_MAX_SCRIPT_BEATS = 64;
 export const DIRECTOR_MIN_MEMORY = 1;
 export const DIRECTOR_MAX_MEMORY = 50;
 /**
- * fal bills each session at a minimum of 60 seconds of runtime, so an idle
- * open session costs the same as a working one. Every guard in ./director is
- * built around this number.
+ * fal treats a session as a minimum 60-second unit of runtime, so a session
+ * configured to live for less than that buys nothing. Every session-lifetime
+ * guard in ./director is built around this number.
  */
-export const DIRECTOR_MIN_BILLED_SECONDS = 60;
+export const DIRECTOR_MIN_SESSION_SECONDS = 60;
 
 export class DirectorError extends Error {
   constructor(
@@ -181,7 +181,7 @@ export const directorOfferSchema = z.object({
 export type DirectorOffer = z.infer<typeof directorOfferSchema>;
 
 /**
- * Exchanges our SDP offer for fal's answer, spending the API key here so it
+ * Exchanges our SDP offer for fal's answer, using the API key here so it
  * never reaches a client. Returns the answer SDP.
  *
  * `/start-session` answers with **Server-Sent Events**, not JSON: a

@@ -96,7 +96,7 @@ This is the cap behaviour. **Expected once implemented:**
 - Expect:
   - The server refuses to create a third configuration at the cap with a typed, non-retryable
     error (for example a `configuration_cap_reached` code; record the actual code). It must
-    **not** fail silently and must **not** generate outside the budget.
+    **not** fail silently and must **not** generate past the cap.
   - The screen lists the room's active configurations — **(en, "")** and
     **(es, "sunlit watercolor")** — and offers an attach control rather than a create form.
 - Do: C attaches to the second configuration, B's **(es, "sunlit watercolor")**.
@@ -131,7 +131,7 @@ the successful third-session payload (minus the token) as proof of the gap. Do n
 - Expected today: `BLOCKED`.
 - Evidence: two session payloads and the resulting configuration count.
 
-### 6. Budget stays bounded
+### 6. Generation stays bounded
 
 - Do: over the whole run, count distinct configurations and generated streams.
 - Expect: distinct configurations **≤ 2**; generated streams **= distinct configurations**;
@@ -163,7 +163,7 @@ the successful third-session payload (minus the token) as proof of the gap. Do n
 
 ## Not covered
 
-- Per-configuration translated/re-ambiented rendering itself (a later, budgeted provider step).
+- Per-configuration translated/re-ambiented rendering itself (a later provider step).
 - Eviction or replacement of an unused configuration (open in the spec).
 - Whether attaching rewrites the session settings or only selects a stream (open in the spec).
 - Live media / Vonage.

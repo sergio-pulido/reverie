@@ -6,7 +6,6 @@ import { createEscapeRouter } from "../apps/server/escape";
 import { EscapeRooms } from "../apps/server/escapeSessions";
 import { InMemoryEscapeMediaStore } from "../apps/server/escapeMedia";
 import { EscapeAuthError, type EscapeCaller } from "../apps/server/escapeAuth";
-import { SpendAccount } from "../apps/server/spendLedger";
 import { findSegmentModel } from "../apps/server/providers/falSegmentModels";
 import { fakeMp4 } from "./fakeMp4";
 
@@ -21,7 +20,6 @@ let server: Server;
 let baseUrl: string;
 let rooms: EscapeRooms;
 const media = new InMemoryEscapeMediaStore();
-const account = new SpendAccount(100);
 /** Who the next request is, and whether authorization lets them in. */
 let caller: EscapeCaller | EscapeAuthError = { userId: "host-1", role: "host", status: "active" };
 
@@ -72,10 +70,9 @@ function post(path: string, body?: unknown) {
 before(async () => {
   rooms = new EscapeRooms({
     media,
-    account,
     fal: { apiKey: "test-key", model: findSegmentModel("minimax/h3-max/text-to-video")! },
     nebius: null,
-    limits: { usdPerSecond: 0.08, loopSeconds: 5, maxConcurrentGenerations: 2 },
+    limits: { loopSeconds: 5, maxConcurrentGenerations: 2 },
     sleep: async () => {},
   });
   const app = express();
@@ -83,7 +80,6 @@ before(async () => {
     createEscapeRouter({
       rooms,
       media,
-      account,
       authorize: async () => {
         if (caller instanceof EscapeAuthError) throw caller;
         return caller;
@@ -131,10 +127,9 @@ test("only the host opens a room", async () => {
   assert.deepEqual(snapshot.beats, []);
   assert.equal(snapshot.ended, null);
   assert.equal(snapshot.mediaDurable, false);
-  assert.equal(snapshot.spend.budgetUsd, 100);
 });
 
-test("a scenario this build does not ship is refused before anything is spent", async () => {
+test("a scenario this build does not ship is refused before anything is generated", async () => {
   const response = await post(`/api/jams/${ROOM_B}/escape-room`, { scenarioId: "the-moon" });
   assert.equal(response.status, 400);
   assert.equal((await response.json()).error.code, "unknown_scenario");

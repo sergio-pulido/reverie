@@ -10,7 +10,7 @@ import type { DirectorSegmentSink } from "./directorSegmentSink";
  * This is the main-thread half. Its entire per-packet cost is `serialize()`
  * and a `postMessage`; the muxing happens in a worker, and finished pieces
  * come back here to be fanned out to the sinks. The session, the audit trail
- * and the route that ends the spend never wait on any of it.
+ * and the route that ends the session never wait on any of it.
  *
  * Capture on the serving thread was measured taking the whole server down —
  * 99% CPU, event loop stalled, `/end` unreachable. This exists so that the
@@ -148,7 +148,7 @@ export class DirectorPieceRecorder {
     worker.on("message", (event: PieceWorkerEvent) => this.onWorkerEvent(event));
     worker.on("error", () => {
       // The muxer thread died. Storage stops; the session, the audit trail and
-      // the route that ends the spend are all untouched — that containment is
+      // the route that ends the session are all untouched — that containment is
       // the reason for the thread. Reported as its own reason, so a dead
       // worker is never mistaken for a codec verdict.
       this.refusal = this.refusal ?? "worker_failed";

@@ -22,8 +22,8 @@ export type SegmentStatus =
   | "forgotten"
   /** No fal key or the live flag is off: this server cannot generate at all. */
   | "not_configured"
-  /** The process spend ceiling refused it. Nothing was sent to the provider. */
-  | "ceiling_reached";
+  /** The session ended before this could be generated. Nothing was sent. */
+  | "session_over";
 
 export interface SegmentView {
   status: SegmentStatus;
@@ -72,13 +72,7 @@ export interface TurnView {
   voters: number;
 }
 
-export type EndReason = "goal" | "spend_ceiling";
-
-export interface SpendView {
-  budgetUsd: number;
-  committedUsd: number;
-  remainingUsd: number;
-}
+export type EndReason = "goal";
 
 export interface EscapeSnapshot {
   jamId: string;
@@ -93,7 +87,6 @@ export interface EscapeSnapshot {
   turn: TurnView;
   beats: readonly BeatView[];
   ended: { reason: EndReason; tell: string } | null;
-  spend: SpendView;
   /** False when this server has no object storage: segments die with it. */
   mediaDurable: boolean;
 }

@@ -1,30 +1,21 @@
-import { FalBudget } from "./falBudget";
-import { DIRECTOR_MIN_BILLED_SECONDS } from "./providers/falDirector";
+import { DIRECTOR_MIN_SESSION_SECONDS } from "./providers/falDirector";
 
 /**
- * Server-owned accounting for Director sessions.
+ * Server-owned lifetime accounting for Director sessions.
  *
- * Director is the only thing this server starts that bills for *time*, with a
- * 60-second minimum per session whether or not anyone watches. So a session is
- * treated like a reservation: opening one debits its worst-case cost up front,
- * and closing it refunds the difference between that and what it actually ran.
- * A session nobody closes expires on its own, because the alternative is a
- * budget that leaks whenever a browser tab dies.
+ * Director holds a live provider stream open, so a session nobody closes keeps
+ * generating until something stops it. A session is therefore given a hard
+ * lifetime and reclaimed when its viewers stop checking in, because the
+ * alternative is a stream that outlives the browser tab that opened it.
  *
- * The budget itself is shared (./falBudget): beat generation spends the same
- * FAL_ASSET_BUDGET_USD, so a room streaming and a room generating beats cannot
- * between them commit twice the total the server was given.
+ * This ledger counts sessions and seconds, never money: the demo does not
+ * track what generation costs (docs/DECISIONS.md).
  */
 
-/** fal's list price per generated second; the promotional rate is lower. */
-export const DEFAULT_USD_PER_SECOND = 0.08;
 /** A session is abandoned if it has not been renewed within this window. */
 export const SESSION_IDLE_TIMEOUT_MS = 90_000;
 
 export interface DirectorSessionLimits {
-  /** Total spend this process may commit to Director. */
-  budgetUsd: number;
-  usdPerSecond: number;
   maxConcurrentSessions: number;
   maxSessionSeconds: number;
 }
@@ -33,19 +24,15 @@ export function resolveDirectorLimits(
   env: NodeJS.ProcessEnv,
 ): DirectorSessionLimits {
   return {
-    budgetUsd: positiveNumber(env.FAL_ASSET_BUDGET_USD, 0),
-    usdPerSecond: positiveNumber(
-      env.REVERIE_DIRECTOR_USD_PER_SECOND,
-      DEFAULT_USD_PER_SECOND,
-    ),
     maxConcurrentSessions: Math.max(
       1,
       Math.floor(positiveNumber(env.REVERIE_DIRECTOR_MAX_SESSIONS, 1)),
     ),
-    // 120s reserves $9.60 at list price, so two streams still fit the $20
-    // budget the project ships with. A higher ceiling is an explicit choice.
+    // Two minutes is long enough for a take and short enough that an
+    // abandoned stream stops on its own. A higher ceiling is an explicit
+    // choice.
     maxSessionSeconds: Math.max(
-      DIRECTOR_MIN_BILLED_SECONDS,
+      DIRECTOR_MIN_SESSION_SECONDS,
       Math.floor(
         positiveNumber(env.REVERIE_DIRECTOR_MAX_SESSION_SECONDS, 120),
       ),
@@ -59,7 +46,6 @@ function positiveNumber(raw: string | undefined, fallback: number): number {
 }
 
 export type SessionRefusal =
-  | "budget_exhausted"
   | "too_many_sessions"
   | "already_open";
 
@@ -84,23 +70,17 @@ export interface OpenSession {
   streamKey: string;
   startedAt: number;
   lastSeenAt: number;
-  reservedUsd: number;
 }
 
 export class DirectorSessionLedger {
   private readonly sessions = new Map<string, OpenSession>();
-  private readonly settlers = new Map<string, (actualUsd: number) => void>();
   private readonly closedListeners = new Set<(sessionId: string) => void>();
   private counter = 0;
-  private readonly budget: FalBudget;
 
   constructor(
     private readonly limits: DirectorSessionLimits,
     private readonly now: () => number = () => Date.now(),
-    budget?: FalBudget,
-  ) {
-    this.budget = budget ?? new FalBudget(limits.budgetUsd);
-  }
+  ) {}
 
   /**
    * Called whenever a session settles or is reclaimed, so every owner can
@@ -117,27 +97,6 @@ export class DirectorSessionLedger {
     for (const listener of this.closedListeners) listener(sessionId);
   }
 
-  /** Worst-case cost of a session that runs to its allowed limit. */
-  private reservationUsd(): number {
-    return this.limits.maxSessionSeconds * this.limits.usdPerSecond;
-  }
-
-  /** Cost of a session that ran `seconds`, honouring the billed minimum. */
-  private billedUsd(seconds: number): number {
-    return (
-      Math.max(DIRECTOR_MIN_BILLED_SECONDS, Math.ceil(seconds)) *
-      this.limits.usdPerSecond
-    );
-  }
-
-  get committedUsd(): number {
-    return this.budget.spentUsd;
-  }
-
-  get remainingUsd(): number {
-    return this.budget.remainingUsd;
-  }
-
   open(streamKey: string): OpenSession | SessionRefusal {
     this.expireIdle();
     // The per-configuration check comes first so the caller is told the
@@ -145,16 +104,13 @@ export class DirectorSessionLedger {
     // otherwise mask "this configuration already has one" and send a client
     // off retrying instead of attaching to the stream that exists.
     for (const session of this.sessions.values()) {
-      // One stream per configuration: a second would bill twice for one
-      // audience watching the same thing.
+      // One stream per configuration: a second would open a second provider
+      // stream for one audience watching the same thing.
       if (session.streamKey === streamKey) return "already_open";
     }
     if (this.sessions.size >= this.limits.maxConcurrentSessions) {
       return "too_many_sessions";
     }
-    const reservedUsd = this.reservationUsd();
-    const settle = this.budget.reserve(reservedUsd);
-    if (!settle) return "budget_exhausted";
     this.counter += 1;
     const at = this.now();
     const session: OpenSession = {
@@ -162,10 +118,8 @@ export class DirectorSessionLedger {
       streamKey,
       startedAt: at,
       lastSeenAt: at,
-      reservedUsd,
       viewers: new Map(),
     };
-    this.settlers.set(session.sessionId, settle);
     this.sessions.set(session.sessionId, session);
     return session;
   }
@@ -236,54 +190,39 @@ export class DirectorSessionLedger {
   }
 
   /**
-   * Cancels a session that never started, refunding the whole reservation.
+   * Drops a session that never started, without announcing a close.
    *
-   * Only for a handshake fal refused: no session existed on their side, so
-   * billing it the 60-second minimum would charge the budget for nothing. A
-   * session that opened must go through `close` instead.
+   * Only for a handshake fal refused: no stream exists on their side and none
+   * was attached on ours, so there is nothing for the close listeners to tear
+   * down. A session that opened must go through `close` instead.
    */
   release(sessionId: string): boolean {
-    const session = this.sessions.get(sessionId);
-    if (!session) return false;
-    this.settlers.get(sessionId)?.(0);
-    this.settlers.delete(sessionId);
-    this.sessions.delete(sessionId);
+    if (!this.sessions.delete(sessionId)) return false;
     return true;
   }
 
-  /** Settles a session: the reservation is replaced by what it actually ran. */
+  /** Ends a session and tells every owner to tear its stream down. */
   close(sessionId: string): boolean {
     const session = this.sessions.get(sessionId);
     if (!session) return false;
-    this.settle(session);
+    this.forget(session);
     return true;
   }
 
-  private settle(session: OpenSession): void {
-    const ranSeconds = (this.now() - session.startedAt) / 1000;
-    this.settlers.get(session.sessionId)?.(this.billedUsd(ranSeconds));
-    this.settlers.delete(session.sessionId);
+  private forget(session: OpenSession): void {
     this.sessions.delete(session.sessionId);
     this.notifyClosed(session.sessionId);
   }
 
-  /**
-   * Reclaims sessions whose client stopped checking in. They are settled at
-   * their full reservation, not at elapsed time: the server cannot know that
-   * fal actually stopped generating, and guessing low would understate spend.
-   */
+  /** Reclaims sessions whose viewers stopped checking in. */
   expireIdle(): void {
     const at = this.now();
     const cutoff = at - SESSION_IDLE_TIMEOUT_MS;
     for (const session of [...this.sessions.values()]) {
-      // The configured ceiling is a real spend limit, not only the number used
-      // to reserve budget. An actively renewing viewer cannot extend a paid
-      // session past the amount the ledger committed for it.
+      // The configured ceiling is a hard lifetime, not a soft one: an
+      // actively renewing viewer cannot extend a session past it.
       if (at - session.startedAt >= this.limits.maxSessionSeconds * 1000) {
-        this.settlers.get(session.sessionId)?.(session.reservedUsd);
-        this.settlers.delete(session.sessionId);
-        this.sessions.delete(session.sessionId);
-        this.notifyClosed(session.sessionId);
+        this.forget(session);
         continue;
       }
       for (const [viewerId, seenAt] of [...session.viewers]) {
@@ -293,15 +232,7 @@ export class DirectorSessionLedger {
       // still watching it. A session with none falls back to its own clock,
       // which covers the moment between opening and the first viewer attaching.
       if (session.viewers.size > 0) continue;
-      if (session.lastSeenAt <= cutoff) {
-        // Settled at the full reservation, not at elapsed time: the server
-        // cannot know fal stopped generating, and guessing low would
-        // understate spend.
-        this.settlers.get(session.sessionId)?.(session.reservedUsd);
-        this.settlers.delete(session.sessionId);
-        this.sessions.delete(session.sessionId);
-        this.notifyClosed(session.sessionId);
-      }
+      if (session.lastSeenAt <= cutoff) this.forget(session);
     }
   }
 

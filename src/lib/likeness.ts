@@ -27,7 +27,7 @@ export function captureFrame(video: HTMLVideoElement): Promise<Blob> {
   if (!width || !height) {
     return Promise.reject(new JamError("unavailable", "The camera is not showing a picture yet."));
   }
-  // Square, centred, and scaled into the band the provider and the spend guard agree on.
+  // Square, centred, and scaled into the band the provider and the payload guard agree on.
   const side = Math.min(width, height);
   const target = Math.max(MIN_FRAME_PIXELS, Math.min(MAX_FRAME_PIXELS, side));
   const canvas = document.createElement("canvas");

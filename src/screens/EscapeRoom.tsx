@@ -188,7 +188,7 @@ export function EscapeRoom({
     </div>}
 
     <BeatLog beats={snapshot.beats} />
-    <Spend snapshot={snapshot} />
+    <MediaNote snapshot={snapshot} />
     {failure && <Notice>{failure}</Notice>}
   </div>;
 }
@@ -259,13 +259,11 @@ function BeatLog({ beats }: { beats: readonly BeatView[] }) {
   </ol>;
 }
 
-/** Real money, committed against the ceiling this server already documents. */
-function Spend({ snapshot }: { snapshot: EscapeSnapshot }) {
+/** Whether what this room films survives the server that filmed it. */
+function MediaNote({ snapshot }: { snapshot: EscapeSnapshot }) {
+  if (snapshot.mediaDurable) return null;
   return <p className="form-note">
-    {snapshot.spend.budgetUsd > 0
-      ? `Committed $${snapshot.spend.committedUsd.toFixed(2)} of this server's $${snapshot.spend.budgetUsd.toFixed(2)} ceiling.`
-      : "This server has no generation budget configured, so nothing can be generated."}
-    {snapshot.mediaDurable ? "" : " Generated shots are held in memory and are lost if this server restarts."}
+    Generated shots are held in memory and are lost if this server restarts.
   </p>;
 }
 
@@ -276,7 +274,7 @@ function mediaLabel(media: SegmentView): string {
   if (media.status === "generating") return "filming";
   if (media.status === "failed") return "not filmed";
   if (media.status === "forgotten") return "filmed, no longer held";
-  if (media.status === "ceiling_reached") return "past the spend ceiling";
+  if (media.status === "session_over") return "the session ended first";
   if (media.status === "not_configured") return "no video on this server";
   return "not filmed";
 }

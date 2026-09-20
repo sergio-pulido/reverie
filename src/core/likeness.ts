@@ -19,7 +19,7 @@ export const LIKENESS_REF_PREFIX = "likeness:";
  * How many consenting participants can seed one beat.
  *
  * The model accepts nine reference images; three is ours. Each reference is a whole frame in
- * a bounded request body and each one costs, so the cap is a spend and payload decision
+ * a bounded request body, so the cap is a payload decision
  * rather than the provider's limit.
  */
 export const MAX_LIKENESS_REFERENCES = 3;
@@ -32,7 +32,7 @@ export const FRAME_CONTENT_TYPE = FRAME_CONTENT_TYPES[0];
 /**
  * The provider refuses a reference below 256×256 — measured, not read off a page.
  *
- * The upper bound is ours, and it is a spend decision: the provider includes 4,096 reference
+ * The upper bound is ours, and it is a payload decision: the provider includes 4,096 reference
  * tokens in every request and charges beyond them, and a 1024×1024 image is 1,024 tokens.
  * Three references of at most 1024×1024 stay inside the included allowance, so appearing in
  * the film costs the room the clip and nothing on top of it.

@@ -86,7 +86,7 @@ one. See `docs/specs/configuration-keyed-streams.md`.
 **Boundary.** A session stores and exposes the parameters that *will* skin its owner's
 playback; it does not translate or re-ambient the script yet. `renderScriptMarkdown` only
 annotates the header with the owner's name, language and ambientation — the scene body is still
-the shared script. Per-session generated playback is a later, budgeted provider step, keyed by
+the shared script. Per-session generated playback is a later provider step, keyed by
 configuration rather than by person (`docs/specs/configuration-keyed-streams.md`). The owner
 token is issued once, is never listed, and must be treated as a secret.
 
@@ -108,7 +108,7 @@ path (`PUT /api/jams/:id/script`) so history stays append-only and every change 
 and revertible. Edits apply to the editable copy from section 2, not to the shared script.
 Participant input and model output are treated as data, validated with Zod, and appended as
 text — never executed as instructions or injected as HTML. Any paid provider call stays behind
-the server-owned model allowlist, concurrency gate and spend limits, and never silently falls
+the server-owned model allowlist and concurrency gate, and never silently falls
 back to a mock.
 
 **Boundary.** There is no chat-to-edit route today, and no such control on the script screen.

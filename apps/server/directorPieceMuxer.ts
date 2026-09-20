@@ -254,7 +254,7 @@ export class PieceMuxer {
     if (this.stopped) return;
     this.stopped = true;
     // A muxer that was refused, or never saw a frame, has no end-of-stream to
-    // send; waiting for one would only delay the route that settles the spend.
+    // send; waiting for one would only delay the route that ends the session.
     const ended = this.produced && !this.refusal
       ? new Promise<void>((resolve) => {
           this.onEol = resolve;

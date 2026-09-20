@@ -15,8 +15,8 @@ import type {
  * each RTP packet and hand it to the worker that muxes. That division is the
  * whole design. Muxing on this thread drove a real 480p session to 99% CPU and
  * stalled the event loop, which stopped `/api/health` *and* the route that ends
- * the paid session; a server that cannot answer is a server that cannot stop
- * spending (docs/DECISIONS.md).
+ * the provider session; a server that cannot answer is a server that cannot
+ * stop generating (docs/DECISIONS.md).
  *
  * There is one segmenter per session and it fans finished segments out to
  * sinks, so live delivery and the durable archive publish the same bytes under
@@ -184,7 +184,7 @@ export class DirectorSegmenter implements DirectorTrackConsumer {
     const died = () => {
       this.releaseListeners();
       // The muxer thread died. Live delivery stops; the session, the recording
-      // and the route that ends the spend are all untouched, which is the point
+      // and the route that ends the session are all untouched, which is the point
       // of it being a separate thread in the first place.
       if (!this.stopped) this.refusal ??= "worker_failed";
     };

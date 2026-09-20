@@ -15,7 +15,6 @@ import {
 } from "../core/directorProtocol";
 import type { DirectorAuditEntry } from "../core/directorAudit";
 import type { DirectorBeatWindow } from "../core/directorBeats";
-import { formatUsd, type DirectorSpend } from "../core/directorSpend";
 import { formatClock } from "../core/clock";
 import type { SessionSettings } from "../core/session";
 import { attachHlsStream } from "../lib/hlsPlayback";
@@ -25,12 +24,12 @@ import {
   directorRecordingSrc,
   DirectorSessionError,
   endDirectorSession,
-  readDirectorBudget,
+  readDirectorLimits,
   readDirectorSession,
   renewDirectorSession,
   startDirectorSession,
   watchDirectorStream,
-  type DirectorBudget,
+  type DirectorLimits,
   type OpenedDirectorSession,
 } from "../lib/directorSession";
 
@@ -77,13 +76,9 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
   const [viewerId, setViewerId] = useState<string | null>(null);
   const [liveDelivery, setLiveDelivery] = useState(false);
   const [playbackFailure, setPlaybackFailure] = useState<string | null>(null);
-  // What the take is costing, as the server counts it. Read on every poll and
-  // on every open, because a per-second bill that is only visible afterwards
-  // is not a spend control anybody can act on.
-  const [spend, setSpend] = useState<DirectorSpend | null>(null);
-  /** What this server will spend at all, read before anything is spent. */
-  const [budget, setBudget] = useState<DirectorBudget | null>(null);
-  /** Where a take stops itself; the budget route says so before the first one. */
+  /** What this server allows a take to do, read before anybody presses Play. */
+  const [limits, setLimits] = useState<DirectorLimits | null>(null);
+  /** Where a take stops itself; the limits route says so before the first one. */
   const [maxSeconds, setMaxSeconds] = useState<number | null>(null);
   /** The relay could not be attached: the take runs, this screen cannot show it. */
   const [relayFailure, setRelayFailure] = useState<string | null>(null);
@@ -113,7 +108,6 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
     setBeats(opened.beats);
     setAttached(opened.attached);
     setDurable(opened.recordingDurable);
-    setSpend(opened.spend);
     setMaxSeconds(opened.maxSessionSeconds);
   }, []);
 
@@ -121,7 +115,7 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
    * Plays the shared stream.
    *
    * The playlist is the same address for everyone watching this configuration,
-   * so a second viewer costs a cache hit rather than a second paid session.
+   * so a second viewer costs a cache hit rather than a second provider session.
    */
   useEffect(() => {
     const video = screen.current;
@@ -137,8 +131,8 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
    * Joins a stream that is already running.
    *
    * Opening a jam where the room is watching something should show the film,
-   * not a button. This never starts one: starting bills a sixty-second
-   * minimum, so walking into a room must not be able to spend that. Arriving
+   * not a button. This never starts one: a room has a single provider stream
+   * per configuration, so arriving must not open a second. Arriving
    * attaches to what is already running or waits for somebody to press Play,
    * which is also how whoever started it rejoins after reopening the jam.
    */
@@ -213,23 +207,22 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
   }, [readRoom]);
 
   /**
-   * What this server will spend, before anybody presses anything.
+   * What this server allows, before anybody presses anything.
    *
    * Without it the first thing a reader learns about a server with no director
-   * configured is a refusal, and the first thing they learn about the price is
-   * the bill. Both are knowable up front, so both are said up front.
+   * configured is a refusal on press. That is knowable up front, so it is
+   * said up front.
    */
   useEffect(() => {
     let cancelled = false;
-    void readDirectorBudget(jamId)
+    void readDirectorLimits(jamId)
       .then((current) => {
         if (cancelled) return;
-        setBudget(current);
-        setMaxSeconds((known) => known ?? current.maxSessionSeconds);
-        setSpend((known) => known ?? current.spend);
+        setLimits(current);
+        setMaxSeconds((known: number | null) => known ?? current.maxSessionSeconds);
       })
       .catch(() => {
-        // An unreadable budget is not a reason to hide the room; the refusal
+        // Unreadable limits are not a reason to hide the room; the refusal
         // on press still says what happened.
       });
     return () => {
@@ -248,7 +241,6 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
         setState(snapshot.state);
         setAudit(snapshot.audit);
         setBeats(snapshot.beats);
-        setSpend(snapshot.spend);
       } catch (error) {
         if (cancelled) return;
         // Somebody else stopped it, or the server reclaimed it. This screen is
@@ -376,9 +368,9 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
         .catch(() => undefined);
     } catch (error) {
       // Ending is idempotent server-side, so this is rarely a real failure —
-      // but the one time it is, a paid take is still running and the reader is
-      // the only one who can do anything about it. Saying nothing was the
-      // wrong trade for the one failure on this screen that costs money.
+      // but the one time it is, a provider take is still running and the
+      // reader is the only one who can do anything about it. Saying nothing
+      // was the wrong trade for the one failure this screen cannot undo.
       setFailure(
         error instanceof DirectorSessionError
           ? `${error.message} The take may still be running; try Stop again.`
@@ -454,14 +446,14 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
       * Two signals, play and stop, and both belong to whoever is in the room.
       * Nobody owns the take: a room where only one person could start it left
       * everyone who joined watching a button they could not press, and made
-      * the stream depend on that one person staying. The cost of the take is
+      * the stream depend on that one person staying. What the take does is
       * stated below rather than fenced off behind a role.
       */}
     {/*
       * The emphasis follows the take. While nothing is running the offer is
       * Play; once it is running the only thing worth pressing — and the one
-      * that stops the per-second bill — is Stop, so Stop is what the eye lands
-      * on and Play recedes to a disabled label saying what is happening.
+      * that releases the provider stream — is Stop, so Stop is what the eye
+      * lands on and Play recedes to a disabled label saying what is happening.
       */}
     <div className="hero-actions">
       <button
@@ -492,12 +484,11 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
       */}
     {failure && <Notice>{failure}</Notice>}
     {/*
-      * What a press commits to, before it is pressed, and what it is costing
-      * while it runs. The numbers are the server's own: the budget route
-      * before a take, the session snapshot during one.
+      * What a press commits to, before it is pressed. The numbers are the
+      * server's own, read from the limits route before a take exists.
       */}
-    <p className="form-note" data-testid="jam-director-cost">
-      {costLine({ budget, spend, maxSeconds, live })}
+    <p className="form-note" data-testid="jam-director-take">
+      {takeLine({ limits, maxSeconds, live })}
     </p>
 
     {/*
@@ -639,43 +630,31 @@ function statusLine(
 }
 
 /**
- * What a take costs: committed before it starts, spent while it runs.
+ * What a take does, stated before it is pressed.
  *
- * The reservation is stated because it is the number that surprises — opening
- * a take commits the whole ceiling to the budget until it settles, so a room
- * with money left can still be refused a second take, and being told that
- * afterwards is being told too late.
+ * The self-stop is the number that surprises: a take ends on its own after
+ * the server's ceiling whether or not the room is done with it, and being
+ * told that afterwards is being told too late.
  */
-function costLine({
-  budget,
-  spend,
+function takeLine({
+  limits,
   maxSeconds,
   live,
 }: {
-  budget: DirectorBudget | null;
-  spend: DirectorSpend | null;
+  limits: DirectorLimits | null;
   maxSeconds: number | null;
   live: boolean;
 }): string {
-  if (!spend) return "Reading what this server will spend…";
-  if (spend.budgetUsd <= 0) {
-    return "No director budget is configured on this server, so nothing can be generated here.";
-  }
+  if (!limits) return "Reading what this server allows…";
   const stopsItself =
     maxSeconds === null ? "" : ` It stops itself after ${formatClock(maxSeconds)}.`;
   if (live) {
-    return `This take has cost ${formatUsd(spend.sessionUsd)} so far · ${formatUsd(spend.remainingUsd)} left of ${formatUsd(spend.budgetUsd)}.${stopsItself}`;
+    return `This take is running.${stopsItself}`;
   }
-  const minimum = formatUsd(spend.minBilledSeconds * spend.usdPerSecond);
-  const reserved =
-    maxSeconds === null ? null : formatUsd(maxSeconds * spend.usdPerSecond);
-  const commitment = reserved
-    ? ` Opening one holds ${reserved} of the budget until the take settles.`
-    : "";
-  const configured = budget && !budget.configured
-    ? " This server has no live director configured, so Play will be refused."
-    : "";
-  return `Play opens a paid session: ${minimum} minimum for the first ${spend.minBilledSeconds}s.${stopsItself}${commitment} ${formatUsd(spend.remainingUsd)} left of ${formatUsd(spend.budgetUsd)}.${configured}`;
+  if (!limits.configured) {
+    return "This server has no live director configured, so Play will be refused.";
+  }
+  return `Play opens a live session with the provider.${stopsItself}`;
 }
 
 /**

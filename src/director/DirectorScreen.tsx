@@ -4,10 +4,8 @@ import { formatClock } from "../core/clock";
 import {
   buildTimeline,
   directionTurns,
-  firstBlockedBeat,
   type TimelineBeat,
 } from "../core/directorTimeline";
-import { budgetSpent, formatUsd } from "../core/directorSpend";
 import { totalDurationSeconds } from "../core/script";
 import { readJamConfiguration } from "../lib/jamConfiguration";
 import { TopBar } from "../shell/TopBar";
@@ -36,8 +34,8 @@ import { usePlaybackClock } from "./usePlaybackClock";
  * you asked for are still yours to take back.
  *
  * Everything drawn here comes from something this product knows: the script's
- * own beats and durations, the stream's own audit trail, and the server's own
- * budget. Where there is nothing to know, the screen says so.
+ * own beats and durations and the stream's own audit trail. Where there is
+ * nothing to know, the screen says so.
  */
 export function DirectorScreen({ slug }: { slug: string | null }) {
   const film = useDirectorFilm(slug);
@@ -61,16 +59,14 @@ export function DirectorScreen({ slug }: { slug: string | null }) {
         ? buildTimeline(script, {
             window: session.beats,
             producedThrough: session.producedThrough,
-            spend: session.spend,
           })
         : [],
-    [script, session.beats, session.producedThrough, session.spend],
+    [script, session.beats, session.producedThrough],
   );
   const turns = useMemo(() => directionTurns(session.audit, script), [session.audit, script]);
 
   const currentBeatIndex = session.beats?.currentBeatIndex ?? null;
   const currentBeat = currentBeatIndex === null ? null : beats[currentBeatIndex] ?? null;
-  const blockedBeat = firstBlockedBeat(beats);
   // Playing and stopping the stream belong to whoever can open this jam: the
   // take is the room's, not one person's. The room's playback clock is a
   // different thing — the database lets only the host move it — so it keeps
@@ -109,7 +105,6 @@ export function DirectorScreen({ slug }: { slug: string | null }) {
 
   const cannotStart = startRefusal({
     configured: session.configured,
-    spent: budgetSpent(session.spend),
     hasScript: script !== null,
     scriptMissing: film.scriptMissing,
   });
@@ -124,12 +119,6 @@ export function DirectorScreen({ slug }: { slug: string | null }) {
             {script?.logline ?? room?.premise ?? "One person, one film, one conversation."}
           </p>
         </div>
-        <Spend
-          sessionUsd={session.spend.sessionUsd}
-          budgetUsd={session.spend.budgetUsd}
-          remainingUsd={session.spend.remainingUsd}
-          generatedSeconds={session.state.generatedSeconds}
-        />
       </header>
 
       {film.persistence === "preview" && (
@@ -216,13 +205,7 @@ export function DirectorScreen({ slug }: { slug: string | null }) {
             onDirect={session.direct}
             targetBeat={selected}
             onClearTarget={() => setSelected(null)}
-            notes={composerNotes({
-              live: session.live,
-              cannotStart,
-              blockedBeatNumber: blockedBeat?.number ?? null,
-              remainingUsd: session.spend.remainingUsd,
-              budgetUsd: session.spend.budgetUsd,
-            })}
+            notes={composerNotes({ live: session.live, cannotStart })}
             blocked={!session.live}
             cellProps={cellProps}
           />
@@ -252,47 +235,11 @@ function Shell({ children }: { children: ReactNode }) {
   );
 }
 
-/**
- * What this session has cost, against the ceiling the server is configured
- * with. Both figures are real: the bill comes from the seconds the provider
- * generated, the ceiling from `FAL_ASSET_BUDGET_USD`.
- */
-function Spend({
-  sessionUsd,
-  budgetUsd,
-  remainingUsd,
-  generatedSeconds,
-}: {
-  sessionUsd: number;
-  budgetUsd: number;
-  remainingUsd: number;
-  generatedSeconds: number;
-}) {
-  const share = budgetUsd > 0 ? Math.min(1, sessionUsd / budgetUsd) : 0;
-  return (
-    <div className="director-spend" aria-label="What this session has spent">
-      <p className="eyebrow">SPENT</p>
-      <p className="director-spend-figure">
-        {formatUsd(sessionUsd)}
-        <span className="director-spend-ceiling"> of {formatUsd(budgetUsd)}</span>
-      </p>
-      <div className="director-spend-bar" aria-hidden="true">
-        <span style={{ width: `${(share * 100).toFixed(1)}%` }} />
-      </div>
-      <p className="director-spend-note">
-        {budgetUsd > 0
-          ? `${formatClock(generatedSeconds)} generated · ${formatUsd(remainingUsd)} left`
-          : "No director budget is configured on this server, so nothing can be generated."}
-      </p>
-    </div>
-  );
-}
-
 /** What the timeline's treatments mean, stated once rather than guessed at. */
 function Legend() {
   return (
     <ul className="director-legend" aria-label="What a beat's state means">
-      {(["written", "generating", "ready", "locked", "blocked"] as const).map((state) => (
+      {(["written", "generating", "ready", "locked"] as const).map((state) => (
         <li key={state} data-state={state}>
           <span className="director-legend-swatch" aria-hidden="true" />
           <strong>{BEAT_STATE_LABEL[state]}</strong> {BEAT_STATE_MEANING[state]}
@@ -345,54 +292,35 @@ function ReviewTools({ beat, live }: { beat: TimelineBeat | null; live: boolean 
 /** Why a session cannot be opened at all, or null when it can. */
 function startRefusal({
   configured,
-  spent,
   hasScript,
   scriptMissing,
 }: {
   configured: boolean;
-  spent: boolean;
   hasScript: boolean;
   scriptMissing: string | null;
 }): string | null {
   if (!hasScript) return scriptMissing ?? "There is no script to generate from.";
   if (!configured) return "The live director is not configured on this server.";
-  if (spent) return "The director budget for this server is spent. No further beat can be generated.";
   return null;
 }
 
 /**
  * What the composer says under the field.
  *
- * Two different facts, and both can hold at once: whether anything can be sent
- * at all, and what the budget will no longer pay for. Collapsing them into one
- * line is how "the budget is out" ends up hidden behind "the stream is
- * stopped", which is the one thing the viewer most needs told.
+ * One fact today — whether anything can be sent at all — kept as a list
+ * because the composer renders several lines and the reasons a direction
+ * cannot land are not all the same reason.
  */
 function composerNotes({
   live,
   cannotStart,
-  blockedBeatNumber,
-  remainingUsd,
-  budgetUsd,
 }: {
   live: boolean;
   cannotStart: string | null;
-  blockedBeatNumber: number | null;
-  remainingUsd: number;
-  budgetUsd: number;
 }): string[] {
   const notes: string[] = [];
   if (!live) {
     notes.push(cannotStart ?? "The stream is stopped. Play it, and what you say reaches it.");
-  }
-  if (budgetUsd <= 0) {
-    notes.push("No director budget is configured on this server, so no beat can be generated.");
-  } else if (remainingUsd <= 0) {
-    notes.push("The director budget is spent. No further beat can be generated.");
-  } else if (blockedBeatNumber !== null) {
-    notes.push(
-      `Only ${formatUsd(remainingUsd)} of the director budget is left, so beat ${blockedBeatNumber} onward is blocked.`,
-    );
   }
   return notes;
 }

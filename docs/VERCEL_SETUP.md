@@ -12,7 +12,7 @@ Import this public repository into Vercel with root directory `.` and production
 
 Follow [Supabase setup](SUPABASE_SETUP.md) before testing persistent rooms. Anonymous identity belongs to the browser profile and origin: localhost, preview and production do not share host sessions. Clearing browser data may lose host access until account recovery is implemented.
 
-Provider keys, Vonage signing credentials and spend limits from `.env.example` belong only in server environment variables, never `VITE_`. No service-role key is needed for current room creation. Add elevated credentials only if a future reviewed server operation requires them; privileged handlers must validate identity and membership themselves. Keep `REVERIE_LIVE_ENABLED=false` until documented probes and limits exist.
+Provider keys and Vonage signing credentials from `.env.example` belong only in server environment variables, never `VITE_`. No service-role key is needed for current room creation. Add elevated credentials only if a future reviewed server operation requires them; privileged handlers must validate identity and membership themselves. Keep `REVERIE_LIVE_ENABLED=false` until documented probes and limits exist.
 
 ## Verification
 

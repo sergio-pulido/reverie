@@ -6,8 +6,7 @@ the store commit and the client panel are built (RV-22) and covered by tests tha
 completion. A real run against Nebius on the local Docker stack then produced beats with the
 script, cascaded a `set` and a `reroll` coherently, and exercised the replay and stale-revision
 refusals — the receipt, with what was observed and what was not, is in `docs/PROJECT_STATE.md`.
-**Delivery into a live director stream remains unobserved:** no session was opened, because one
-bills by the second from a 60-second minimum.
+**Delivery into a live director stream remains unobserved:** no session was opened.
 
 ## Why an outline exists
 
@@ -348,20 +347,18 @@ The edit record reports `direction: { sent, refused, skipped }` — `skipped` be
 edit was not for. A refusal (`stream_not_ready`, `beat_locked`) is recorded and never fails the
 edit, and with no stream open nothing is sent and nothing is wrong.
 
-**What delivery costs.** A direction is a control message on a session that is already billing for
-wall-clock time, so fanning one out to several streams adds no charge per this server's own
-accounting: `DirectorSessionLedger` bills `max(60, seconds) × usdPerSecond` on close, counting
-duration and never prompts, and each of those streams was billing whether or not anyone directed
-it. The paid call in this path is the cascade completion — one per edit, regardless of how many
-streams are open. Two caveats worth stating rather than assuming: that ledger is this repository's
-*model* of fal's billing for the realtime director, which has never been probed with a valid key,
-so a per-prompt charge would change the picture; and a stream that re-plans may generate different
-content, not more of it.
+**What delivery adds.** A direction is a control message on a session that is already running, so
+fanning one out to several streams opens no new provider work: each of those streams was
+generating whether or not anyone directed it. The one new provider call in this path is the
+cascade completion — one per edit, regardless of how many streams are open. Two caveats worth
+stating rather than assuming: this server does not track what any of it costs
+(`docs/DECISIONS.md`), so nothing here is a claim about fal's charges; and a stream that re-plans
+may generate different content, not more of it.
 
 Two constraints from the earlier design still hold:
 
-- **The queue never opens or holds a director session.** A session bills a 60-second minimum of
-  wall clock whether or not anyone is directing. An outline edit commits durably with no stream
+- **The queue never opens or holds a director session.** A session holds a live provider stream
+  whether or not anyone is directing. An outline edit commits durably with no stream
   up; delivery is best-effort on top.
 - **A rejected direction never transitions anything in the outline.** Generation runs after the
   commit, so a provider refusal leaves the accepted story intact — the rule

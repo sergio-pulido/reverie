@@ -100,7 +100,7 @@ never executable instructions, never HTML. Existing script content fed to the mo
 carries the same treatment — a line of dialogue that reads like an instruction is dialogue.
 
 **Provider boundary.** Any paid call goes through the server-configured Nebius allowlist behind
-the generation concurrency gate and the per-jam spend caps, exactly as script generation does
+the generation concurrency gate, exactly as script generation does
 (`apps/server/scriptwriter.ts`). It never silently falls back to a mock, and a disabled or
 uncredentialed provider produces a typed refusal rather than a fabricated edit.
 
@@ -138,7 +138,7 @@ with the shape the capability actually needs.
 - Whether adoption requires the fork to be rebased onto the shared line's current revision when
   the two have diverged in the same portion, and what the conflict surface looks like if so.
 - Whether a fork may be played — which would make it a configuration-keyed stream question and
-  a budget question, not just a storage one.
+  a provider-load question, not just a storage one.
 - The chat's context window: how much of the script the model sees, and how that cost is capped.
 - Whether chat editing is available before a jam has started playing, when no boundary exists
   and the distinction between fork and shared line is at its least visible.

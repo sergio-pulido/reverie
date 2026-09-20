@@ -104,7 +104,7 @@ Two caps currently exist and mean different things:
 
 Under this model the uniqueness constraint is the real rule and the numeric cap becomes a
 **membership** cap, not a session cap. It must not be confused with the configuration cap, which
-is a separate budget control over distinct configurations, not over people
+is a separate concurrency control over distinct configurations, not over people
 (`docs/specs/configuration-keyed-streams.md` makes the same warning about the same constant).
 
 ## Open questions (unspecified)

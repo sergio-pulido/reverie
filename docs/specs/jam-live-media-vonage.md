@@ -80,5 +80,5 @@ Changes and drops the reference. An expired consent behaves the same way without
 ## Not in this slice
 
 Archiving, broadcast, RTMP output, captions, fal.ai transformation of a live feed, and any
-export. Each needs its own permission, its own consent field and its own budget, and none is
+export. Each needs its own permission and its own consent field, and none is
 enabled as a side effect of joining a stage.

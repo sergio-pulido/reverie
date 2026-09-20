@@ -20,10 +20,10 @@ These are Reverie application contracts, not provider API endpoints.
   - `PUT /api/jams/:id/likeness/:assetRef` — attaches the approved frame to the caller's own standing likeness grant. Body is the raw image (`image/jpeg` or `image/png`), at most 512 KB, square-ish, 256–1024 pixels each side. The reference was issued by the register's trigger; this route never mints one. `201 { assetRef, width, height, durable, expiresAt }`. Refusals: `frame_type_unsupported`, `frame_too_large`, `frame_unreadable`, `frame_too_small`, `frame_too_big` (400); `consent_not_found` (404); `not_yours`, `not_a_likeness_consent`, `withdrawn_or_expired` (403). "Not yours" and "not a likeness consent" carry the same sentence, so neither answer tells a prober anything about the other.
   - `GET /api/jams/:id/likeness/:assetRef` — the owner's own frame, `no-store`. It is never served to another participant, and no storage or signed URL ever reaches a browser. `404 no_frame` when a grant has no frame behind it.
   - `DELETE /api/jams/:id/likeness/:assetRef` — discards the frame behind the caller's own grant. A grant that has ended is the expected case here, not a refusal: the client calls this immediately after withdrawing.
-  - `POST /api/jams/:id/beats/:index/video` — generates one beat from the portion at that flat index. **Whether anyone appears in it is not in the request body**: the server reads the register fresh at the instant of submission and `usableLikenesses` answers, so a withdrawal a second earlier is honoured without any cache to invalidate. At most three references, in the order granted, sent inline as `data:` URIs. `201 { index, model, requestId, generatedAt, elapsedMs, likeness: { standing, ownerIds }, durable, remainingBudgetUsd }`. `standing` is `none｜standing｜withdrawn_since`; `ownerIds` names owners, never references. Refusals: `frame_missing` (409) when a grant's frame never arrived — never a plain beat generated without that person; `budget_exhausted` (409); `beat_in_flight` (409); `too_many_beats` (429); `generation_disabled` (503) with no provider, never a mock; `beat_provider_unreachable`, `beat_provider_refused`, `beat_provider_unusable`, `beat_provider_timeout`, `beat_clip_too_large`, none of which carries a provider body, URL or credential.
+  - `POST /api/jams/:id/beats/:index/video` — generates one beat from the portion at that flat index. **Whether anyone appears in it is not in the request body**: the server reads the register fresh at the instant of submission and `usableLikenesses` answers, so a withdrawal a second earlier is honoured without any cache to invalidate. At most three references, in the order granted, sent inline as `data:` URIs. `201 { index, model, requestId, generatedAt, elapsedMs, likeness: { standing, ownerIds }, durable }`. `standing` is `none｜standing｜withdrawn_since`; `ownerIds` names owners, never references. Refusals: `frame_missing` (409) when a grant's frame never arrived — never a plain beat generated without that person; `beat_in_flight` (409); `too_many_beats` (429); `generation_disabled` (503) with no provider, never a mock; `beat_provider_unreachable`, `beat_provider_refused`, `beat_provider_unusable`, `beat_provider_timeout`, `beat_clip_too_large`, none of which carries a provider body, URL or credential.
   - `GET /api/jams/:id/beats/:index` — `{ index, model, requestId, generatedAt, elapsedMs, likeness }`. The `likeness` block is re-derived from the register on every read, so a beat made before a withdrawal reports `withdrawn_since` rather than `none`.
   - `GET /api/jams/:id/beats/:index/video` — the clip, served by this server. No provider or storage address is ever handed to a browser.
-  - Server-owned model allowlist: `minimax/h3-max/text-to-video` for a plain beat, `minimax/h3-max/reference-to-video` when at least one grant stands. No request body, environment variable or provider response can widen it. Both reserve against the same `FAL_ASSET_BUDGET_USD` as the live director.
+  - Server-owned model allowlist: `minimax/h3-max/text-to-video` for a plain beat, `minimax/h3-max/reference-to-video` when at least one grant stands. No request body, environment variable or provider response can widen it. At most `REVERIE_BEAT_MAX_CONCURRENT` beats generate at once; nothing tracks what they cost.
 - `POST /api/discover/turn` and `POST /api/discover/rank`: Discover's conversation. Same-origin only, `POST` only, `Authorization: Bearer <Supabase access token>` verified by Supabase Auth before any model call, per-instance rate limits of 20 and 30 requests per minute, at most 6 model calls in flight per instance, body caps of 80 KB and 96 KB. The browser holds the preference state and sends it; the server validates it with the engine's schema and trusts nothing in it. Nebius is called only here, only when `REVERIE_LIVE_ENABLED=true` and `NEBIUS_API_KEY` is set, with the model from the server allowlist; a client that disconnects aborts the call.
   - Turn body `{ "message": 1–500 chars, "state": <PreferenceState>, "previousQuestion": string | null }` → `200 { "status": "ok", "source": "nebius", "model", "turn": <TurnInput>, "acknowledgement", "question": string | null }`. `turn` has already been accepted by `applyTurn` against the sent state; the browser applies it again. A session that has used its 12 turns gets `409 TURN_LIMIT` without a model call. Budget: 700 output tokens, 12 s per attempt, 20 s overall, one retry.
   - Rank body `{ "state": <PreferenceState>, "candidates": [1–48 of { id, title, year?, genres, runtimeMinutes?, originalLanguage?, rating?, synopsis? ≤ 280 chars }] }` → `200 { "status": "ok", "source": "nebius", "model", "stateVersion", "ranking": [{ candidateId, utility }], "reasons": [≤ 3 of { candidateId, reason ≤ 160 chars }] }`. Candidates the state rules out are dropped before the model sees them; the ranking has passed `acceptFullRanking`, so it names only supplied, eligible ids. Budget: 1,200 output tokens, 15 s per attempt, 25 s overall, one retry.
@@ -214,7 +214,7 @@ generated from them. These routes run on the local Node server only, like the sc
 director routes, and their state is in that process's memory.
 
 **These are the only routes on this Express host that check who is asking.** They move a world a
-whole room can see and they spend from a budget, so identity is Supabase Auth's answer to the
+whole room can see and they call paid providers, so identity is Supabase Auth's answer to the
 presented access token and the role is the caller's own `jam_members` row read under RLS with that
 same token — this server holds no service-role key for it and can see no more than the participant
 it is acting for. The answer is cached for 20 seconds on a SHA-256 digest of the token (never the
@@ -250,8 +250,8 @@ started:
 - `loop` and each beat's `media` — a `SegmentView`: `status` is `absent`, `generating`, `ready`,
   `failed`, `forgotten` (it was generated and this server no longer holds it — a server with no
   object storage keeps only its most recent segments), `not_configured` (no fal key or the live
-  flag is off) or `ceiling_reached` (the spend ceiling refused it, or the session ended before it
-  ran; nothing was sent to the provider). `seconds` is the clip's **measured**
+  flag is off) or `session_over` (the session ended before it ran; nothing was sent to the
+  provider). `seconds` is the clip's **measured**
   length, read from the file, not the length that was asked for.
 - `progress` — what has been found, what is still shut, what is carried, how many things have
   happened, and whether the goal is reached. Counted from scenario state.
@@ -259,8 +259,7 @@ started:
   many people have voted.
 - `beats` — what the room has done, each with its narration and whether the model or the
   scenario's author wrote it.
-- `ended` — `{ reason: "goal" | "spend_ceiling", tell }`, or null.
-- `spend` — real money committed against `FAL_ASSET_BUDGET_USD`.
+- `ended` — `{ reason: "goal", tell }`, or null.
 - `mediaDurable` — false when this server has no object storage, so segments die with it.
 
 ### Video
@@ -273,10 +272,9 @@ duration comes from the scenario's action, clamped to the model's published `[5,
 location's loop is 5 seconds. What the model returns is measured
 (`src/core/mediaDuration.ts`) rather than assumed — see `docs/DECISIONS.md` for the numbers.
 
-Money is committed before the provider is called and settled after. A submit fal never accepted is
-refunded; anything that failed after fal accepted the request is not, because fal may well have
-run it. The director and the escape room debit **one** `SpendAccount`, so
-`FAL_ASSET_BUDGET_USD` stays a ceiling on the process rather than one each feature gets a copy of.
+Nothing here tracks what a generation costs. Concurrency is bounded
+(`REVERIE_ESCAPE_MAX_GENERATIONS`) and that is the whole of it: see `docs/DECISIONS.md` for why
+this build carries no budget, ledger or spend ceiling.
 
 ## Beat locking and the live director
 
@@ -306,27 +304,22 @@ edited beat is that stream's `minEditableBeatIndex` (`docs/specs/story-outline.m
 gap means re-sending a beat as it *becomes* imminent, which needs something watching each stream's
 position and pushing at the boundary; no delivery design in this repository does that today.
 
-**Two ways of producing video, and they are not the same thing.** The live director is one continuous session billed by the second: it holds a peer connection and is directed as it runs. Beat generation (`POST /api/jams/:id/beats/:index/video`, above) is submit-and-wait: one finished clip per portion, which is the only path that can carry a participant's likeness, because a reference image is an input to a queued generation and not something that can be handed to an open stream. A jam may use either. The events `portion.locked`, `media.requested`, `media.ready` and `media.delayed` described elsewhere in this document still belong to a pipeline that does not exist; beat generation is a synchronous route, not an event stream, and the director's beat lock window does not apply to it.
+**Two ways of producing video, and they are not the same thing.** The live director is one continuous session: it holds a peer connection and is directed as it runs. Beat generation (`POST /api/jams/:id/beats/:index/video`, above) is submit-and-wait: one finished clip per portion, which is the only path that can carry a participant's likeness, because a reference image is an input to a queued generation and not something that can be handed to an open stream. A jam may use either. The events `portion.locked`, `media.requested`, `media.ready` and `media.delayed` described elsewhere in this document still belong to a pipeline that does not exist; beat generation is a synchronous route, not an event stream, and the director's beat lock window does not apply to it.
 
-### Director spend
+### Director limits
 
-Every director session response (`POST .../director/session`, `GET .../director/session/:sessionId`) carries `spend`:
+`GET /api/jams/:id/director/limits` answers `{ configured, maxSessionSeconds }` — whether a
+director is configured on this server at all, and where a take stops itself, so a screen can say
+what pressing Play commits to before it is pressed. It does not look the jam up: the limits belong
+to the process, not to a room.
 
-| Field | Meaning |
-| --- | --- |
-| `budgetUsd` | The ceiling, from `FAL_ASSET_BUDGET_USD`. `0` when it is not set, which means nothing can be generated. |
-| `usdPerSecond` | fal's price per generated second, from `REVERIE_DIRECTOR_USD_PER_SECOND`. |
-| `minBilledSeconds` | The provider's per-session minimum (60), billed whether or not it is used. |
-| `sessionUsd` | What this session has cost, from the seconds it has generated, capped at its reservation. |
-| `remainingUsd` | The ceiling less everything committed, including this session. |
-
-`GET /api/jams/:id/director/budget` answers the same `spend` with `sessionUsd: 0`, plus `configured` — whether a director is configured on this server at all, which is a different fact from having money left. It does not look the jam up: the budget belongs to the process, not to a room.
-
-The figure is derived from generated seconds, never from the reservation. The reservation is the worst case the ledger commits up front so a dead browser tab cannot leak budget (`apps/server/directorSessions.ts`); quoting it back as spend would overstate every session that ran short. Currency is USD because fal prices in USD; it is never converted or re-labelled.
+No response carries a cost. This build does not track spend (`docs/DECISIONS.md`); a take is
+bounded by `maxSessionSeconds` and by `REVERIE_DIRECTOR_MAX_SESSIONS`, both enforced in
+`apps/server/directorSessions.ts`.
 
 **Director session routes (container/Express host).** All under `/api/jams/:id/director`. The server is the WebRTC peer; a browser never talks to fal. Nothing on the provider path is probed on the delivery routes — a valid-key session has been opened for the handshake and the relay only.
 
-- `POST /session` — body `{ configuration?, attachOnly? }`. Opens the stream for a configuration or joins the one already running for it: one paid stream per configuration, keyed `<jamId>:<configurationKey>`. `201` when opened, `200 { attached: true }` when joined; both carry `sessionId`, a **server-issued** `viewerId`, `liveDelivery`, `maxSessionSeconds`, `recordingDurable`, `state`, `beats`. `attachOnly: true` never opens a stream — it is what a screen sends on arriving in a room, so that walking in cannot start a paid session — and answers `404 no_stream` (`retryable: true`) when nothing is running. A stopped room may be played again: opening a session on it starts a new take with its own archive entry, and nothing here asks who is playing it. Refusals: `409 budget_exhausted | too_many_sessions | already_open`; `502 director_unavailable` when fal refuses the handshake (the reservation is released, nothing is billed); `503 director_disabled`.
+- `POST /session` — body `{ configuration?, attachOnly? }`. Opens the stream for a configuration or joins the one already running for it: one provider stream per configuration, keyed `<jamId>:<configurationKey>`. `201` when opened, `200 { attached: true }` when joined; both carry `sessionId`, a **server-issued** `viewerId`, `liveDelivery`, `maxSessionSeconds`, `recordingDurable`, `state`, `beats`. `attachOnly: true` never opens a stream — it is what a screen sends on arriving in a room, so that walking in cannot open a second provider stream — and answers `404 no_stream` (`retryable: true`) when nothing is running. A stopped room may be played again: opening a session on it starts a new take with its own archive entry, and nothing here asks who is playing it. Refusals: `409 too_many_sessions | already_open`; `502 director_unavailable` when fal refuses the handshake (the session is released); `503 director_disabled`.
 - `GET /session/:sessionId` — `{ state, beats, audit, droppedAuditEntries }`. Any attached viewer may poll it.
 - `POST /session/:sessionId/direct` — `{ body, authorId?, proposalId?, beatIndex? }` → `202 { promptVersion, state, beats }`; `409 beat_locked` (see above) or `409 stream_not_ready`.
 - `POST /session/:sessionId/renew` — `{ viewerId? }` → `204`. A viewer id renews that viewer; without one only the session's own clock is refreshed. A viewer that was already dropped is not readmitted (`404`): attaching is what admits a viewer.

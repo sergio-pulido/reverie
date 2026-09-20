@@ -80,7 +80,7 @@ export function readFrameDimensions(bytes: Uint8Array): FrameDimensions | null {
 /**
  * Whether these bytes are a frame this room will accept.
  *
- * The upper bound is a spend decision as much as a payload one: the provider includes 4,096
+ * The upper bound is a payload decision: the provider includes 4,096
  * reference tokens per request and charges beyond them, and a 1024×1024 image is 1,024
  * tokens. Capping a frame at 1024×1024 keeps our three-reference limit inside the included
  * allowance, so appearing in the film costs the room the clip and nothing extra.

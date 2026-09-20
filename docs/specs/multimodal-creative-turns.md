@@ -34,7 +34,7 @@ a queued proposal that the room votes on and the host or the vote rule accepts
 (`docs/specs/transactional-scene-contract.md`).
 
 The payoff is that multimodality adds no new authority path. It does not add a second way to
-change the story, a second thing that can be accepted, or a second place where spend is
+change the story, a second thing that can be accepted, or a second place where generation is
 committed. A reference that is never attached to an accepted proposal costs storage and nothing
 else.
 
@@ -69,7 +69,7 @@ director recordings, whose Supabase Storage configuration lives in
 deleted with the portion pipeline). `reference.upload.complete`
 moves the descriptor to `normalized`, and participants receive our own bytes through our own
 route, never a storage or provider URL. Per-jam count and total-size caps are required, and they
-are storage caps, not spend caps.
+are storage caps.
 
 **Give references their own bucket.** The adjacent director-archive work learned this the
 expensive way: sharing one bucket across two media kinds meant uploads were rejected because the
@@ -112,12 +112,12 @@ and it needs its own consent field, not an inference from the publish consent.
 **Text.** Already implemented and unchanged; it is the modality the others are being made equal
 to, not a special case.
 
-## Transformation and budget
+## Transformation and bounds
 
 Feeding a reference to fal.ai — to restyle it, to condition a generated portion on it — is a
 **paid provider call** and carries every control the portion pipeline already carries: the typed
 adapter (`apps/server/providers/fal.ts`), `REVERIE_LIVE_ENABLED` plus the credential, the
-server-owned model allowlist, bounded concurrency, and per-jam clip-count and spend caps. It is
+server-owned model allowlist, bounded concurrency, and per-jam clip-count caps. It is
 never enabled as a side effect of uploading a reference or of joining the stage.
 
 A transformation that fails leaves the accepted creative direction intact and marks media
@@ -156,7 +156,7 @@ attach only a reference they own and whose consent is effective.
   row.
 - Which speech-to-text provider, and whether transcription is per-utterance on demand or
   continuous while a microphone consent stands. Continuous transcription of a two-hour stage is
-  a spend question, not a feature question.
+  a provider-load question, not a feature question.
 - Whether a reference may be attached to a proposal by anyone other than its owner.
 - How a reference interacts with the portion lock window: a reference attached to a proposal
   accepted for an already-locked portion is refused with `portion_locked` like any other change,

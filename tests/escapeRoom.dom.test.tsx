@@ -56,7 +56,6 @@ function snapshot(overrides: Partial<EscapeSnapshot> = {}): EscapeSnapshot {
     },
     beats: [],
     ended: null,
-    spend: { budgetUsd: 20, committedUsd: 3.2, remainingUsd: 16.8 },
     mediaDurable: true,
     ...overrides,
   };
@@ -209,9 +208,8 @@ describe("the escape room panel", () => {
     assert.ok(closeVote(), "the host can close it");
   });
 
-  it("reports committed spend against the ceiling, and says when nothing is kept", async () => {
+  it("says when what it films is not kept", async () => {
     await render(show(snapshot()));
-    assert.match(document.body.textContent ?? "", /Committed \$3\.20 of this server's \$20\.00 ceiling/);
     assert.doesNotMatch(document.body.textContent ?? "", /lost if this server restarts/);
     await rerender(show(snapshot({ mediaDurable: false })));
     assert.match(document.body.textContent ?? "", /lost if this server restarts/);

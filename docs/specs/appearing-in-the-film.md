@@ -65,9 +65,9 @@ camera closes as soon as the picture is taken.
 
 It is JPEG or PNG, square, between 256×256 and 1024×1024, at most 512 KB. The lower bound is
 the provider's, measured: a smaller reference is refused with `image_too_small`. The upper
-bound is ours and it is a spend decision — the provider includes 4,096 reference tokens per
+bound is ours and it is a payload decision — the provider includes 4,096 reference tokens per
 request and a 1024×1024 image is 1,024 of them, so three references stay inside the included
-allowance and appearing in the film costs the room the clip and nothing on top of it.
+allowance.
 
 The bytes live in the private bucket under `likeness/<jamId>/<uuid>`, reached only with the
 service-role key this host holds. No signed URL is ever minted. `GET
@@ -80,7 +80,7 @@ response says `durable: false` rather than implying an archive.
 
 ## Generation
 
-Two models on one provider, one key, one budget, both on the server's own allowlist
+Two models on one provider, one key, both on the server's own allowlist
 (`apps/server/providers/falBeatVideo.ts`). No request body, environment variable or provider
 response can widen it.
 
@@ -138,16 +138,11 @@ makes readable to the room.
 
 Somebody else agreeing never puts this viewer in the film, and the badge says so.
 
-## Spend
+## Resource bounds
 
-`FAL_ASSET_BUDGET_USD` is one total for everything this process buys from fal. The live
-director's session ledger and beat generation both reserve against the same `FalBudget`, so
-two ways of spending cannot between them commit twice the budget the server was given. A beat
-reserves its worst case before submitting and settles after; a generation that failed is
-settled rather than refunded, because the request may still have been billed.
-
-Concurrency is bounded (`REVERIE_BEAT_MAX_CONCURRENT`, default 2) and the same beat cannot be
-generated twice at once.
+Nothing here tracks what a beat costs: this build carries no budget and no ledger
+(`docs/DECISIONS.md`). Concurrency is bounded (`REVERIE_BEAT_MAX_CONCURRENT`, default 2) and
+the same beat cannot be generated twice at once. That is the whole of it.
 
 ## Not in this slice
 

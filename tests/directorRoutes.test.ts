@@ -22,12 +22,7 @@ const CONFIG: DirectorConfig = {
   record: false,
 };
 
-// Roomy on purpose: every closed session bills fal's 60-second minimum, so a
-// realistic budget would run out partway through the file. Budget refusal has
-// its own test.
 const LIMITS = {
-  budgetUsd: 1000,
-  usdPerSecond: 0.08,
   maxConcurrentSessions: 2,
   maxSessionSeconds: 60,
 };
@@ -776,15 +771,11 @@ test("ending one session leaves another session's viewers alone", async () => {
   await endSession(second.jam.id, second.sessionId);
 });
 
-test("the budget route names this server's ceiling before any session is opened", async () => {
-  const response = await fetch(`${baseUrl}/api/jams/${randomUUID()}/director/budget`);
+test("the limits route names what a take may do before any session is opened", async () => {
+  const response = await fetch(`${baseUrl}/api/jams/${randomUUID()}/director/limits`);
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.equal(body.configured, true);
-  assert.equal(body.spend.budgetUsd, LIMITS.budgetUsd);
-  assert.equal(body.spend.usdPerSecond, LIMITS.usdPerSecond);
-  assert.equal(body.spend.minBilledSeconds, 60, "fal's per-session minimum, not a guess");
-  assert.equal(body.spend.sessionUsd, 0, "no session, nothing spent");
   assert.equal(
     body.maxSessionSeconds,
     LIMITS.maxSessionSeconds,
@@ -792,23 +783,23 @@ test("the budget route names this server's ceiling before any session is opened"
   );
 });
 
-/** What the server says is left before this test opens anything of its own. */
-async function remainingUsd(): Promise<number> {
-  const body = await (await fetch(`${baseUrl}/api/jams/${randomUUID()}/director/budget`)).json();
-  return body.spend.remainingUsd;
-}
-
-test("an open session is billed the provider's minimum before it has generated a second", async () => {
-  const before = await remainingUsd();
+test("the read route reports the seconds the stream has actually generated", async () => {
   const { jam, sessionId } = await openJamSession();
-  const { spend, state } = await (
+  peer.channel.open();
+  for (let index = 0; index < 6; index += 1) {
+    peer.channel.deliver({
+      type: "chunk",
+      chunk_index: index,
+      prompt_version: 1,
+      playback_seconds: 15,
+      script_offset_seconds: index * 5,
+    });
+  }
+
+  const { state } = await (
     await fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}`)
   ).json();
-
-  assert.equal(state.generatedSeconds, 0);
-  // 60s minimum at $0.08: the money is already committed whether or not it runs.
-  assert.equal(spend.sessionUsd.toFixed(2), "4.80");
-  assert.equal(spend.remainingUsd.toFixed(2), (before - 4.8).toFixed(2));
+  assert.equal(state.generatedSeconds, 90);
 
   await endSession(jam.id, sessionId);
 });
@@ -876,33 +867,6 @@ test("a room stopped by its last viewer leaving is stopped, not left playing", a
   // be played again now, so the only evidence that the teardown moved the
   // lifecycle is the lifecycle itself.
   assert.equal((await store.getJam(jam.id))?.lifecycle, "ended");
-});
-
-test("spend follows the seconds the stream actually generated, not its reservation", async () => {
-  const before = await remainingUsd();
-  const { jam, sessionId } = await openJamSession();
-  peer.channel.open();
-  // 90 seconds of video: past the minimum, so the bill follows the chunks.
-  for (let index = 0; index < 6; index += 1) {
-    peer.channel.deliver({
-      type: "chunk",
-      chunk_index: index,
-      prompt_version: 1,
-      playback_seconds: 15,
-      script_offset_seconds: index * 5,
-    });
-  }
-
-  const { spend, state } = await (
-    await fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}`)
-  ).json();
-  assert.equal(state.generatedSeconds, 90);
-  // The session may bill at most its reservation — 60s × $0.08, the limit it
-  // stops at — so the figure is capped there rather than quoting more.
-  assert.equal(spend.sessionUsd.toFixed(2), "4.80");
-  assert.equal(spend.remainingUsd.toFixed(2), (before - 4.8).toFixed(2));
-
-  await endSession(jam.id, sessionId);
 });
 
 test("a recording server builds the session's sinks and finishes them on end", async () => {
@@ -1027,17 +991,3 @@ test("a server that does not record builds no sinks at all", async () => {
   }
 });
 
-test("opening a session reports the same spend the read route does", async () => {
-  const jam = buildJam();
-  await store.createJam(jam);
-  const opened = await (
-    await fetch(`${baseUrl}/api/jams/${jam.id}/director/session`, { method: "POST" })
-  ).json();
-  assert.equal(opened.spend.sessionUsd.toFixed(2), "4.80");
-  assert.equal(opened.spend.budgetUsd, LIMITS.budgetUsd);
-  const read = await (
-    await fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${opened.sessionId}`)
-  ).json();
-  assert.deepEqual(read.spend, opened.spend);
-  await endSession(jam.id, opened.sessionId);
-});

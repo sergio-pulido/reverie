@@ -1,4 +1,3 @@
-import type { FalBudget } from "./falBudget";
 import express, { type Router } from "express";
 import { z } from "zod";
 import { sendError, type JamStore } from "./jams";
@@ -29,17 +28,11 @@ import {
 } from "../../src/core/configuration";
 import { sessionSettingsSchema } from "../../src/core/session";
 import {
-  DIRECTOR_MIN_BILLED_SECONDS,
   DirectorError,
   resolveDirectorConfig,
   startDirectorSession,
   type DirectorConfig,
 } from "./providers/falDirector";
-import {
-  sessionSpendUsd,
-  type DirectorRates,
-  type DirectorSpend,
-} from "../../src/core/directorSpend";
 
 /**
  * The live director, proxied end to end by this server.
@@ -162,7 +155,7 @@ export class DirectorStreamRegistry {
 /**
  * A viewer naming itself on a shared stream.
  *
- * Validated rather than hand-read because this id decides whether a paid
+ * Validated rather than hand-read because this id decides whether a provider
  * session keeps running: every other participant-supplied body in this file
  * goes through a schema, and the one that moves money should not be the
  * exception.
@@ -174,10 +167,8 @@ const viewerSchema = z
 export interface DirectorRouterOptions {
   config?: DirectorConfig | null;
   limits?: DirectorSessionLimits;
-  /** Supplied so several routers reserve against one shared fal budget. */
+  /** Supplied so several routers share one process-wide session ledger. */
   ledger?: DirectorSessionLedger;
-  /** The process-wide fal budget a ledger built here reserves against. */
-  budget?: FalBudget;
   recordings?: DirectorRecordingStore;
   index?: DirectorIndexStore;
   registry?: DirectorStreamRegistry;
@@ -241,7 +232,7 @@ export function createDirectorRouter(
    * Stream keys whose session is in the ledger but whose handshake has not
    * finished, so nothing is in `streams` for them yet.
    *
-   * Without this, the two are indistinguishable from an orphaned reservation,
+   * Without this, the two are indistinguishable from an orphaned session,
    * and the window is seconds wide — a fal handshake plus up to five seconds of
    * ICE gathering — while every participant's browser polls to attach every
    * three seconds.
@@ -304,12 +295,12 @@ export function createDirectorRouter(
     const task = (async () => {
       await stream?.stop();
       // Bounded inside: the tail of the film is worth a moment, the route that
-      // settles the paid session is worth more.
+      // ends the provider session is worth more.
       await delivered?.segmenter.stop().catch(() => undefined);
       await recorder?.stop().catch(() => undefined);
       if (!stream) return;
       await index.closeSession(sessionId).catch(() => undefined);
-      // A room may have one paid stream per configuration. It ends when its
+      // A room may have one provider stream per configuration. It ends when its
       // last stream ends, not when any one configuration stops. The jam is
       // read from the stream, never from a map this teardown has cleared, so
       // the ledger's own reclaim path can resolve it too.
@@ -322,27 +313,18 @@ export function createDirectorRouter(
     return task;
   }
 
-  // A process with no configured FAL_ASSET_BUDGET_USD leaves the ledger on its
-  // own limits rather than imposing a ceiling of zero over them. A configured
-  // one is shared, so Director and beat generation debit the same total.
-  const ledger =
-    options.ledger
-    ?? new DirectorSessionLedger(
-      limits,
-      options.now,
-      options.budget?.totalUsd ? options.budget : undefined,
-    );
+  const ledger = options.ledger ?? new DirectorSessionLedger(limits, options.now);
   // The ledger reclaims abandoned sessions on its own, inside `open` and
   // `findByStreamKey` as well as on a sweep. A stream left running past its
-  // session keeps billing with nobody watching, so stopping it is bound to the
-  // ledger rather than left to whichever route happened to notice. This also
+  // session keeps generating with nobody watching, so stopping it is bound to
+  // the ledger rather than left to whichever route happened to notice. This also
   // attaches the resource owner when the ledger was injected process-wide.
   ledger.onClosed((sessionId) => {
     void releaseSession(sessionId).catch(() => undefined);
   });
   // Reclaim must not depend on another browser happening to open or find a
   // session. If the final tab crashes and no later request arrives, only a
-  // server-owned sweep can stop the paid stream at the idle or hard-duration
+  // server-owned sweep can stop the provider stream at the idle or hard-duration
   // boundary. `unref` keeps this maintenance timer from holding the process up.
   const sessionSweep = setInterval(() => ledger.expireIdle(), 30_000);
   sessionSweep.unref?.();
@@ -389,59 +371,22 @@ export function createDirectorRouter(
     return config;
   }
 
-  const rates: DirectorRates = {
-    budgetUsd: limits.budgetUsd,
-    usdPerSecond: limits.usdPerSecond,
-    minBilledSeconds: DIRECTOR_MIN_BILLED_SECONDS,
-  };
-
-  /**
-   * What has been spent, in USD, and what is left.
-   *
-   * A session's figure comes from the seconds fal actually generated, never
-   * from its reservation: the reservation is the worst case this process
-   * committed up front so a dead browser tab cannot leak budget, and quoting
-   * it back as spend would overstate every session that ran short. It does cap
-   * the figure, because a session cannot be billed past the limit it stops at.
-   *
-   * Everything else still open keeps its reservation, because those sessions
-   * have not settled and this one must not be told money it cannot have.
-   */
-  function spendOf(sessionId: string | null): DirectorSpend {
-    const session = sessionId ? ledger.find(sessionId) : undefined;
-    const stream = sessionId ? streams.get(sessionId) : undefined;
-    const sessionUsd = session
-      ? Math.min(
-          session.reservedUsd,
-          sessionSpendUsd(stream?.snapshot.generatedSeconds ?? 0, rates),
-        )
-      : 0;
-    const committedElsewhere = ledger.committedUsd - (session?.reservedUsd ?? 0);
-    return {
-      ...rates,
-      sessionUsd,
-      remainingUsd: Math.max(0, rates.budgetUsd - committedElsewhere - sessionUsd),
-    };
-  }
-
   router.use(express.json({ limit: "8kb" }));
 
   /**
-   * The director budget of THIS server, so a screen can state the ceiling
-   * before it opens a paid session.
+   * The director limits of THIS server, so a screen can state how long a take
+   * may run before it opens one.
    *
-   * It does not look the jam up: the budget belongs to this process, not to a
-   * room, and refusing to name the ceiling because the script lives elsewhere
-   * would help nobody. `configured` says whether a session could be opened at
-   * all, which is a different fact from having money left.
+   * It does not look the jam up: the limits belong to this process, not to a
+   * room, and refusing to name them because the script lives elsewhere would
+   * help nobody. `configured` says whether a session could be opened at all.
    */
-  router.get("/api/jams/:id/director/budget", (_request, response) => {
+  router.get("/api/jams/:id/director/limits", (_request, response) => {
     response.json({
       configured: requireConfig() !== null,
       // The ceiling a take stops itself at, so a screen can say what pressing
       // play commits to before it is pressed rather than only afterwards.
       maxSessionSeconds: limits.maxSessionSeconds,
-      spend: spendOf(null),
     });
   });
 
@@ -475,7 +420,7 @@ export function createDirectorRouter(
     const configuration = attach.data?.configuration ?? DEFAULT_CONFIGURATION;
     const streamKey = `${jam.id}:${configurationKey(configuration)}`;
 
-    // Everyone watching the same configuration shares one paid stream. A
+    // Everyone watching the same configuration shares one provider stream. A
     // second viewer attaches to it instead of opening — and paying for — a
     // second copy of the same film.
     const existing = ledger.findByStreamKey(streamKey);
@@ -495,16 +440,15 @@ export function createDirectorRouter(
           lifecycle: jam.lifecycle,
           state: open.snapshot,
           beats: open.beats,
-          spend: spendOf(existing.sessionId),
         });
         return;
       }
       if (opening.has(streamKey)) {
         // The stream exists in the ledger and is mid-handshake. It is neither
-        // attachable yet nor orphaned, and releasing it here would refund and
-        // delete the reservation for a paid session that is about to go live —
-        // leaving fal billing for a stream this server no longer tracks, and
-        // letting the next Start open a second one for the same room.
+        // attachable yet nor orphaned, and releasing it here would delete the
+        // ledger entry for a session that is about to go live — leaving fal
+        // generating a stream this server no longer tracks, and letting the
+        // next Start open a second one for the same room.
         sendError(
           response,
           409,
@@ -536,15 +480,15 @@ export function createDirectorRouter(
 
     const session = ledger.open(streamKey);
     if (typeof session === "string") {
-      sendError(response, 409, session, refusalMessage(session), session !== "budget_exhausted");
+      sendError(response, 409, session, refusalMessage(session), true);
       return;
     }
 
     // Guard the whole opening transaction, including the durable index write
     // below. That write has a ten-second timeout while viewers poll every three
     // seconds; marking only the provider handshake left a window where a poll
-    // could mistake a valid reservation for an orphan and release it before the
-    // paid session had even begun opening.
+    // could mistake a live session for an orphan and release it before it had
+    // even begun opening.
     opening.add(streamKey);
 
     // The reproduction record opens with the session, not at the end of it:
@@ -605,7 +549,7 @@ export function createDirectorRouter(
       await stream.open();
     } catch (error) {
       // fal refused the handshake: no session exists on their side, so the
-      // reservation is refunded rather than billed at the minimum.
+      // ledger entry is dropped rather than torn down as a live stream.
       ledger.release(session.sessionId);
       if (error instanceof DirectorError) {
         sendError(response, 502, "director_unavailable", error.message, error.retryable);
@@ -650,7 +594,6 @@ export function createDirectorRouter(
       lifecycle: started.lifecycle,
       state: stream.snapshot,
       beats: stream.beats,
-      spend: spendOf(session.sessionId),
     });
   });
 
@@ -719,7 +662,6 @@ export function createDirectorRouter(
       beats: stream.beats,
       audit: stream.entries,
       droppedAuditEntries: stream.audit.droppedCount,
-      spend: spendOf(request.params.sessionId),
     });
   });
 
@@ -831,10 +773,10 @@ export function createDirectorRouter(
   /**
    * One viewer stops watching; the stream ends when the last of them does.
    *
-   * This is the half of multiplexing that costs money. A shared stream must
+   * This is the half of multiplexing that holds the provider stream. It must
    * survive one person closing a tab — ending it there would stop the film for
    * everyone still watching — and it must not survive the last one leaving,
-   * because an unwatched stream goes on billing until the idle timeout
+   * because an unwatched stream goes on generating until the idle timeout
    * reclaims it. A caller that names no viewer ends the session outright,
    * which is what the host's own "stop" does.
    */
@@ -876,7 +818,7 @@ export function createDirectorRouter(
       }
     }
     // Idempotent: a client tearing down twice is not an error, and what
-    // matters is that the reservation is released and the recording stored.
+    // matters is that the session is released and the recording stored.
     await endSession(request.params.sessionId);
     // Reports where the room ended up rather than transitioning again: the
     // teardown already did it, and ending twice must not be an error.
@@ -889,9 +831,9 @@ export function createDirectorRouter(
    *
    * This is the delivery half of "one stream, many viewers". Every viewer on a
    * configuration reads this same playlist and the same segments over ordinary
-   * HTTP, so a second viewer costs a cache hit rather than a second paid
+   * HTTP, so a second viewer costs a cache hit rather than a second provider
    * session — and no viewer holds a socket, which is what keeps the room off
-   * the container's connection budget.
+   * the container's connection limit.
    */
   router.get("/api/jams/:id/director/session/:sessionId/playlist.m3u8", (request, response) => {
     // Order matters: "not open" and "not delivered live" are different answers,
@@ -932,7 +874,7 @@ export function createDirectorRouter(
       case "worker_failed":
         // The muxer thread died. That is a different fact from a codec
         // problem and is reported as one: the session, its recording and the
-        // route that ends the spend are all still running.
+        // route that ends the session are all still running.
         sendError(
           response,
           503,
@@ -1034,9 +976,6 @@ export function createDirectorRouter(
 }
 
 function refusalMessage(refusal: string): string {
-  if (refusal === "budget_exhausted") {
-    return "The director budget for this server is spent.";
-  }
   if (refusal === "already_open") {
     return "That configuration already has a director stream open.";
   }

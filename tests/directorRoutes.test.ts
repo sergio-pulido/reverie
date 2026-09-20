@@ -13,6 +13,7 @@ import {
 } from "../apps/server/providers/falDirector";
 import { FakeDirectorPeer } from "./fakeDirectorPeer";
 import { buildScript } from "./helpers";
+import { directorVideoCodecs } from "../apps/server/directorStream";
 
 const CONFIG: DirectorConfig = {
   apiKey: "test-key",
@@ -136,6 +137,17 @@ test("the server is the peer: it offers, receives only, and opens the control ch
   assert.match(String(peer.remoteSdp), /answer/);
 
   await endSession(jam.id, sessionId);
+});
+
+test("codec preference follows the selected container without removing the fallback", () => {
+  assert.deepEqual(
+    directorVideoCodecs(true).map((codec) => codec.mimeType),
+    ["video/H264", "video/VP8"],
+  );
+  assert.deepEqual(
+    directorVideoCodecs(false).map((codec) => codec.mimeType),
+    ["video/VP8", "video/H264"],
+  );
 });
 
 test("the configure message is the jam's script, sent by the server", async () => {
@@ -821,7 +833,7 @@ test("a room stopped by its last viewer leaving is ended, not left playing", asy
 });
 
 test("a recording server builds the session's sinks and finishes them on end", async () => {
-  const built: { jamId: string; sessionId: string }[] = [];
+  const built: { jamId: string; sessionId: string; container: string }[] = [];
   let finished = 0;
   const app = express();
   app.use(
@@ -849,7 +861,7 @@ test("a recording server builds the session's sinks and finishes them on end", a
     assert.equal(opened.status, 201);
     const { sessionId } = await opened.json();
     // The sinks are the session's own: built for this jam and this session.
-    assert.deepEqual(built, [{ jamId: jam.id, sessionId }]);
+    assert.deepEqual(built, [{ jamId: jam.id, sessionId, container: "webm" }]);
 
     const ended = await fetch(
       `http://127.0.0.1:${port}/api/jams/${jam.id}/director/session/${sessionId}/end`,
@@ -858,6 +870,48 @@ test("a recording server builds the session's sinks and finishes them on end", a
     assert.equal(ended.status, 200);
     // No track ever arrived, so nothing was muxed; the sink is still told the
     // session is over, and the route did not wait on a muxer for it.
+    assert.equal(finished, 1);
+  } finally {
+    server.close();
+  }
+});
+
+test("live delivery and recording share one MP4 pipeline", async () => {
+  const built: { jamId: string; sessionId: string; container: string }[] = [];
+  let finished = 0;
+  const app = express();
+  app.use(
+    createDirectorRouter(store, {
+      config: { ...CONFIG, record: true },
+      limits: LIMITS,
+      recordings,
+      liveDelivery: true,
+      createPeer: () => new FakeDirectorPeer(),
+      startSession: async () => "v=0\r\nanswer\r\n",
+      createSegmentSinks: (session) => {
+        built.push(session);
+        return [{ init() {}, segment() {}, finish() { finished += 1; } }];
+      },
+    }),
+  );
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  const port = (server.address() as { port: number }).port;
+  const jam = buildJam();
+  await store.createJam(jam);
+  try {
+    const opened = await fetch(`http://127.0.0.1:${port}/api/jams/${jam.id}/director/session`, {
+      method: "POST",
+    });
+    assert.equal(opened.status, 201);
+    const { sessionId } = await opened.json();
+    assert.deepEqual(built, [{ jamId: jam.id, sessionId, container: "mp4" }]);
+
+    const ended = await fetch(
+      `http://127.0.0.1:${port}/api/jams/${jam.id}/director/session/${sessionId}/end`,
+      { method: "POST" },
+    );
+    assert.equal(ended.status, 200);
     assert.equal(finished, 1);
   } finally {
     server.close();

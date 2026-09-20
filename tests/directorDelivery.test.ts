@@ -7,6 +7,10 @@ import type { Jam } from "../src/core/jam";
 import { InMemoryJamStore } from "../apps/server/jams";
 import { createDirectorRouter, type DirectorRouterOptions } from "../apps/server/director";
 import { DirectorLiveSink } from "../apps/server/directorLiveSink";
+import {
+  InMemoryDirectorIndexStore,
+  type OpenSessionInput,
+} from "../apps/server/directorIndex";
 import { InMemoryDirectorRecordingStore } from "../apps/server/directorRecordings";
 import type { DirectorConfig } from "../apps/server/providers/falDirector";
 import { FakeDirectorPeer } from "./fakeDirectorPeer";
@@ -219,6 +223,29 @@ test("delivery routes for a session that is not open are a plain 404", async () 
   assert.equal(response.status, 404);
 });
 
+test("delivery routes never serve a session through another jam URL", async () => {
+  const { sessionId } = await openSession(delivering.baseUrl);
+  const otherJam = randomUUID();
+  const base = `${delivering.baseUrl}/api/jams/${otherJam}/director/session/${sessionId}`;
+  for (const path of ["playlist.m3u8", "init.mp4", "segment/0.m4s"]) {
+    const response = await fetch(`${base}/${path}`);
+    assert.equal(response.status, 404, path);
+  }
+});
+
+test("invalid viewer data cannot become a whole-room stop", async () => {
+  const { jam, sessionId } = await openSession(delivering.baseUrl);
+  const base = `${delivering.baseUrl}/api/jams/${jam.id}/director/session/${sessionId}`;
+  const invalid = await fetch(`${base}/end`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ viewerId: 42 }),
+  });
+  assert.equal(invalid.status, 400);
+  assert.equal((await invalid.json()).error.code, "invalid_command");
+  assert.equal((await fetch(`${base}/playlist.m3u8`)).status, 200);
+});
+
 test("attaching never starts a stream, so arriving in a room cannot bill", async () => {
   const jam: Jam = {
     id: randomUUID(),
@@ -340,6 +367,22 @@ test("segments pushed into the live window are served back byte for byte", async
   assert.equal((await fetch(`${base}/segment/7.m4s`)).status, 404);
 });
 
+test("ending a session stops its segmenter and finishes the live sink", async () => {
+  const { jam, sessionId } = await openSession(fed.baseUrl);
+  assert.ok(fedSink);
+  fedSink.init(Buffer.from("init"), "h264");
+  fedSink.segment(0, Buffer.from("segment"), 0, 2);
+  const base = `${fed.baseUrl}/api/jams/${jam.id}/director/session/${sessionId}`;
+
+  const stopped = await fetch(`${base}/end`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}",
+  });
+  assert.ok(stopped.ok);
+  assert.match(fedSink.playlist("init.mp4", (sequence) => `segment/${sequence}.m4s`), /#EXT-X-ENDLIST/);
+});
+
 test("a segment that left the window is gone, not replaced by another", async () => {
   const { jam, sessionId } = await openSession(fed.baseUrl);
   assert.ok(fedSink);
@@ -440,6 +483,60 @@ test("a poll during the handshake cannot release the stream being opened", async
   const second = await fetch(url, { method: "POST" });
   assert.equal(second.status, 200);
   assert.equal((await second.json()).sessionId, host.sessionId);
+});
+
+test("a poll during the index write cannot release the stream being opened", async () => {
+  let enteredIndex!: () => void;
+  let releaseIndex!: () => void;
+  const entered = new Promise<void>((resolve) => {
+    enteredIndex = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    releaseIndex = resolve;
+  });
+  class DelayedIndex extends InMemoryDirectorIndexStore {
+    override async openSession(input: OpenSessionInput): Promise<void> {
+      enteredIndex();
+      await gate;
+      await super.openSession(input);
+    }
+  }
+
+  const delayed = await listenWith({ liveDelivery: true, index: new DelayedIndex() });
+  try {
+    const jam: Jam = {
+      id: randomUUID(),
+      createdAt: new Date().toISOString(),
+      source: { kind: "from-scratch", prompt: "A lighthouse keeper finds a door." },
+      format: { totalSeconds: 20, portionMinSeconds: 5, portionMaxSeconds: 5 },
+      script: buildScript(5, 2, 2),
+      lifecycle: "live",
+    };
+    await store.createJam(jam);
+    const url = `${delayed.baseUrl}/api/jams/${jam.id}/director/session`;
+
+    const starting = fetch(url, { method: "POST" });
+    const openingReached = await Promise.race([
+      entered.then(() => "index"),
+      starting.then((response) => `response:${response.status}`),
+      new Promise<string>((resolve) => setTimeout(() => resolve("timeout"), 2_000)),
+    ]);
+    assert.equal(openingReached, "index");
+    const polled = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ attachOnly: true }),
+    });
+    assert.equal(polled.status, 409);
+    assert.equal((await polled.json()).error.code, "stream_starting");
+
+    releaseIndex();
+    const started = await starting;
+    assert.equal(started.status, 201);
+  } finally {
+    releaseIndex();
+    await new Promise<void>((resolve) => delayed.server.close(() => resolve()));
+  }
 });
 
 test("a relay peer dropping does not end a stream counted viewers are on", async () => {

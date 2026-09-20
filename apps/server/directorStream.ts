@@ -55,6 +55,8 @@ export interface DirectorStreamOptions {
   startSession?: typeof startDirectorSession;
   /** Injected in tests; defaults to a real werift peer. */
   createPeer?: () => DirectorPeer;
+  /** Prefer H.264 for fMP4 delivery; recording-only sessions prefer VP8/WebM. */
+  preferH264?: boolean;
   now?: () => Date;
   /**
    * Notified as each audit entry is recorded, so the trail can be written
@@ -144,6 +146,18 @@ export const DIRECTOR_VIDEO_CODECS = [
   }),
 ];
 
+/**
+ * Keep both supported codecs in every offer, but lead with the one the active
+ * media pipeline can actually mux. A recording-only server writes WebM and
+ * therefore must not accidentally negotiate H.264 merely because the HLS
+ * path also exists in this module.
+ */
+export function directorVideoCodecs(preferH264: boolean): RTCRtpCodecParameters[] {
+  return preferH264
+    ? DIRECTOR_VIDEO_CODECS
+    : [DIRECTOR_VIDEO_CODECS[1], DIRECTOR_VIDEO_CODECS[0]];
+}
+
 export const DIRECTOR_AUDIO_CODECS = [
   new RTCRtpCodecParameters({
     mimeType: "audio/opus",
@@ -152,9 +166,9 @@ export const DIRECTOR_AUDIO_CODECS = [
   }),
 ];
 
-function createWeriftPeer(): DirectorPeer {
+function createWeriftPeer(preferH264: boolean): DirectorPeer {
   return new RTCPeerConnection({
-    codecs: { video: DIRECTOR_VIDEO_CODECS, audio: DIRECTOR_AUDIO_CODECS },
+    codecs: { video: directorVideoCodecs(preferH264), audio: DIRECTOR_AUDIO_CODECS },
   }) as unknown as DirectorPeer;
 }
 
@@ -207,7 +221,8 @@ export class DirectorStream {
 
   /** Negotiates with fal and starts recording. Throws DirectorError on refusal. */
   async open(): Promise<void> {
-    const connection = (this.options.createPeer ?? createWeriftPeer)();
+    const connection = this.options.createPeer?.()
+      ?? createWeriftPeer(this.options.preferH264 ?? true);
     this.connection = connection;
     this.state = { ...this.state, status: "connecting" };
 

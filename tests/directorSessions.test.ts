@@ -104,7 +104,8 @@ test("an abandoned session is reclaimed but keeps its reservation spent", () => 
 
 test("renew keeps a live session from being reclaimed", () => {
   const now = { value: 0 };
-  const ledger = ledgerAt(now, { maxSessionSeconds: 60 });
+  // Keep the hard session ceiling beyond this test's idle-renewal window.
+  const ledger = ledgerAt(now, { maxSessionSeconds: 180 });
   const session = ledger.open("jam") as { sessionId: string };
   now.value = SESSION_IDLE_TIMEOUT_MS - 1;
   assert.ok(ledger.renew(session.sessionId));
@@ -192,7 +193,8 @@ test("a shared stream outlives one viewer leaving, and ends with the last", () =
 
 test("one viewer still checking in keeps the stream for everyone", () => {
   const now = { value: 1_000 };
-  const ledger = ledgerAt(now, { maxSessionSeconds: 60 });
+  // This test isolates idle renewal; the hard duration cap is covered below.
+  const ledger = ledgerAt(now, { maxSessionSeconds: 180 });
   const session = ledger.open("jam:en|") as { sessionId: string };
   const staying = ledger.attach(session.sessionId) as string;
   ledger.attach(session.sessionId);
@@ -206,6 +208,28 @@ test("one viewer still checking in keeps the stream for everyone", () => {
   // demonstrably still watching it.
   assert.equal(ledger.openCount, 1);
   assert.equal(ledger.viewerCount(session.sessionId), 1);
+});
+
+test("an active viewer cannot extend a session past its paid ceiling", () => {
+  const now = { value: 1_000 };
+  const closed: string[] = [];
+  const ledger = new DirectorSessionLedger(
+    { budgetUsd: 20, usdPerSecond: 0.08, maxConcurrentSessions: 1, maxSessionSeconds: 60 },
+    () => now.value,
+    (sessionId) => closed.push(sessionId),
+  );
+  const session = ledger.open("jam:en|") as { sessionId: string };
+  const viewer = ledger.attach(session.sessionId) as string;
+
+  now.value += 59_999;
+  assert.equal(ledger.renew(session.sessionId, viewer), true);
+  ledger.expireIdle();
+  assert.equal(ledger.openCount, 1);
+
+  now.value += 1;
+  ledger.expireIdle();
+  assert.equal(ledger.openCount, 0);
+  assert.deepEqual(closed, [session.sessionId]);
 });
 
 test("a stream every viewer abandoned is reclaimed, and the caller is told", () => {

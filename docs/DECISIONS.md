@@ -1,5 +1,47 @@
 # Decisions
 
+## 2026-09-20 — The broadcast review closes every viewer and muxer lifetime (RV-19)
+
+Reviewing the integrated broadcast branch found that its accounting model was stricter than its
+runtime. The ledger reserved a bounded session and described idle reclaim, but nothing called the
+reclaim function unless another session request happened, and the configured duration ceiling was
+never an ending condition. A final tab disappearing with no later traffic could therefore leave a
+provider stream running beyond both its audience and the amount reserved for it. The container now
+runs an unreferenced thirty-second sweep; it closes idle sessions and closes every session at its
+hard duration limit even while a viewer keeps renewing. The browser's detach request uses fetch
+keepalive so ordinary navigation normally settles immediately, while the sweep remains the
+server-owned fallback for crashes and suspended tabs.
+
+The same review closed four lifetime and authority ambiguities:
+
+- A stream is marked `opening` before the durable index write, not only around the provider
+  handshake. The index has a ten-second timeout and viewers poll every three seconds, so the old
+  gap could still release a valid reservation before the handshake began.
+- Ending a session stops the HLS segmenter as well as the peer and archive recorder. This releases
+  its RTP listeners, terminates its worker within the bounded shutdown grace, flushes the tail and
+  finishes every sink.
+- Invalid viewer JSON is a `400 invalid_command`. It can never be interpreted as the absent
+  `viewerId` that means the host's deliberate whole-room stop.
+- Playlist, init and media-segment reads bind the session id to the jam id in the URL, as every
+  other director route already does.
+
+Auto-attach is also treated as a server mutation now. Only one poll may be in flight per screen,
+polling pauses while the host starts, and a response that arrives after unmount immediately
+detaches the viewer id it allocated. This covers navigation and React's development remount rather
+than leaving a phantom viewer billed until reclaim. The finished recording is rendered once; the
+integration had accidentally left both the old and new player branches in the DOM.
+
+Finally, recording and live delivery now select one media pipeline. With HLS enabled, the fMP4
+segmenter fans the same numbered pieces to the live window and, when recording is enabled, the MP4
+archive sink. With HLS disabled, the established WebM piece recorder owns the archive. This
+supersedes the integrated branch state that independently instantiated both muxers while still
+claiming one timeline. Codec preference follows that choice: HLS/fMP4 offers H.264 first, while a
+recording-only WebM session offers VP8 first. Both remain in the offer as fallbacks, so enabling
+the HLS feature does not silently make the default recording-only deployment negotiate a codec
+its archive cannot mux.
+
+No provider claim changes: H.264 muxing and a real fal stream remain unprobed.
+
 ## 2026-09-20 — The account menu shows the real anonymous session, not a fabricated identity
 
 The top bar now ends in an avatar with a menu behind it. The obvious way to build that surface is
@@ -332,10 +374,10 @@ offer SDP locally — free, no provider call — showed `a=rtpmap:98 VP8/90000` 
 fal could not have sent H.264 whatever it supports, and a paid probe "to discover the codec"
 would have discovered a constraint we had imposed on ourselves. This matters because
 `Mp4Container` accepts `mp4SupportedCodecs = ["avc1", "opus"]` — H.264 and Opus — so VP8 cannot
-go into fMP4 at all. The offer now advertises **H.264 first with VP8 retained as a fallback**: a
-provider that cannot do H.264 still connects and still records, and live delivery refuses in the
-open rather than the handshake failing. A negotiated codec fMP4 cannot carry produces no segments
-and a typed `unsupported_codec`, never a playlist of undecodable bytes.
+go into fMP4 at all. The offer now advertises both codecs and puts the selected container's codec
+first: **H.264 for HLS/fMP4, VP8 for recording-only WebM**. A provider that cannot do the preferred
+codec can still connect, while a negotiated codec the selected muxer cannot carry produces no
+segments and a typed `unsupported_codec`, never a playlist of undecodable bytes.
 
 **Muxing runs in a worker thread, because the stop path must survive the media path.** A real
 480p session with a recorder attached drove Node to 99% CPU and stalled the event loop:

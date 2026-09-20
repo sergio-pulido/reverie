@@ -76,6 +76,7 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
   const [lifecycle, setLifecycle] = useState<JamLifecycle>("live");
   const live = sessionId !== null;
   const active = useRef<{ sessionId: string; viewerId: string | null } | null>(null);
+  const starting = useRef(false);
   const screen = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
@@ -121,13 +122,27 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
   useEffect(() => {
     if (sessionId) return;
     let cancelled = false;
+    let joining = false;
     const join = async () => {
+      if (joining || starting.current) return;
+      joining = true;
       try {
         const opened = await attachDirectorSession(jamId, configuration);
-        if (cancelled) return;
+        if (cancelled) {
+          // Attaching changes server state by allocating a viewer id. A request
+          // that finishes after unmount (including React's development remount)
+          // must undo that allocation instead of leaving a phantom viewer to
+          // keep the paid stream alive until the idle timeout.
+          void endDirectorSession(jamId, opened.sessionId, opened.viewerId).catch(
+            () => undefined,
+          );
+          return;
+        }
         adopt(opened);
       } catch {
         // `no_stream` is the ordinary answer before the host presses start.
+      } finally {
+        joining = false;
       }
     };
     void join();
@@ -254,6 +269,7 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
   );
 
   const start = useCallback(async () => {
+    starting.current = true;
     setBusy(true);
     setFailure(null);
     setRecording(null);
@@ -268,6 +284,7 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
           : "The live director could not be started.",
       );
     } finally {
+      starting.current = false;
       setBusy(false);
     }
   }, [adopt, configuration, jamId]);
@@ -331,7 +348,7 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
     </div>
 
     <div className="player-frame">
-      {recording ? (
+      {!live && recording ? (
         <video src={recording} controls playsInline data-testid="jam-director-recording" />
       ) : null}
       {!recording && live && liveDelivery ? (
@@ -357,9 +374,6 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
         hidden={!live || liveDelivery}
         data-testid="jam-director-relay"
       />
-      {!live && recording && (
-        <video src={recording} controls playsInline data-testid="jam-director-recording" />
-      )}
       {!live && recording && archivedSession && pieces.length > 1 && (
         <PieceJump
           pieces={pieces}

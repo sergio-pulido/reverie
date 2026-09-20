@@ -140,11 +140,6 @@ const viewerSchema = z
   .object({ viewerId: z.string().trim().min(1).max(200).optional() })
   .optional();
 
-function readViewerId(body: unknown): string | undefined {
-  const parsed = viewerSchema.safeParse(body);
-  return parsed.success ? parsed.data?.viewerId : undefined;
-}
-
 export interface DirectorRouterOptions {
   config?: DirectorConfig | null;
   limits?: DirectorSessionLimits;
@@ -157,7 +152,11 @@ export interface DirectorRouterOptions {
    * omitted, a recording server archives every session; a server not
    * configured to record stores nothing and says so.
    */
-  createSegmentSinks?: (session: { jamId: string; sessionId: string }) => DirectorSegmentSink[];
+  createSegmentSinks?: (session: {
+    jamId: string;
+    sessionId: string;
+    container: ArchiveContainer;
+  }) => DirectorSegmentSink[];
   /** Seconds of film per stored piece; the muxer rounds up to a keyframe. */
   targetPieceSeconds?: number;
   startSession?: typeof startDirectorSession;
@@ -216,16 +215,15 @@ export function createDirectorRouter(
   /** The piece recorder per session, stopped with the session. */
   const recorders = new Map<string, DirectorPieceRecorder>();
 
-  /**
-   * The archive is the default sink for the WebM muxer. H.264 is refused by
-   * that muxer until the fMP4 implementation is selected upstream, so bytes
-   * emitted here are always WebM and must never be labelled as MP4.
-   */
-  function defaultSinks(session: { jamId: string; sessionId: string }): DirectorSegmentSink[] {
+  /** The archive sink is told which selected muxer produced its bytes. */
+  function defaultSinks(session: {
+    jamId: string;
+    sessionId: string;
+    container: ArchiveContainer;
+  }): DirectorSegmentSink[] {
     let sink: DirectorArchiveSink | null = null;
     const forContainer = (_codec: string): DirectorArchiveSink => {
-      const container: ArchiveContainer = "webm";
-      sink ??= new DirectorArchiveSink({ ...session, recordings, index, container });
+      sink ??= new DirectorArchiveSink({ ...session, recordings, index });
       return sink;
     };
     return [
@@ -262,6 +260,7 @@ export function createDirectorRouter(
     if (inFlight) return inFlight;
     const stream = streams.get(sessionId);
     streams.delete(sessionId);
+    const delivered = delivery.get(sessionId);
     delivery.delete(sessionId);
     for (const viewer of viewers.get(sessionId) ?? []) viewer.close();
     viewers.delete(sessionId);
@@ -271,6 +270,7 @@ export function createDirectorRouter(
       await stream?.stop();
       // Bounded inside: the tail of the film is worth a moment, the route that
       // settles the paid session is worth more.
+      await delivered?.segmenter.stop().catch(() => undefined);
       await recorder?.stop().catch(() => undefined);
       if (!stream) return;
       await index.closeSession(sessionId).catch(() => undefined);
@@ -294,6 +294,12 @@ export function createDirectorRouter(
   const ledger = new DirectorSessionLedger(limits, options.now, (sessionId) => {
     void releaseSession(sessionId).catch(() => undefined);
   });
+  // Reclaim must not depend on another browser happening to open or find a
+  // session. If the final tab crashes and no later request arrives, only a
+  // server-owned sweep can stop the paid stream at the idle or hard-duration
+  // boundary. `unref` keeps this maintenance timer from holding the process up.
+  const sessionSweep = setInterval(() => ledger.expireIdle(), 30_000);
+  sessionSweep.unref?.();
 
   /**
    * Ends a session and settles it.
@@ -443,6 +449,13 @@ export function createDirectorRouter(
       return;
     }
 
+    // Guard the whole opening transaction, including the durable index write
+    // below. That write has a ten-second timeout while viewers poll every three
+    // seconds; marking only the provider handshake left a window where a poll
+    // could mistake a valid reservation for an orphan and release it before the
+    // paid session had even begun opening.
+    opening.add(streamKey);
+
     // The reproduction record opens with the session, not at the end of it:
     // the audit rows reference it, and a session that dies mid-stream must
     // still have somewhere for what it managed to record.
@@ -459,15 +472,23 @@ export function createDirectorRouter(
       // It runs, and the API reports the archive as not durable.
     }
 
-    // HLS delivery is opt-in until a real session has shown /end answering
-    // while the muxer worker is mid-segment. The live window is one sink among
-    // however many want segments.
+    // Select one media pipeline. With HLS on it produces fMP4 for both the live
+    // window and the archive; otherwise the recorder produces WebM pieces. This
+    // keeps live viewing and durable reproduction on one numbered timeline
+    // instead of independently muxing the same track twice.
+    const archiveSinks = active.record
+      ? (options.createSegmentSinks ?? defaultSinks)({
+          jamId: jam.id,
+          sessionId: session.sessionId,
+          container: deliverLive ? "mp4" : "webm",
+        })
+      : [];
     const live = deliverLive
       ? (options.createLiveSink?.() ?? new DirectorLiveSink(options.segmentWindow ?? 6))
       : null;
     const segmenter = live
       ? new DirectorSegmenter({
-          sinks: [live],
+          sinks: [live, ...archiveSinks],
           targetSegmentSeconds: options.segmentSeconds ?? 2,
         })
       : null;
@@ -478,6 +499,10 @@ export function createDirectorRouter(
       script: jam.script,
       startSession: options.startSession,
       createPeer: options.createPeer,
+      // The offered preference follows the selected muxer. Both codecs remain
+      // available as fallbacks, but a recording-only server must negotiate
+      // VP8 first because its archive container is WebM.
+      preferH264: deliverLive,
       // Fire-and-forget: a durable audit write that fails or hangs must not
       // stall the stream it is describing, and the in-memory trail the live
       // session reads is unaffected either way.
@@ -485,7 +510,6 @@ export function createDirectorRouter(
         void index.recordAudit(session.sessionId, entry).catch(() => undefined);
       },
     });
-    opening.add(streamKey);
     try {
       await stream.open();
     } catch (error) {
@@ -507,13 +531,9 @@ export function createDirectorRouter(
     // Storage is opt-in (REVERIE_DIRECTOR_RECORD) and runs off this thread: the
     // recorder's only work here is to hand packets to its worker. A server
     // that does not record still directs, audits and relays.
-    if (active.record) {
-      const sinks = (options.createSegmentSinks ?? defaultSinks)({
-        jamId: jam.id,
-        sessionId: session.sessionId,
-      });
+    if (active.record && !segmenter) {
       const recorder = new DirectorPieceRecorder({
-        sinks,
+        sinks: archiveSinks,
         targetPieceSeconds: options.targetPieceSeconds,
       });
       recorders.set(session.sessionId, recorder);
@@ -697,7 +717,12 @@ export function createDirectorRouter(
    * was watching it and bills for the silence.
    */
   router.post("/api/jams/:id/director/session/:sessionId/renew", (request, response) => {
-    const viewerId = readViewerId(request.body);
+    const viewer = viewerSchema.safeParse(request.body);
+    if (!viewer.success) {
+      sendError(response, 400, "invalid_command", "That viewer is not valid.", false);
+      return;
+    }
+    const viewerId = viewer.data?.viewerId;
     const stream = streams.get(request.params.sessionId);
     if (
       !stream ||
@@ -741,7 +766,14 @@ export function createDirectorRouter(
     // A viewer naming itself is leaving, not stopping the room's film. The
     // session ends only when nobody is watching by either route — a relay peer
     // or a counted viewer. Naming no viewer is the host's deliberate stop.
-    const viewerId = readViewerId(request.body);
+    const viewer = viewerSchema.safeParse(request.body);
+    if (!viewer.success) {
+      // Missing viewerId is the host's whole-room stop. Invalid viewer data
+      // must never collapse into that privileged meaning.
+      sendError(response, 400, "invalid_command", "That viewer is not valid.", false);
+      return;
+    }
+    const viewerId = viewer.data?.viewerId;
     if (viewerId) {
       ledger.detach(request.params.sessionId, viewerId);
       if (stillWatched(request.params.sessionId)) {
@@ -772,7 +804,8 @@ export function createDirectorRouter(
     // Order matters: "not open" and "not delivered live" are different answers,
     // and a server with delivery off has no delivery entry for any session, so
     // asking the delivery map first would report every stream as missing.
-    if (!streams.get(request.params.sessionId)) {
+    const stream = streams.get(request.params.sessionId);
+    if (!stream || stream.jamId !== request.params.id) {
       sendError(response, 404, "not_found", "That director session is not open.", false);
       return;
     }
@@ -829,6 +862,11 @@ export function createDirectorRouter(
 
   /** The fMP4 initialization segment every viewer needs before any media. */
   router.get("/api/jams/:id/director/session/:sessionId/init.mp4", (request, response) => {
+    const stream = streams.get(request.params.sessionId);
+    if (!stream || stream.jamId !== request.params.id) {
+      sendError(response, 404, "not_found", "That director session is not open.", false);
+      return;
+    }
     const initialization = delivery.get(request.params.sessionId)?.live.initializationSegment;
     if (!initialization) {
       sendError(response, 404, "not_found", "That stream has not started yet.", true);
@@ -850,6 +888,11 @@ export function createDirectorRouter(
    * container doing anything at all.
    */
   router.get("/api/jams/:id/director/session/:sessionId/segment/:sequence.m4s", (request, response) => {
+    const stream = streams.get(request.params.sessionId);
+    if (!stream || stream.jamId !== request.params.id) {
+      sendError(response, 404, "not_found", "That director session is not open.", false);
+      return;
+    }
     const live = delivery.get(request.params.sessionId)?.live;
     const sequence = Number(request.params.sequence);
     if (!live || !Number.isInteger(sequence) || sequence < 0) {

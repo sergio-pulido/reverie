@@ -149,6 +149,10 @@ export function endDirectorSession(
   return call(`/api/jams/${jamId}/director/session/${sessionId}/end`, {
     method: "POST",
     headers: { "content-type": "application/json" },
+    // Detach is commonly sent while navigating away. Keepalive gives the small
+    // request a chance to finish after the document begins unloading, so the
+    // last viewer does not leave the paid stream to the idle fallback.
+    keepalive: true,
     body: JSON.stringify(viewerId ? { viewerId } : {}),
   });
 }

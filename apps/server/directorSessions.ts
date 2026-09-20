@@ -255,8 +255,17 @@ export class DirectorSessionLedger {
    * fal actually stopped generating, and guessing low would understate spend.
    */
   expireIdle(): void {
-    const cutoff = this.now() - SESSION_IDLE_TIMEOUT_MS;
+    const at = this.now();
+    const cutoff = at - SESSION_IDLE_TIMEOUT_MS;
     for (const session of [...this.sessions.values()]) {
+      // The configured ceiling is a real spend limit, not only the number used
+      // to reserve budget. An actively renewing viewer cannot extend a paid
+      // session past the amount the ledger committed for it.
+      if (at - session.startedAt >= this.limits.maxSessionSeconds * 1000) {
+        this.sessions.delete(session.sessionId);
+        this.onClosed(session.sessionId);
+        continue;
+      }
       for (const [viewerId, seenAt] of [...session.viewers]) {
         if (seenAt <= cutoff) session.viewers.delete(viewerId);
       }

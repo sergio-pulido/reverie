@@ -1318,7 +1318,8 @@ open a PR, merge the PR. The previous split between a "primary agent" pushing di
 - **The peer had been offering VP8 only, and nothing had noticed.** werift 0.24.4 defaults to VP8
   alone, and the director built a bare `RTCPeerConnection`, so fal could never have sent H.264
   whatever it supports. That matters because werift's `Mp4Container` carries `avc1` and `opus` and
-  nothing else. The offer now prefers H.264 and keeps VP8 as a fallback; a codec fMP4 cannot carry
+  nothing else. The offer now carries both codecs and prefers the one its selected container can
+  mux — H.264 for HLS/fMP4, VP8 for recording-only WebM. A codec the active muxer cannot carry
   produces a typed `unsupported_codec` and no segments, never an undecodable playlist.
 - **Muxing runs in a worker thread.** A real 480p session with a recorder attached drove Node to
   99% CPU and stalled the event loop, so `/api/health` and the route that ends the paid session
@@ -1429,6 +1430,26 @@ open a PR, merge the PR. The previous split between a "primary agent" pushing di
   raw component tests can verify the route without asking Node to resolve Vite-only landing assets.
 - Verified locally: `pnpm typecheck`; 87/87 affected tests covering the app wiring, archive,
   worker boundary, routes, lifecycle, and DOM surface; full `pnpm test` 814/814; `pnpm build`.
+
+## 2026-09-20 — Director broadcast review hardening (RV-19)
+
+- The server now performs its own thirty-second session sweep. Idle reclaim no longer depends on
+  a later browser request, and `maxSessionSeconds` is enforced as the hard paid-session ceiling,
+  not merely used to calculate a budget reservation.
+- The opening guard covers the durable index write as well as the provider handshake. A viewer's
+  three-second attach poll cannot release a valid reservation while the index write is inside its
+  ten-second timeout window.
+- Session teardown stops and bounds the HLS segmenter worker, releases its RTP listeners, flushes
+  its tail and finishes its sinks. With HLS enabled, that one fMP4 pipeline feeds both the live
+  window and the MP4 archive; with HLS disabled, the WebM piece recorder remains the archive path.
+- Invalid viewer bodies cannot become a host stop, and every HLS read route verifies that the
+  session belongs to the jam named in the URL.
+- The client allows only one attach poll in flight, pauses it during a host start, detaches a
+  viewer allocated after unmount, and sends unload-time detach with fetch keepalive. The ended
+  recording player is no longer rendered twice.
+- Verified locally: `pnpm typecheck`; `pnpm test` 856/856; `pnpm build`; `git diff --check`.
+- No live provider session was opened. H.264 muxing, keyframe cadence, latency and CPU under real
+  fal media remain unverified.
 
 ## Next milestones
 

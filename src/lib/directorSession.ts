@@ -176,10 +176,14 @@ export function sendDirection(
  * stop is the moment the room ends, and a caller that had to re-fetch the jam
  * to discover that would show a stale state in between.
  */
+export type StopReason = "played_to_end";
+
 export function endDirectorSession(
   jamId: string,
   sessionId: string,
   viewerId?: string,
+  /** Why, when nobody pressed anything. Recorded on the trail as the close. */
+  reason?: StopReason,
 ): Promise<{ lifecycle: JamLifecycle }> {
   return call(`/api/jams/${jamId}/director/session/${sessionId}/end`, {
     method: "POST",
@@ -188,7 +192,10 @@ export function endDirectorSession(
     // request a chance to finish after the document begins unloading, so the
     // last viewer does not leave the paid stream to the idle fallback.
     keepalive: true,
-    body: JSON.stringify(viewerId ? { viewerId } : {}),
+    body: JSON.stringify({
+      ...(viewerId ? { viewerId } : {}),
+      ...(reason ? { reason } : {}),
+    }),
   });
 }
 

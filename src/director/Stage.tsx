@@ -90,7 +90,7 @@ export function Stage({
           <p className="director-stage-line" role="status">
             {phase === "still"
               ? session.endedAtFilmLength
-                ? "This take reached the end of the film and stopped itself. It is exactly as it was generated."
+                ? "This take played to the end of the film and stopped itself. It is exactly as it was generated."
                 : "This is the session that just ran, exactly as it was generated."
               : cannotStart ?? "Nothing is streaming."}
           </p>

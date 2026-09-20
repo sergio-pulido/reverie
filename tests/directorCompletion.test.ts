@@ -4,13 +4,15 @@ import {
   completionDetail,
   completionOf,
   completionSignal,
+  playedToEnd,
+  PLAYED_TO_END_TOLERANCE_SECONDS,
 } from "../src/core/directorCompletion";
 import { initialDirectorState, reduceDirectorState } from "../src/core/directorProtocol";
 import { buildScript } from "./helpers";
 import { DirectorStream } from "../apps/server/directorStream";
 import { FakeDirectorPeer } from "./fakeDirectorPeer";
 
-test("a film is finished when its whole length has been generated", () => {
+test("the whole film is generated when its whole length has been generated", () => {
   const reading = { runtimeSeconds: 20, generatedSeconds: 20, scriptOffsetSeconds: 10 };
   assert.equal(completionSignal(reading), "generated");
   assert.equal(completionSignal({ ...reading, generatedSeconds: 19.5 }), null);
@@ -28,7 +30,7 @@ test("the frontier is the backstop, and it crosses a chunk late", () => {
   assert.equal(completionSignal({ ...blind, scriptOffsetSeconds: null }), null);
 });
 
-test("a film of unknown length never completes itself", () => {
+test("a film of unknown length is never reported as generated", () => {
   // Zero is a script this server could not time, not a film of no length:
   // stopping such a take instantly is the worst reading of it.
   assert.equal(
@@ -37,7 +39,7 @@ test("a film of unknown length never completes itself", () => {
   );
 });
 
-test("completion is read off the stream's own state and script", () => {
+test("generation is read off the stream's own state and script", () => {
   const script = buildScript(5, 2, 2); // 20s
   let state = initialDirectorState();
   state = reduceDirectorState(state, {
@@ -90,7 +92,7 @@ async function openStream(
     script,
     createPeer: () => peer,
     startSession: async () => "v=0\r\nanswer\r\n",
-    onComplete: (signal) => signals.push(signal),
+    onFilmGenerated: (signal: string) => signals.push(signal),
   });
   await stream.open();
   peer.channel.open();
@@ -107,21 +109,21 @@ function chunk(index: number, seconds: number, offset: number) {
   };
 }
 
-test("the stream reports the end of the film once, and records why", async () => {
+test("the stream reports the whole film generated once, and records how", async () => {
   const { stream, peer, signals } = await openStream();
   peer.channel.deliver(chunk(0, 10, 0));
   assert.deepEqual(signals, []);
-  assert.equal(stream.complete, false);
+  assert.equal(stream.filmGenerated, false);
 
   peer.channel.deliver(chunk(1, 10, 10));
   assert.deepEqual(signals, ["generated"]);
-  assert.equal(stream.complete, true);
+  assert.equal(stream.filmGenerated, true);
 
   // fal keeps streaming past the last beat; the report does not repeat.
   peer.channel.deliver(chunk(2, 10, 20));
   assert.deepEqual(signals, ["generated"]);
 
-  const completed = stream.entries.filter((entry) => entry.kind === "session_complete");
+  const completed = stream.entries.filter((entry) => entry.kind === "film_generated");
   assert.equal(completed.length, 1);
   assert.equal(completed[0].detail, "20s generated of a 20s film");
   assert.equal(completed[0].scriptOffsetSeconds, 10);
@@ -140,9 +142,48 @@ test("a provider that reports no playable duration still reaches the end", async
   await stream.stop();
 });
 
-test("a take already stopping reports no completion", async () => {
+test("a take already stopping reports nothing generated", async () => {
   const { stream, peer, signals } = await openStream();
   await stream.stop();
   peer.channel.deliver(chunk(0, 30, 0));
   assert.deepEqual(signals, []);
+});
+
+test("the stop rule is the seconds played, and nothing else", () => {
+  // The film is 20s. Generation reaching 20 says nothing here; only the
+  // position the viewer has actually reached does.
+  assert.equal(playedToEnd(19, 20), false);
+  assert.equal(playedToEnd(20, 20), true);
+  // A media element can stall a hair short, and the playhead is sampled four
+  // times a second, so the last quarter-second counts as the end.
+  assert.equal(playedToEnd(19.8, 20), true);
+  assert.equal(playedToEnd(19.7, 20), false);
+  assert.equal(PLAYED_TO_END_TOLERANCE_SECONDS, 0.25);
+});
+
+test("nothing playing is never an end", () => {
+  // Null is a film that is not playing here — paused, nothing decoded, or no
+  // element at all. Ending a take on that is how a room gets shown nothing.
+  assert.equal(playedToEnd(null, 20), false);
+  // And a film of unknown length has no end to reach.
+  assert.equal(playedToEnd(30, null), false);
+  assert.equal(playedToEnd(30, 0), false);
+});
+
+test("a stop records the reason it was given, and says nothing when given none", async () => {
+  // A take that was watched to the end of its film is not the same event as
+  // one somebody pressed Stop on, and the trail is where that difference
+  // survives the session.
+  const watched = await openStream();
+  await watched.stream.stop("played_to_end");
+  const closed = watched.stream.entries.filter((entry) => entry.kind === "session_closed");
+  assert.equal(closed.length, 1);
+  assert.equal(closed[0].detail, "played_to_end");
+
+  const pressed = await openStream();
+  await pressed.stream.stop();
+  assert.equal(
+    pressed.stream.entries.find((entry) => entry.kind === "session_closed")?.detail,
+    undefined,
+  );
 });

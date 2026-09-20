@@ -22,11 +22,12 @@ export type DirectorAuditKind =
   | "chunk_received"
   | "provider_error"
   /**
-   * The film reached its selected length and the take stopped itself. Always
-   * followed by `session_closed`: this says why that close happened, which is
-   * otherwise indistinguishable from somebody in the room pressing Stop.
+   * The provider has generated the whole film. NOT an ending: generation runs
+   * far ahead of playback — a measured 20s film existed 17s after Play, before
+   * a viewer could have seen half of it — so this is a fact about the provider,
+   * and the take goes on until the film has been watched to its end.
    */
-  | "session_complete"
+  | "film_generated"
   | "session_closed";
 
 export interface DirectorAuditEntry {
@@ -50,6 +51,12 @@ export interface DirectorAuditEntry {
   readonly authorId?: string;
   /** The direction text exactly as it was sent to fal. */
   readonly body?: string;
+  /**
+   * Free text for the kinds that carry one: the provider's error, the
+   * archive's container, and on `session_closed` why the take ended, when the
+   * caller said. A stop nobody pressed is worth being able to tell from one
+   * somebody did.
+   */
   readonly detail?: string;
 }
 

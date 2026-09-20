@@ -1,44 +1,45 @@
 # Decisions
 
-## 2026-09-20 — A take ends when the film does (RV-28)
+## 2026-09-20 — A take ends when the film has been WATCHED to its end, not generated to it (RV-28)
 
-fal does not stop at the last beat. The script reaches it once, on the control channel at
-`configure`, and after that the stream runs until it is told to stop: a twenty-second script
-was measured generating through 1:20 before a person pressed Stop. Every second past the end
-of the script is generated, billed at the per-second rate, and thrown away -- it is not in
-the film, because the film is the script. So the selected length is a boundary only this
-side can enforce, and now does.
+fal does not stop at the last beat. The script reaches it once, at `configure`, and after that
+the stream runs until it is told to stop, so the film's selected length is a boundary only this
+side enforces. The question is which end it is, and the first answer here was wrong in a way
+worth keeping written down.
 
-**The server ends it, not the screen.** `DirectorStream` reports the end through `onComplete`
-and the router calls the same `endSession` a person's Stop calls, so the paid session settles,
-the archive closes and the room leaves `playing` exactly as it does for a pressed Stop. A
-browser-side stop would have been a stop that a closed tab, a dead laptop or a reader who
-looked away could skip -- which is the class of bug the 90-second idle reclaim already exists
-to cover.
+**Generation finishing is not an ending, and ending on it showed four rooms nothing.** The
+first build stopped the take when `generatedSeconds` reached the script's runtime. Measured
+against fal on 2026-09-20, four takes ran like this: `session_opened` at 11:52:06, the first
+chunk at 11:52:14.8, the second and final chunk at 11:52:23.788 — and `session_closed` at
+11:52:23.790, **one millisecond later**. A 20-second film was generated in 17 seconds of wall
+clock, and the teardown landed before hls.js had a playable segment. The provider runs ahead of
+the viewer by design; keying a stop on its progress ends the take before anybody has seen the
+film it just paid for.
 
-**Two readings, either of which ends the take** (`src/core/directorCompletion.ts`).
-`generatedSeconds` -- the sum of each chunk's `playback_seconds` -- is how much film exists,
-and normally crosses first. `script_offset_seconds` is the provider's frontier, and a paid
-probe on 2026-09-20 established that it is the START offset of the chunk being generated: a
-session reading 50 has 60 seconds in hand. So the frontier crosses the runtime a whole chunk
-late and is the backstop, not the trigger -- it still ends a take whose chunks report no
-playable duration to add up. Both come off the control channel, so this works while the media
-pipeline is producing nothing, which is the state the muxer is currently in.
+**So the stop is keyed on seconds PLAYED, and on nothing else** — not time since Play, which
+says nothing about what was seen, and not the provider's frontier. `playedToEnd` compares the
+media element's own `currentTime` against the film's length, with a quarter-second tolerance
+because an element can stall a hair short and the playhead is sampled four times a second. A
+null playhead — paused, nothing decoded, no element — is never an end.
 
-**A script this server cannot time is not a film of no length.** A runtime of zero leaves the
-take running to the session ceiling rather than ending it the instant it opens.
+**That puts the trigger in the browser, which is where the only honest reading of it lives.**
+The server cannot see what a viewer has watched. It keeps the ceilings that do not need a
+viewer: `maxSessionSeconds`, the idle reclaim, and the viewer refcount. The browser sends the
+same whole-room stop a person's Stop sends, so settle, archive close and the `playing` → `ended`
+transition stay on one path.
 
-**The session ceiling stays, and is now the second of two.** `maxSessionSeconds` is a spend
-control over any film; the film's length is what the room asked for. A take reaches whichever
-is nearer, and the room is told which before Play is pressed -- `filmSeconds` on the budget
-and session routes, answered as `null` when this server does not hold the script, never as an
-endless film.
+**The cost of waiting is real and deliberately accepted.** The provider keeps generating past
+the last beat while the viewer catches up, and `maxSessionSeconds` is what bounds it. Stopping
+generation early without tearing down delivery would be better, and is not attempted here:
+what fal does to a session after `{"type":"stop"}` is unprobed, and if it closes the connection
+the live window dies with it — which is the bug this entry is about.
 
-**A take that ends itself says so.** `session_complete` is recorded before the `session_closed`
-that follows it, because otherwise a room cannot tell the film ending from the stream failing:
-both look like a player that swapped to a recording on its own. It is also the signal both
-screens key on: it arrives a poll before the session stops answering, and it is the only one that
-distinguishes this ending from a Stop somebody else pressed.
+**The trail keeps both moments.** `film_generated` records that the whole film exists, with
+which reading crossed first: `generatedSeconds`, or the frontier `script_offset_seconds` as a
+backstop — the frontier being the START offset of the chunk being generated, so it crosses a
+chunk late. `session_closed` carries the reason when the caller gives one, from a closed enum
+rather than free text, so a take that was watched out can be told from one somebody pressed
+Stop on.
 
 ## 2026-09-20 — A finished film is read from the deployment, and the archive says why it is empty (RV-25)
 

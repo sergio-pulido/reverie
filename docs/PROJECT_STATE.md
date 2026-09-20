@@ -2474,43 +2474,38 @@ the code it quotes sit together again.
 - The endpoint itself was not exercised from here. It is not on this branch, and the receipts for
   it are in the `POST /api/evaluate` entry above.
 
-## 2026-09-20 — A take stops itself at the end of the film (RV-28)
+## 2026-09-20 — A take stops when the film has been watched out (RV-28)
 
-- A director session now ends when the film reaches its **selected length** — the script's own
-  total runtime — instead of running until somebody presses Stop. `DirectorStream` reports the
-  end through `onComplete` and `apps/server/director.ts` calls the same `endSession` a pressed
-  Stop calls, so the paid session settles, the archive closes and the room leaves `playing` on
-  one path rather than two.
-- The rule is `src/core/directorCompletion.ts`, and either reading ends the take: the seconds
-  actually generated, or the provider's frontier as a backstop. Both are read off the control
-  channel, so it works while the media pipeline produces nothing. A script whose runtime reads
-  zero never self-completes; such a take runs to `maxSessionSeconds` as before.
-- `filmSeconds` is now answered by `GET .../director/budget` and by both session responses, so
-  the room can say where a take ends *before* Play is pressed: "It stops itself at the end of
-  the film, after 0:20." Null when this server does not hold the script.
-- The room says why a take it did not stop has stopped. `session_complete` is recorded ahead of
-  `session_closed`, and `src/screens/JamDirector.tsx` lets go of the session as soon as the
-  trail carries it rather than waiting for the next read to 404.
-- Verified: `pnpm test` 1406/1406, `npx tsc --noEmit` clean, `pnpm build` clean. New coverage in
-  `tests/directorCompletion.test.ts` (the rule, and the stream over a fake peer), three route
-  tests in `tests/directorRoutes.test.ts` (a take that ends itself and settles at the minimum,
-  a take short of the end that keeps running, `filmSeconds` on the budget) and two DOM tests in
-  `tests/jamLifecycle.dom.test.tsx`, and one in `tests/directorScreen.dom.test.tsx` for the
-  Director screen letting go of a finished take.
-- One existing test was changed on purpose, not dropped: "spend follows the seconds the stream
-  actually generated" drove 90 seconds through a 20-second film, which this feature now makes
-  impossible. It runs against a two-minute film and still asserts exactly what it did — the bill
-  follows the chunks, capped at the reservation.
-- **Not verified against fal.** No paid session was opened from this branch, so the trigger has
-  never been observed on a real stream. The measurement it is built on — the provider overrunning
-  a 20s script to 1:20, and `script_offset_seconds` being the chunk's START offset — comes from
-  the RV-27 session's probe on 2026-09-20, not from here.
-- Both screens let go of a take that ended without them. `useDirectorSession` used to swallow
-  the error from a session that had stopped answering — "the stop path owns that state" — so the
-  Director screen kept reading live and kept offering a Stop for a stream that was over, after an
-  auto-stop and equally after somebody else's Stop. It now drops the session on either signal and
-  holds the finished take as a frame, saying which of the two ended it. Nothing is ended from
-  there: the take is already over on the server, so no end call is sent.
+- A director take now ends when a viewer has **played** to the end of the film — the script's
+  own total runtime — instead of running until somebody presses Stop. The rule is
+  `playedToEnd` in `src/core/directorCompletion.ts`, read off the media element's `currentTime`
+  four times a second on both screens, with a 0.25s tolerance.
+- **The first build of this was wrong and was probed against fal before it shipped.** It ended
+  the take when the provider had generated the film's runtime. Four real takes:
+  `session_opened` 11:52:06, first chunk 11:52:14.8, last chunk 11:52:23.788,
+  `session_closed` 11:52:23.790 — a 20s film generated in 17s of wall clock and torn down 1ms
+  after the last chunk, before hls.js had a playable segment. Every one of those rooms saw
+  nothing. Generation runs ahead of playback by design, so it can never be the stop.
+- The server no longer ends a take on its own progress. It records `film_generated` (the whole
+  film exists, and which reading crossed first) and keeps only the ceilings that need no
+  viewer: `maxSessionSeconds`, the idle reclaim, the viewer refcount.
+- `POST .../session/:id/end` accepts `reason` from a closed enum (`played_to_end`) and records
+  it on `session_closed`, so a take that was watched out can be told from a pressed Stop.
+- `filmSeconds` is answered by `GET .../director/budget` and both session responses; the room
+  says where a take ends before Play is pressed.
+- **Accepted cost:** the provider keeps generating past the last beat while the viewer catches
+  up, bounded by `maxSessionSeconds` (120s). Halting generation without tearing down delivery
+  is the better shape and is not attempted: what fal does after `{"type":"stop"}` is unprobed.
+- Verified: `pnpm test` 1411/1411, `npx tsc --noEmit` clean, `pnpm build` clean. Coverage in
+  `tests/directorCompletion.test.ts` (both rules, the stream over a fake peer, the recorded
+  stop reason), `tests/directorRoutes.test.ts` (generation ends nothing, the reason is
+  recorded, an unknown reason is refused), and a DOM test per screen driving a real playhead.
+- **Not verified since the change:** no paid session has been opened against the rewritten
+  trigger. The four takes above were the previous build. What is proven is the diagnosis, not
+  the fix.
+- One existing test changed on purpose: "spend follows the seconds the stream actually
+  generated" runs against a two-minute film, because `buildJam()` in `tests/directorRoutes.test.ts`
+  now takes `(portionSeconds, portionsPerScene)` and portions cap at 15s.
 
 ## Next milestones
 

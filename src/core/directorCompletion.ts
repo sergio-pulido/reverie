@@ -2,30 +2,26 @@ import type { DirectorState } from "./directorProtocol";
 import { totalDurationSeconds } from "./script";
 
 /**
- * When a take has reached the end of the film it was asked for.
+ * The two different ends of a take, which are not the same moment.
  *
- * The provider does not stop at the last beat. It is told the script once, on
- * the control channel, and then it keeps generating until somebody tells it to
- * stop — a twenty-second script was measured running four chunks past its own
- * end. So the film's selected length is a boundary only this side enforces,
- * and every second past it is generated, billed and thrown away.
+ * GENERATION ends first, and by a long way. The provider is told the script
+ * once and then runs ahead of everybody: four measured takes on 2026-09-20
+ * generated a whole 20-second film in 17 seconds of wall clock, the second and
+ * final chunk landing before hls.js had a playable segment. So "the film has
+ * been generated" is a fact about the provider, recorded because it is worth
+ * knowing, and it is NOT a reason to end anything.
  *
- * Two independent readings say the end has arrived, and either is enough:
+ * PLAYBACK ends when the viewer has actually watched to the end of the film,
+ * and that is what stops a take. It is the only reading that cannot cut a film
+ * off before it has been seen, because it is a measurement of the seeing —
+ * time since Play says nothing, and neither does the provider's progress.
  *
- * - `generatedSeconds`, the sum of each chunk's `playback_seconds`, is how
- *   much film actually exists. It is the exact answer and normally the first
- *   to cross.
- * - `scriptOffsetSeconds` is the provider's frontier, and it is the START
- *   offset of the chunk being generated — measured, not assumed: a session
- *   reading 50 has 60 seconds in hand. So it crosses the runtime a whole chunk
- *   late, which makes it a backstop rather than the trigger: it still ends a
- *   take whose chunks report no playable duration to add up.
- *
- * Both are read from the control channel, so this answers even when the media
- * pipeline is producing nothing.
+ * The cost of waiting is real and bounded elsewhere: the provider keeps
+ * generating past the last beat while the viewer catches up, and the session
+ * ceiling (`maxSessionSeconds`) is what caps that.
  */
 
-/** Which reading said the film had reached its end. */
+/** Which reading said the whole film had been generated. */
 export type CompletionSignal = "generated" | "frontier";
 
 export interface CompletionReading {
@@ -38,7 +34,8 @@ export interface CompletionReading {
 }
 
 /**
- * The signal that says this film is finished, or null while it is not.
+ * The signal that says the whole film has been generated, or null while it
+ * has not.
  *
  * A runtime of zero is not a film of no length; it is a script this server
  * cannot time, and stopping a take the instant it opens would be the worst
@@ -65,11 +62,11 @@ export function completionOf(
 }
 
 /**
- * How the trail and the room describe a stop nobody pressed.
+ * How the trail describes the moment the whole film existed.
  *
- * The two signals stop the same take for the same reason; which one crossed
- * first is a fact about the provider's reporting, and belongs in the audit
- * detail rather than in what the room is told.
+ * Which of the two readings crossed first is a fact about the provider's
+ * reporting, and belongs in the audit detail rather than in what a room is
+ * told.
  */
 export function completionDetail(
   signal: CompletionSignal,
@@ -84,4 +81,35 @@ export function completionDetail(
 
 function round(seconds: number): number {
   return Math.round(seconds * 10) / 10;
+}
+
+/**
+ * A media element can stall a hair short of a film's last frame, and the
+ * playhead is sampled four times a second, so "reached the end" has to carry
+ * a tolerance or a take would run to the session ceiling over a rounding
+ * error. A quarter of a second is the sampling interval: shorter cannot be
+ * observed, longer would visibly clip the last frame.
+ */
+export const PLAYED_TO_END_TOLERANCE_SECONDS = 0.25;
+
+/**
+ * Has the viewer actually watched to the end of the film?
+ *
+ * This is the whole stop rule, and the reason it takes a PLAYED position
+ * rather than an elapsed time: a take that ends on the clock ends while the
+ * provider is still ahead of the viewer, which is how four takes were torn
+ * down 1ms after their last chunk and showed nothing at all. Time since Play
+ * is not evidence that anything was seen. Neither is the provider's progress.
+ *
+ * A null playhead is a film that is not playing here — paused, nothing
+ * decoded, or no element at all — and never an end. A film of unknown length
+ * has no end to reach.
+ */
+export function playedToEnd(
+  playheadSeconds: number | null,
+  filmSeconds: number | null,
+): boolean {
+  if (playheadSeconds === null || filmSeconds === null) return false;
+  if (!(filmSeconds > 0)) return false;
+  return playheadSeconds >= filmSeconds - PLAYED_TO_END_TOLERANCE_SECONDS;
 }

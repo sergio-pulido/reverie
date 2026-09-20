@@ -188,37 +188,38 @@ describe("the stage, in its three states", () => {
     assert.equal(document.querySelectorAll(".director-transport-button").length, 0);
   });
 
-  it("lets go of a take that reached the end of the film, and says so", async () => {
-    // Nobody presses anything here: the server ends a take when the film
-    // reaches its selected length, and this screen learns about it the way it
-    // learns about somebody else's Stop — from the trail, a poll before the
-    // session stops answering. Reading `live` after that would go on offering
-    // a Stop for a stream that is over.
+  it("stops a take once the film has been PLAYED to its end, not generated to it", async () => {
+    // The bug this replaced: the take ended when the provider had generated
+    // the whole film, which on four measured takes was 17 seconds after Play
+    // and 1ms after the last chunk — before hls.js had a playable segment, so
+    // the room saw nothing. Generation finishing is not somebody watching.
     server = await openDirector({
       offsetSeconds: 24,
       state: { status: "streaming", generatedSeconds: 30, chunksReceived: 3 },
-      audit: [
-        { at: "2026-09-20T10:00:00.000Z", kind: "session_opened" },
-        {
-          at: "2026-09-20T10:00:30.000Z",
-          kind: "session_complete",
-          detail: "30s generated of a 30s film",
-        },
-      ],
     });
     await click(playButton());
     await settle();
 
+    // The whole 30s film is generated and the take is still running, because
+    // nobody has watched any of it yet.
+    assert.equal(document.querySelector(".director-stage")?.getAttribute("data-phase"), "generating");
+    assert.equal(stopButton().disabled, false);
+
+    // Watched most of the way: still running.
+    await playLiveVideo(20);
+    assert.equal(document.querySelector(".director-stage")?.getAttribute("data-phase"), "generating");
+
+    // Watched to the end of the film: now it stops itself.
+    await playLiveVideo(30);
+    await settle();
     assert.equal(document.querySelector(".director-stage")?.getAttribute("data-phase"), "still");
-    assert.match(text(".director-stage-line"), /reached the end of the film and stopped itself/);
+    assert.match(text(".director-stage-line"), /played to the end of the film/);
     assert.equal(stopButton().disabled, true, "there is nothing left to stop");
     assert.equal(playButton().disabled, false, "and the next take is one press away");
-    // Letting go is not ending: the take is already over on the server, so no
-    // end call is sent for it.
-    assert.equal(
-      server.requests.filter((request) => request.includes("/end")).length,
-      0,
-    );
+
+    // The stop says why, so the trail can tell it from a pressed Stop.
+    const ends = server.requests.filter((request) => request.includes("/end"));
+    assert.equal(ends.length, 1);
   });
 
   it("still holds the finished session as a frame, with the room's clock under it", async () => {

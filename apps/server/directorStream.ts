@@ -69,13 +69,13 @@ export interface DirectorStreamOptions {
    */
   onAudit?: DirectorAuditListener;
   /**
-   * Called once, when the take has generated the whole film it was asked for.
+   * Called once, when the provider has generated the whole film.
    *
-   * The stream reports the end rather than ending itself: what a finished take
-   * costs, what it settles, and what the room's lifecycle becomes are the
-   * router's, and a stream that tore itself down would settle none of them.
+   * Not an ending. Generation finishes long before the film has been watched,
+   * so this exists to be recorded and reported, not to tear anything down —
+   * ending a take here is exactly the bug that showed a room nothing at all.
    */
-  onComplete?: (signal: CompletionSignal) => void;
+  onFilmGenerated?: (signal: CompletionSignal) => void;
 }
 
 export interface DirectionRequest {
@@ -190,8 +190,8 @@ export class DirectorStream {
   private connection: DirectorPeer | null = null;
   private control: DirectorControlChannel | null = null;
   private stopped = false;
-  /** Reported once: the film's end is reached in one chunk, not repeatedly. */
-  private completed = false;
+  /** Reported once: the film is generated in one chunk, not repeatedly. */
+  private generated = false;
   /** Inbound tracks, kept so viewers can be forwarded a copy. */
   private readonly inbound: MediaStreamTrack[] = [];
   private readonly trackListeners: ((track: MediaStreamTrack) => void)[] = [];
@@ -220,9 +220,9 @@ export class DirectorStream {
     };
   }
 
-  /** True once this take has generated the whole film it was asked for. */
-  get complete(): boolean {
-    return this.completed;
+  /** True once the provider has generated the whole film it was asked for. */
+  get filmGenerated(): boolean {
+    return this.generated;
   }
 
   /** The jam this stream belongs to, for callers holding many streams. */
@@ -323,14 +323,20 @@ export class DirectorStream {
     return { accepted: true, promptVersion, beats };
   }
 
-  /** Stops the stream, finalizes the recording and stores it. */
-  async stop(): Promise<void> {
+  /**
+   * Stops the stream, finalizes the recording and stores it.
+   *
+   * `reason` is recorded when the caller has one. A take that ended because
+   * the film had been watched to its end is not the same event as one somebody
+   * pressed Stop on, and the trail is the only place that difference survives.
+   */
+  async stop(reason?: string): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
     if (this.control?.readyState === "open") {
       this.control.send(JSON.stringify({ type: "stop" }));
     }
-    this.audit.record({ kind: "session_closed" });
+    this.audit.record({ kind: "session_closed", ...(reason ? { detail: reason } : {}) });
     await this.teardown();
   }
 
@@ -392,22 +398,20 @@ export class DirectorStream {
         break;
     }
 
-    this.reportCompletion();
+    this.reportFilmGenerated();
   }
 
   /**
-   * Says, once, that the film has reached its selected length.
+   * Says, once, that the provider has generated the whole film.
    *
    * Read after every control message rather than only after a chunk, because
-   * the two readings that answer it are carried on different messages and a
-   * take that is already past its end must not wait for one more chunk — the
-   * chunk it would wait for is the overrun this exists to prevent.
+   * the two readings that answer it are carried on different messages.
    *
-   * A stream that is already stopping reports nothing: the take is ending, and
-   * a completion arriving behind a stop would settle a session twice.
+   * A stream that is already stopping reports nothing: there is nobody left to
+   * tell, and the take is on its way out.
    */
-  private reportCompletion(): void {
-    if (this.completed || this.stopped) return;
+  private reportFilmGenerated(): void {
+    if (this.generated || this.stopped) return;
     const reading = {
       runtimeSeconds: totalDurationSeconds(this.options.script),
       generatedSeconds: this.state.generatedSeconds,
@@ -415,15 +419,15 @@ export class DirectorStream {
     };
     const signal = completionSignal(reading);
     if (!signal) return;
-    this.completed = true;
+    this.generated = true;
     this.audit.record({
-      kind: "session_complete",
+      kind: "film_generated",
       detail: completionDetail(signal, reading),
       ...(this.state.scriptOffsetSeconds === null
         ? {}
         : { scriptOffsetSeconds: this.state.scriptOffsetSeconds }),
     });
-    this.options.onComplete?.(signal);
+    this.options.onFilmGenerated?.(signal);
   }
 
   /**

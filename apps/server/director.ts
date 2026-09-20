@@ -170,7 +170,16 @@ export class DirectorStreamRegistry {
  * exception.
  */
 const viewerSchema = z
-  .object({ viewerId: z.string().trim().min(1).max(200).optional() })
+  .object({
+    viewerId: z.string().trim().min(1).max(200).optional(),
+    /**
+     * Why a whole-room stop was sent, when the caller was not a person.
+     *
+     * A closed enum rather than free text: this reaches the audit trail, and
+     * the trail records what this server knows, never a string a browser chose.
+     */
+    reason: z.enum(["played_to_end"]).optional(),
+  })
   .optional();
 
 export interface DirectorRouterOptions {
@@ -292,7 +301,7 @@ export function createDirectorRouter(
    * itself and calls back here; going through `endSession` from that callback
    * would settle a session that is already being settled.
    */
-  function releaseSession(sessionId: string): Promise<void> {
+  function releaseSession(sessionId: string, reason?: string): Promise<void> {
     const inFlight = releasing.get(sessionId);
     if (inFlight) return inFlight;
     const stream = streams.get(sessionId);
@@ -304,7 +313,7 @@ export function createDirectorRouter(
     const recorder = recorders.get(sessionId);
     recorders.delete(sessionId);
     const task = (async () => {
-      await stream?.stop();
+      await stream?.stop(reason);
       // Bounded inside: the tail of the film is worth a moment, the route that
       // settles the paid session is worth more.
       await delivered?.segmenter.stop().catch(() => undefined);
@@ -375,9 +384,9 @@ export function createDirectorRouter(
    * Only a room that actually held this stream is ended, so a teardown for an
    * unknown session id cannot end a room that is still playing.
    */
-  async function endSession(sessionId: string): Promise<void> {
+  async function endSession(sessionId: string, reason?: string): Promise<void> {
     ledger.close(sessionId);
-    await releaseSession(sessionId);
+    await releaseSession(sessionId, reason);
   }
   let resolved = false;
   let config: DirectorConfig | null = options.config ?? null;
@@ -612,18 +621,14 @@ export function createDirectorRouter(
       onAudit: (entry) => {
         void index.recordAudit(session.sessionId, entry).catch(() => undefined);
       },
-      // The take stops itself at the end of the film it was asked for.
+      // Nothing is passed for `onFilmGenerated`, and that is the point.
       //
-      // fal keeps generating past the last beat — it is told the script once
-      // and then streams until it is told to stop — so without this every take
-      // runs to the session ceiling and the room pays for minutes of film that
-      // are not in the script. Ending here rather than inside the stream is
-      // what settles the paid session, closes the archive and moves the room
-      // out of `playing`: it is the same stop a person presses, sent by the
-      // server on the room's behalf.
-      onComplete: () => {
-        void endSession(session.sessionId).catch(() => undefined);
-      },
+      // Ending a take there is what showed four rooms nothing at all: fal had
+      // generated the whole 20-second film 17 seconds after Play, and the
+      // teardown landed 1ms after the last chunk, before a segment was
+      // playable. Generation finishing says the film EXISTS, not that anybody
+      // has seen it. The take ends when a viewer has watched to the end of it,
+      // which only a browser can say.
     });
     try {
       await stream.open();
@@ -902,7 +907,7 @@ export function createDirectorRouter(
     }
     // Idempotent: a client tearing down twice is not an error, and what
     // matters is that the reservation is released and the recording stored.
-    await endSession(request.params.sessionId);
+    await endSession(request.params.sessionId, viewer.data?.reason);
     // Reports where the room ended up rather than transitioning again: the
     // teardown already did it, and ending twice must not be an error.
     const jam = await store.getJam(request.params.id);

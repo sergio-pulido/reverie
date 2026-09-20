@@ -89,11 +89,11 @@ test("the configure message pins the premise, framing and protocol", () => {
   assert.equal(message.aspect_ratio, "16:9");
   assert.equal(message.memory, 12);
   assert.match(String(message.prompt), /The Salt Door/);
-  // Only the opening chunk's beats: 0s, 5s and 10s of a 20s film. What fal is
-  // given it has planned from, and can never be asked to unplan.
+  // The whole film. Given less, fal wraps to the top and re-renders the
+  // opening rather than waiting; a change reaches it by replacing this script.
   assert.deepEqual(
     (message.script as { offset: number }[]).map((beat) => beat.offset),
-    [0, 5, 10],
+    [0, 5, 10, 15],
   );
 });
 

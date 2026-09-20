@@ -29,7 +29,15 @@ export type DirectorAuditKind =
    * which version of them it was given, since a beat below the boundary can no
    * longer change.
    */
-  | "beats_sent"
+  /**
+   * The story changed while the take was running, so the provider was handed
+   * the whole script again in place of the one it held.
+   *
+   * The entry that says which version of the film fal was working from at a
+   * given moment — the only record of that, since the script itself is not
+   * part of the trail.
+   */
+  | "script_replaced"
   | "provider_error"
   /**
    * The provider has generated the whole film. NOT an ending: generation runs

@@ -54,6 +54,15 @@ export type CascadeRunner = (script: JamScript, edit: OutlineEditIntent) => Prom
  * about, and what that beat now reads. Injected in tests; the default calls
  * the provider.
  */
+/**
+ * The slice of a live stream the queue needs: which jam it is, and how to put
+ * a new story in the provider's hands.
+ */
+export interface OutlineStream {
+  readonly jamId: string;
+  updateScript(script: JamScript): { accepted: boolean; promptVersion?: number };
+}
+
 export type TargetingRunner = (
   script: JamScript,
   direction: string,
@@ -75,6 +84,8 @@ export interface OutlineRouterOptions {
   target?: TargetingRunner | null;
   /** The strictest open stream's window, for the panel. Defaults to nothing locked. */
   window?: (jamId: string) => DirectorBeatWindow;
+  /** The jam's open streams, so a landed revision reaches the take that is running. */
+  streamsFor?: (jamId: string) => OutlineStream[];
   now?: () => Date;
 }
 
@@ -99,6 +110,7 @@ export class OutlineEditQueue {
     private readonly store: JamStore,
     private readonly guard: PlaybackGuard,
     private readonly cascade: CascadeRunner,
+    private readonly streamsFor: (jamId: string) => OutlineStream[] = () => [],
     private readonly now: () => Date = () => new Date(),
   ) {}
 
@@ -262,10 +274,7 @@ export class OutlineEditQueue {
         record.revision = landed.revision;
         record.status = "landed";
         record.finishedAt = this.now().toISOString();
-        // Nothing is pushed to the open streams, deliberately. A beat only
-        // reaches fal when it closes to editing, and this edit landed on a
-        // beat that had not closed — so the stream will read this revision
-        // when it hands that beat over. See apps/server/directorStream.ts.
+        record.streamsUpdated = this.deliver(record.jamId, landed.script);
         return;
       } catch (error) {
         if (error instanceof StaleRevisionError && attempt < COMMIT_ATTEMPTS) {
@@ -284,6 +293,33 @@ export class OutlineEditQueue {
         throw error;
       }
     }
+  }
+
+  /**
+   * Puts the landed revision in the provider's hands, for every take running
+   * on this jam.
+   *
+   * The WHOLE script goes, not the edited beat. A beat on its own was the old
+   * shape and it does not work: fal is given a script at `configure` and plans
+   * from it, so a single beat sent as a steering prompt changes what it makes
+   * NEXT rather than what it makes at that beat's offset — and a beat appended
+   * to the script stopped the stream outright. Replacing the script is the one
+   * verb that means "the story is now this".
+   *
+   * Best-effort on top of a commit that already stands: a stream that cannot
+   * take it is counted out, never thrown, and with no take running there is
+   * nothing to do and nothing wrong.
+   */
+  private deliver(jamId: string, script: JamScript): number {
+    let updated = 0;
+    for (const stream of this.streamsFor(jamId)) {
+      try {
+        if (stream.updateScript(script).accepted) updated += 1;
+      } catch {
+        // A stream that throws is a stream that did not take it.
+      }
+    }
+    return updated;
   }
 
   private fail(record: OutlineEditRecord, error: OutlineEditError): void {
@@ -336,6 +372,7 @@ export function createOutlineRouter(
 ): Router {
   const router = express.Router();
   const window = options.window ?? (() => NOTHING_LOCKED);
+  const streamsFor = options.streamsFor ?? (() => []);
 
   // Resolved per request so the process picks up configuration changes the
   // way the jams router does; `null` is an explicit "no provider".
@@ -371,6 +408,7 @@ export function createOutlineRouter(
       }
       return cascade(script, edit);
     },
+    streamsFor,
     options.now,
   );
 

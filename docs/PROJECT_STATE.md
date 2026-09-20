@@ -2742,6 +2742,35 @@ own.
   https://fal.ai/models/minimax/h3-max/director/api — `prompt` takes `script` and `script_mode`,
   versions increment by one — and was read, not measured.
 
+## 2026-09-20 — A change to the story reaches the running film (RV-34)
+
+- **The bug:** the beats changed on the timeline and the picture ignored them. RV-33's hand-over
+  made it worse, not better: measured against fal, a partial script makes it **wrap to the top and
+  re-render the opening**, and beats appended mid-flight **stop the chunks altogether**.
+- `configure` carries the whole film again. A landed revision reaches every take running on that
+  jam as `prompt` + `script` with `script_mode: "replace"`, `replan: false`, recorded on the trail
+  as `script_replaced`.
+- **The replacement is the TAIL, re-based to zero, cut at the frontier plus one chunk** — because
+  replacing re-anchors fal's own script clock to the new script's beginning. `DirectorStream`
+  keeps `scriptOriginSeconds` so every reading of "where is the film" stays on the FILM's clock
+  while fal's restarts.
+- The cut is one chunk ahead of the last report, so the worst case is up to ten seconds repeating
+  rather than a skipped beat. How far fal has dispatched past its last report is not observable.
+- The outline queue delivers again, and `OutlineEditRecord.streamsUpdated` says how many running
+  takes took the revision. The lock window is back to the frontier rule (the beat being generated
+  and the one after it), because a change now reaches everything not yet dispatched.
+- **Proven against fal, 2026-09-20**, four paid takes, ~$9.60 of the $400 ceiling. The last
+  (`mu9wwmve-1`): 90-second film, a direction sent 20 seconds in landed on beat 5, the old script
+  produced film 0-30 and the replacement produced 20-80 contiguously to the end — no wrap, no
+  stall, no hole. Every session id and offset sequence is in `docs/DECISIONS.md`.
+- Verified: `pnpm test` 1453/1455, `npx tsc --noEmit` clean, `pnpm build` clean.
+- **Two failures on this branch are NOT its own and are red on `main` already:**
+  `tests/escapeSessions.test.ts` "moving to a new location generates that location's loop, once"
+  and "the beat that reaches the goal is filmed, narrator or not". `2c2de55 feat(escape): a look
+  at anything is filmed` films every glance as a five-second take, and both tests identify a
+  location loop by filtering `duration === 5`. The filter needs to be narrowed by whoever owns
+  that feature.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

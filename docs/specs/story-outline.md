@@ -349,34 +349,25 @@ about where a direction came from, so a beat needs no translation to become one.
 naming a closed beat is refused with `beat_locked`, the stream-side counterpart of the
 `portion_locked` a script edit gets.
 
-As built: **the script is handed to the provider a chunk at a time, and a beat goes only once it
-has closed to editing.** `configure` carries the beats of the opening window — what fal will
-generate before it has reported anything — and every chunk after that is followed by a `prompt`
-carrying the beats of the chunk after the one being generated, with `script_mode: "append"` and
-`replan: false`. fal's `prompt` takes a `script` as well as text, which is what makes this
-possible at all; see its API for `script_mode` and the version rule.
+As built: **the provider holds the whole film from `configure`, and a landed revision replaces
+the script it is working from.** The queue sends each open stream the new script as a `prompt`
+carrying `script` with `script_mode: "replace"`; the stream cuts it at the frontier plus one
+chunk and re-bases the remaining beats to zero, because replacing re-anchors fal's own script
+clock to the new script's beginning.
 
-**That is what makes an edit reach the picture, and it is why nothing is pushed when one lands.**
-A beat the provider holds has been planned from and can never be unplanned: if the whole script
-goes at `configure`, an edit afterwards rewrites the outline while the stream goes on rendering
-the version fal was given — the room sees its change on the timeline and never on screen. Handing
-beats over as they close inverts that. Every beat fal has is one nobody can still change, and
-every beat that can still change is one fal has not seen, so the next handover reads whatever the
-story says by then. The queue therefore delivers nothing after a commit; the stream reads the
-current revision itself.
+**Both halves of that were measured, and both refuted the obvious design.** Handing the script
+over a beat at a time — so that the provider never holds a beat the room could still change —
+makes fal wrap to the top and re-render the opening when it runs out, and beats appended
+mid-flight stop the chunks altogether. See `docs/DECISIONS.md` (2026-09-20) for the session ids
+and offset sequences.
 
-**The lock boundary is now a record rather than a prediction.** `minEditableBeatIndex` is the
-first beat past the seconds actually handed over — `committedThroughSeconds` on the stream — not
-an arithmetic guess about where the provider must have got to. It is wider than the old
-"two beats ahead": one chunk of lead over a ten-second chunk closes about four five-second beats.
-That width is the true cost of the guarantee, and it was always being paid — under the old shape
-every beat in the film was committed from the first second, the window simply did not say so.
+**So a beat can be changed for as long as the provider has not DISPATCHED it**, which is what the
+lock window has always measured: the beat being generated and the one after it are closed, and
+everything past them is replaceable. The window is not a record of what fal was told — it was
+told everything — it is a record of how far it has got.
 
-A beat is still direction text for the live director, and a free-text direction still exists
-beside this: `direct({ body, beatIndex? })` is a *change* of direction, sent with `replan: true`
-so it cuts into what is planned, and a beat naming a closed beat is refused with `beat_locked`.
-The handover is the opposite verb — the next page of the same script, queued behind what is
-already planned.
+The edit record reports `streamsUpdated`: how many running takes took the revision. Zero is the
+ordinary answer between takes and says nothing is wrong.
 
 **What delivery costs.** A direction is a control message on a session that is already billing for
 wall-clock time, so fanning one out to several streams adds no charge per this server's own

@@ -254,17 +254,26 @@ export function nextPromptMessage(
 }
 
 /**
- * The next `prompt` message, handing fal more of the script.
+ * The next `prompt` message, putting the whole current script in fal's hands.
  *
  * The same versioned channel a direction uses — fal's `prompt` takes a
- * `script` as well as text — so beats reach the provider the way every other
- * update does: a new `prompt_version`, one higher than the last.
+ * `script` as well as text — so a changed story reaches the provider the way
+ * every other update does: a new `prompt_version`, one higher than the last.
  *
- * `append` and `replan: false` are the pair that makes this a hand-over rather
- * than an interruption: the beats queue after what is already planned, and the
- * chunk being generated is left alone. Replacing would cut to the new script
- * at the next chunk, which is the right verb for a change of direction and the
- * wrong one for the next page of the same script.
+ * **`replace`, and the WHOLE script, both measured rather than chosen.** Two
+ * paid takes settled it (docs/DECISIONS.md, 2026-09-20): given only part of
+ * the film, fal does not wait at the end of what it has — it wraps to the top
+ * and re-renders the opening — and beats appended to it mid-flight stopped the
+ * chunks altogether. It wants a complete script, so it gets one, and a change
+ * replaces that script rather than being bolted onto it.
+ *
+ * The beats before the frontier are included unchanged. They cost nothing —
+ * fal has already made them — and leaving them out would hand it a script
+ * starting at an offset it has passed, which is the shape that made it jump.
+ *
+ * `replan: false` keeps this a correction of the plan rather than an
+ * interruption of it: the chunk being generated is left alone, and the new
+ * script takes effect at the next one.
  */
 export function nextScriptMessage(
   state: DirectorState,
@@ -276,7 +285,7 @@ export function nextScriptMessage(
       type: "prompt",
       prompt_version: version,
       script: beats,
-      script_mode: "append",
+      script_mode: "replace",
       replan: false,
     },
     state: { ...state, sentPromptVersion: version },

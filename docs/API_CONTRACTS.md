@@ -208,11 +208,11 @@ Edits are processed one at a time per jam. The cascade completion runs outside t
 section; the commit takes it once and lands every rewritten portion as one revision, refusing
 `portion_locked` if the boundary moved meanwhile and `stale_state_version` if the base revision was
 replaced twice. The edit record's `status` is `queued | processing | landed | failed`, with
-`baseRevision`, `revision` and a typed `error`. Nothing is pushed to the open streams after a
-commit: the script is handed to the provider a beat at a time, as each beat closes to editing, so
-an edit — which can only land on a beat that has NOT closed — is read from the store by the stream
-when it hands that beat over (`apps/server/directorStream.ts`). Durations and structure are never
-rewritten, which is what keeps beat offsets stable across a cascade and makes the handover
+`baseRevision`, `revision`, a typed `error`, and `streamsUpdated`: how many takes running on this
+jam were handed the revision. A landed revision REPLACES the script the provider is working from,
+from the cut point onward (`apps/server/directorStream.ts`); fal holds the whole film from
+`configure`, because it wraps to the top of anything shorter. Durations and structure are never
+rewritten, which is what keeps beat offsets stable across a cascade and makes the replacement
 addressable.
 
 ### Directions

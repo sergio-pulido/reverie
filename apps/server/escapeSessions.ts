@@ -406,6 +406,34 @@ export class EscapeRooms {
       }
     }
     await this.generate(room, beat.segment, `${room.scenario.look} ${shot}`, outcome.seconds, true);
+    // The room after the move. A beat plays once; what the screen holds on
+    // afterwards must be the world as it now is, not the untouched room it
+    // was, or the move reads as undone. Only when the move stayed in this
+    // location: a move into another room has that room's own loop coming.
+    if (beat.segment.status === "ready" && before.at === room.state.at) {
+      this.track(this.holdAfter(room, room.state.at, shot));
+    }
+  }
+
+  /**
+   * Films a short loop of the location as it stands after a move and, once it
+   * is ready, makes it the location's loop. Generated into its own segment and
+   * swapped in only when ready, so the screen never loses the loop it has.
+   * Decided while the room was open, like the beat it follows, so a room that
+   * ended on that very move still gets its held frame.
+   */
+  private async holdAfter(room: Room, locationId: string, shot: string): Promise<void> {
+    const segment = idleSegment();
+    await this.generate(
+      room,
+      segment,
+      `${room.scenario.look} ${shot} Afterwards the frame holds on the room as it now is: nothing moves, nobody enters, the moment waits.`,
+      this.limits.loopSeconds,
+      true,
+    );
+    if (segment.status === "ready" && room.state.at === locationId) {
+      room.loops.set(locationId, segment);
+    }
   }
 
   /**

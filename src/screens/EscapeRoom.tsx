@@ -23,7 +23,7 @@ import { useSegmentSource, type FetchClip } from "./useSegmentSource";
  * and changing it belong to ./useEscapeRoom.
  */
 
-type Showing = { kind: "loop" } | { kind: "beat"; beatId: string };
+type Showing = { kind: "loop" } | { kind: "beat"; beatId: string; loopSrc: string | null };
 
 export function EscapeRoom({
   snapshot,
@@ -78,8 +78,16 @@ export function EscapeRoom({
     );
     if (!fresh) return;
     played.current.add(fresh.id);
-    setShowing({ kind: "beat", beatId: fresh.id });
+    setShowing({ kind: "beat", beatId: fresh.id, loopSrc: snapshot.loop.src });
   }, [snapshot, showing]);
+
+  // Once the server holds a loop of the room as it is after this beat, that
+  // hold has the screen; until then the beat itself loops rather than the
+  // untouched room coming back.
+  useEffect(() => {
+    if (showing.kind !== "beat") return;
+    if (snapshot.loop.src && snapshot.loop.src !== showing.loopSrc) setShowing({ kind: "loop" });
+  }, [snapshot.loop.src, showing]);
 
   const beat = showing.kind === "beat"
     ? snapshot.beats.find((candidate) => candidate.id === showing.beatId) ?? null
@@ -116,7 +124,7 @@ export function EscapeRoom({
           />
         : loopSource
           ? <video
-              key={`loop-${snapshot.location.id}`}
+              key={`loop-${snapshot.loop.src ?? snapshot.location.id}`}
               src={loopSource}
               ref={hold(screen)}
               onCanPlay={(event) => startPlaying(event.currentTarget)}

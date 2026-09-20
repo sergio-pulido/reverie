@@ -352,3 +352,79 @@
   :root:not([data-input="pointer"]) .catalog-search input:focus { transform: none; }
   .catalog-backdrop { animation: none; }
 }
+
+/* Which shelf is being browsed. Not a place of its own: the same grid, a different source. */
+.catalog-source { display: flex; gap: 10px; margin-bottom: 20px; }
+.catalog-source-choice {
+  min-height: 52px;
+  padding: 10px 22px;
+  border: 2px solid #48506a;
+  border-radius: 999px;
+  background: transparent;
+  color: #c2c4d0;
+  font-size: 19px;
+  font-weight: 600;
+  transition: transform .16s ease, background-color .16s ease, color .16s ease;
+}
+.catalog-source-choice.active { border-color: #f6f4ee; background: #f6f4ee; color: #10131d; }
+.catalog-source-choice:focus-visible, :root:not([data-input="pointer"]) .catalog-source-choice:focus {
+  outline: 4px solid #ffffff;
+  outline-offset: 4px;
+  border-color: #ffffff;
+  background: #ffffff;
+  color: #0b0f1a;
+  transform: scale(1.06);
+}
+
+/* Made here: words, not posters — nothing readable from a browser holds artwork for a room. */
+.catalog-made { padding: 0 var(--safe-x) 48px; }
+.catalog-made-note { margin: 0; max-width: 62ch; color: var(--muted); font-size: 20px; line-height: 1.5; }
+.catalog-made-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; margin: 0; padding: 0; list-style: none; }
+.catalog-made-grid > li { display: flex; }
+.catalog-made-card {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  padding: 22px;
+  border: 1px solid #3a4160;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(25, 31, 48, .85), rgba(13, 17, 28, .45));
+  color: var(--ink);
+  text-align: left;
+  transition: transform .16s ease, background-color .16s ease, color .16s ease;
+}
+.catalog-made-kind { color: #bbc6fa; font-family: "DM Mono", monospace; font-size: 13px; letter-spacing: .16em; }
+.catalog-made-title { font-family: Fraunces, Georgia, serif; font-size: 27px; font-weight: 500; letter-spacing: -.02em; }
+.catalog-made-premise { color: var(--muted); font-size: 17px; line-height: 1.45; }
+.catalog-made-status { margin-top: auto; color: #c8ccdb; font-size: 15px; }
+.catalog-made-card:focus-visible, :root:not([data-input="pointer"]) .catalog-made-card:focus {
+  outline: 5px solid var(--focus);
+  outline-offset: 5px;
+  border-color: #ffffff;
+  background: #f6f4ee;
+  color: #10131d;
+  transform: scale(1.03);
+}
+.catalog-made-card:focus-visible .catalog-made-kind,
+.catalog-made-card:focus-visible .catalog-made-premise,
+.catalog-made-card:focus-visible .catalog-made-status,
+:root:not([data-input="pointer"]) .catalog-made-card:focus .catalog-made-kind,
+:root:not([data-input="pointer"]) .catalog-made-card:focus .catalog-made-premise,
+:root:not([data-input="pointer"]) .catalog-made-card:focus .catalog-made-status { color: #3a4160; }
+
+@media (max-width: 720px) {
+  .catalog-source { gap: 8px; margin-bottom: 16px; }
+  .catalog-source-choice { min-height: 44px; padding: 9px 16px; font-size: 15px; border-width: 2px; }
+  .catalog-made-grid { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .catalog-made-card { padding: 18px; }
+  .catalog-made-title { font-size: 22px; }
+  .catalog-made-premise, .catalog-made-note { font-size: 16px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .catalog-source-choice, .catalog-made-card { transition: none; }
+  .catalog-source-choice:focus-visible, .catalog-made-card:focus-visible,
+  :root:not([data-input="pointer"]) .catalog-source-choice:focus,
+  :root:not([data-input="pointer"]) .catalog-made-card:focus { transform: none; }
+}

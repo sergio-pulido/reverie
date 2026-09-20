@@ -65,6 +65,7 @@ async function openHome(shelves = manualShelves(), opened: Opened = { films: [],
         onOpenFilm={(title) => opened.films.push(title)}
         onStartJam={() => (opened.jams += 1)}
         onJoin={() => (opened.joins += 1)}
+        onOpenMade={() => undefined}
       />
     </Conventions>,
   );
@@ -297,7 +298,7 @@ describe("the home with a remote", () => {
     let left = 0;
     await render(
       <Conventions onLeave={() => (left += 1, false)}>
-        <HomeScreen shelves={manualShelves().source} onOpenFilm={() => undefined} onStartJam={() => undefined} onJoin={() => undefined} />
+        <HomeScreen shelves={manualShelves().source} onOpenFilm={() => undefined} onStartJam={() => undefined} onJoin={() => undefined} onOpenMade={() => undefined} />
       </Conventions>,
     );
     await press("ArrowDown", { allowLost: true });
@@ -336,7 +337,7 @@ describe("a film opened from the home", () => {
       return (
         <Conventions>
           {open && <p className="film-page">film</p>}
-          <HomeScreen inert={open} shelves={shelves.source} onOpenFilm={() => undefined} onStartJam={() => undefined} onJoin={() => undefined} />
+          <HomeScreen inert={open} shelves={shelves.source} onOpenFilm={() => undefined} onStartJam={() => undefined} onJoin={() => undefined} onOpenMade={() => undefined} />
         </Conventions>
       );
     }

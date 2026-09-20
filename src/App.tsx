@@ -381,6 +381,7 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
           onOpenFilm={(title) => openFilm(title, providerIdOf(title.id))}
           onStartJam={startSomething}
           onJoin={() => navigate("join", JOIN_PATH)}
+          onOpenMade={(made) => navigate("studio", `/jams/${made.slug}`)}
         />
       </>;
     }
@@ -394,7 +395,7 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
           origin="catalog"
           attributionFallback={TMDB_ATTRIBUTION_FALLBACK}
         />}
-        <CatalogScreen inert={filmOverCatalog} onOpenFilm={(title) => openFilm(title, providerIdOf(title.id))} />
+        <CatalogScreen inert={filmOverCatalog} onOpenFilm={(title) => openFilm(title, providerIdOf(title.id))} onOpenMade={(made) => navigate("studio", `/jams/${made.slug}`)} />
       </>;
     }
     if (screen === "discover") {

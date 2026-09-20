@@ -83,7 +83,12 @@ describe("the catalogue", () => {
     assert.equal(focused().textContent, "Catalog", "a remote lands on the bar's current destination");
 
     await press("ArrowDown");
+    assert.equal(focused().textContent, "The catalogue", "the source switch is the first thing under the bar");
+    await press("ArrowDown");
     assert.equal(focused(), field());
+    await press("ArrowUp");
+    assert.equal(focused().textContent, "The catalogue", "and Up from the field returns to it");
+    await press("ArrowDown");
     await press("ArrowDown");
     assert.equal(focused(), chip("Something scary"));
     await press("ArrowRight");

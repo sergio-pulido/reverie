@@ -1814,6 +1814,11 @@ a guess ("family" for the pets, "crime" for the heist) that selects the wrong 2,
 fourth case, "a comedy about zzqqxx nothingness", found 0 for the words and 9,942 for the comedy
 filter alone, so the fallback has a real shortlist to widen to.
 
+The script talks to the real provider, and the provider is sometimes slow: two runs on 2026-09-20
+failed at the first turn with `ASSISTANT_TIMEOUT` (an interpret call took 7.6 s against a 12 s
+per-attempt budget) and the next run passed unchanged. A timeout there is the provider, not the
+funnel; a refusal names its own code and says which quote or word was refused.
+
 **One regression was caused and fixed here.** Inserting the subject rules into the middle of the
 interpret prompt renumbered the rules the model already followed, and it began answering "A
 comedy, please" with the lowercase quote "a comedy", which the engine refused as ungrounded —

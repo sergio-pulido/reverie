@@ -335,6 +335,44 @@ The figure is derived from generated seconds, never from the reservation. The re
 - `GET /session/:sessionId/playlist.m3u8`, `GET …/init.mp4`, `GET …/segment/:n.m4s` — HLS delivery of the same stream as fMP4 segments, muxed in a worker thread. Off unless `REVERIE_DIRECTOR_HLS=true` (`503 live_delivery_disabled`); `503 unsupported_codec` when the negotiated codec cannot be carried by fMP4; `503 live_delivery_failed` when the muxer thread died (the session, its recording and `/end` are unaffected). The playlist is `no-store`; the init segment and media segments are immutable and cacheable. A segment that has left the live window answers `404` and is never substituted with another.
 - `GET /recordings/:sessionId` — the stored WebM recording, served by this server only, when `REVERIE_DIRECTOR_RECORD=true` captured one.
 
+### Reading a finished session — `/api/jams/:id/director/archive`
+
+Served by **both** hosts, and the only director routes that are Vercel functions
+(`api/jams/[id]/director/archive/[[...path]].ts`): they are plain reads of Supabase and
+Storage, so reproducing a session needs no live process. The deployed function authenticates
+the caller — Supabase Auth for identity, the caller's own `jam_members` row for membership,
+`401 unauthenticated` / `403 forbidden` otherwise — and reads the index and the bucket with
+that same token under the policies in `20260920110000_director_archive_reads.sql`. It holds
+no service-role key. The Express copy on the container does **not** authenticate; it is local
+tooling. A session belonging to another jam answers `404 not_found`, never `403`, so the
+refusal cannot confirm that it exists.
+
+- `GET /archive` — `{ durable, sessions }`, newest first. Each session carries `id`,
+  `startedAt`, `complete`, `container`.
+- `GET /archive/:sessionId` — `{ durable, session, segments, durationSeconds }`.
+  `complete: false` is a session whose process died mid-stream; the segments listed are the
+  ones that survived, and `durationSeconds` is summed from those rather than from what the
+  session was expected to produce.
+- `GET /archive/:sessionId/audit` — `{ durable, audit }`. Alongside the direction trail it
+  carries `archive_opened` (the initial header is durable, `detail` is `<codec>/<container>`)
+  and `archive_failed` (`detail` is the reason). Their absence means the sink was never
+  called at all — no media track, or recording switched off.
+- `GET /archive/:sessionId/playlist.m3u8` — the HLS **VOD** playlist, built from
+  `jam_director_segments` at read time and carrying `EXT-X-ENDLIST`. This is the seekable
+  form: every piece and its duration are listed, so reaching a minute fetches the piece
+  holding it. `404` when the session stored nothing.
+- `GET /archive/:sessionId/media/:name` — one stored object. The caller's `Range` is
+  forwarded to Storage and its answer passed back, so `206` with `Content-Range` is normal.
+- `GET /archive/:sessionId/pieces/:index` — initial header plus that piece, playable alone,
+  with `X-Piece-Start-Seconds` and `X-Piece-Duration-Seconds`.
+- `GET /archive/:sessionId/video` — the whole session as one file (header then pieces, which
+  both containers concatenate). Plays in a bare `<video>`; deliberately `Accept-Ranges: none`,
+  because a byte offset into a concatenation of separate objects is not an offset into
+  anything that exists. Seeking belongs to the playlist.
+
+A **session id is not a UUID** — the ledger mints `<base36 time>-<base36 count>` — so it is
+validated by charset, not shape.
+
 One media pipeline is selected per session. With HLS delivery on, the fMP4 segmenter feeds the live window and any MP4 archive sink registered through `createSegmentSinks`, under one numbering. With HLS off, the WebM piece recorder feeds the archive sinks instead. The session ledger is swept by the server every thirty seconds: a session with no current viewer is reclaimed after the idle window, and every session stops at `maxSessionSeconds` even if a viewer continues renewing.
 
 ## Planned Supabase mutation and Realtime contracts

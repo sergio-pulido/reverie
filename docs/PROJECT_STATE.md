@@ -2168,6 +2168,40 @@ the existing `:root:not([data-input="pointer"])` guard.
 - **Not verified:** no fal session was opened, so the live cost line has been exercised against
   a fake spend payload rather than a real take.
 
+## 2026-09-20 — A finished film plays from the deployment (RV-25)
+
+- The director archive reads exist as a Vercel function
+  (`api/jams/[id]/director/archive/[[...path]].ts`): list a room's takes, read one, read its
+  audit trail, an HLS **VOD playlist**, the bytes of one piece with `Range` forwarded to
+  Storage, one piece as header-plus-piece, and the whole film concatenated. The Express host
+  keeps its own copy, which is local tooling; both build the playlist from
+  `src/core/hlsPlaylist.ts` and address objects through `src/core/directorArchiveLayout.ts`,
+  so the two hosts cannot drift on where a piece lives.
+- Unlike the container's copy, the function checks who is asking: identity from Supabase
+  Auth, membership from the caller's own `jam_members` row, and the index and bucket read
+  with that same token. `supabase/migrations/20260920110000_director_archive_reads.sql`
+  grants SELECT only, to an active member. **Verified against a fresh local stack**: the
+  migration applies clean and its `storage.objects` policy is created (the local Docker stack
+  does now run Storage, unlike the assumption in the 236000/233000 comments).
+- The Director screen lists **every** take the room has made, newest first, each openable,
+  incomplete ones marked; piece buttons seek inside the one playlist instead of fetching a
+  different file; and a take that stored no video says so instead of drawing an empty frame.
+  The lifecycle read is now best-effort, because `GET /api/jams/:id` is Express-only and was
+  throwing on Vercel before the archive could load.
+- **Not verified:** any of this against hosted Supabase, or a deployment. `.env.local` points
+  at `http://localhost:54321`, so every observation in this slice is local.
+- **Known broken, not fixed here:** no take has ever stored a segment. Across every session
+  in the local index, `container` and `codec` are null, `jam_director_segments` is empty and
+  the `jam-director` bucket holds nothing — including takes made after
+  `REVERIE_DIRECTOR_RECORD=true` and `REVERIE_DIRECTOR_HLS=true` were set and verified to
+  resolve. The muxer worker starts cleanly under `tsx`. The cause is not yet known; the
+  `archive_opened` / `archive_failed` audit rows added here are what will distinguish "no
+  media track arrived" from "storage refused it" on the next take.
+- **Still process-memory only:** a jam's script, portions, beats, playback boundary and
+  lifecycle live in `InMemoryJamStore`. `jam_scripts` and `jam_script_revisions` exist in
+  Postgres and **no code reads or writes either**. So a restart leaves the `jams` row in
+  Supabase and loses everything else, and the room then answers 404 to a take.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

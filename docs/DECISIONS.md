@@ -1,5 +1,43 @@
 # Decisions
 
+## 2026-09-20 — A finished film is read from the deployment, and the archive says why it is empty (RV-25)
+
+The archive routes were written to be portable -- plain reads of Supabase and Storage, with
+no live stream and no container-local file -- and `apps/server/directorArchiveRoutes.ts`
+said so in its own header. But they existed only on the Express host, which `AGENTS.md`
+calls local tooling, so a film the container recorded could not be played from the deployed
+URL at all. They now also exist as a Vercel function.
+
+**The function authenticates as the caller, and that required a migration.** 20260919237000
+made the index server-only deliberately: RLS on, no policies, grants to `service_role`
+alone, because only the container wrote it. A function holding no service-role key
+therefore read nothing. 20260920110000 grants SELECT, and only SELECT, to an active member
+of the jam a session belongs to -- the three tables and the `jam-director` objects alike --
+so the reading half opens without the writing half moving. The bytes still come through our
+own routes; no storage URL reaches a browser.
+
+**Delivery is an HLS VOD playlist, not the concatenated file.** `/video` remains, and stays
+the thing that plays in a bare `<video>`, but it cannot seek: the film is many objects, so a
+byte offset into their concatenation is not an offset into anything that exists. The
+playlist is built from `jam_director_segments` at read time, which also means a session
+whose process died mid-stream plays up to its last durable piece. `Range` is honoured on the
+individual pieces, where it is meaningful.
+
+**A session id is not a UUID.** The ledger mints `<base36 time>-<base36 count>`
+(`apps/server/directorSessions.ts`), so the function's first UUID check refused every film
+this repository has ever recorded. It is bounded by charset instead, which is what the
+PostgREST filter and the object key actually need.
+
+**An empty archive now says why.** A session with no segments had two causes that looked
+identical from outside -- no media track ever arrived, or a track arrived and storage refused
+it -- and every failure in between was swallowed: `DirectorArchiveSink.enqueue` caught and
+counted, and the route's own `closeSession` wrote no reason. The sink now records
+`archive_opened` once the initial header is durable and `archive_failed` with its reason
+otherwise, into the audit trail the archive routes already serve. This was not theoretical:
+`REVERIE_DIRECTOR_RECORD` being unset meant every take stored nothing, and the screen drew
+an empty frame rather than saying so, which is indistinguishable from a broken player.
+
+
 ## 2026-09-20 — Play and stop belong to the room, and a stopped room plays again (RV-23)
 
 Opening a jam with "With people" showed everybody but the host a player with no controls:

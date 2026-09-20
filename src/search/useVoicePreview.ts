@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import type { CatalogueFilters, CatalogueTitle } from "../catalogue/contract";
+import type { CatalogueTitle } from "../catalogue/contract";
+import type { ShortlistRead } from "../catalogue/shortlistFilters";
 import { detectPreferences, previewFilters, type Detected } from "./detect";
 import { carriesRequest } from "./filler";
 import { SNAPSHOT_SIZE } from "./results";
@@ -14,19 +15,22 @@ const PREVIEW_SETTLE_MS = 300;
  * The words are never sent anywhere; only the filters derived from them reach the catalogue, the
  * same way a filter would. Filler hears nothing, so it previews nothing.
  */
-export function useVoicePreview(text: string, base: CatalogueFilters | null, enabled: boolean) {
+export function useVoicePreview(text: string, base: ShortlistRead | null, enabled: boolean) {
   const detected = useMemo<Detected[]>(() => (enabled && carriesRequest(text) ? detectPreferences(text) : []), [enabled, text]);
   const heard = detected.map(({ key }) => key).join("|");
   // Keyed by what was heard, so each new partial with the same preferences reads nothing new.
-  const filters = useMemo(() => previewFilters(base, detected), [base, heard]); // eslint-disable-line react-hooks/exhaustive-deps
-  const shortlist = useShortlist(filters, { enabled: filters !== null, pageSize: SNAPSHOT_SIZE, debounceMs: PREVIEW_SETTLE_MS });
+  const filters = useMemo(() => previewFilters(base?.filters ?? null, detected), [base, heard]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Words heard so far never change the subject: only genres, a length and an era are detected,
+  // so the subject already in effect is carried through unchanged.
+  const read = useMemo(() => (filters ? { subject: base?.subject ?? "", filters } : null), [filters, base?.subject]);
+  const shortlist = useShortlist(read, { enabled: read !== null, pageSize: SNAPSHOT_SIZE, debounceMs: PREVIEW_SETTLE_MS });
   const [titles, setTitles] = useState<readonly CatalogueTitle[] | null>(null);
 
   // The last row stays up while the next is read, so the preview changes rather than flickers.
   useEffect(() => {
-    if (filters === null) setTitles(null);
+    if (read === null) setTitles(null);
     else if (shortlist.state?.phase === "ready") setTitles(shortlist.state.response.items);
-  }, [filters, shortlist.state]);
+  }, [read, shortlist.state]);
 
-  return { detected, titles, reading: filters !== null && shortlist.state === null };
+  return { detected, titles, reading: read !== null && shortlist.state === null };
 }

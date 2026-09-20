@@ -13,9 +13,10 @@ export const SNAPSHOT_SIZE = 12;
 /**
  * A turn's films as they are shown now, frozen. The order is the one on screen; the picks and
  * reasons are kept only for titles in the row. A ranking still waiting on the assistant is the
- * scorer's order, and is labelled as the scorer's.
+ * scorer's order, and is labelled as the scorer's. `note` is anything the row has to say about
+ * itself beyond its order, such as a subject that matched nothing.
  */
-export function snapshotOf(shown: ShownShortlist, total: number | null): ResultSet {
+export function snapshotOf(shown: ShownShortlist, total: number | null, note: string | null = null): ResultSet {
   const titles = shown.items.slice(0, SNAPSHOT_SIZE);
   const ids = new Set(titles.map(({ id }) => id));
   return {
@@ -23,9 +24,18 @@ export function snapshotOf(shown: ShownShortlist, total: number | null): ResultS
     pickIds: [...shown.pickIds].filter((id) => ids.has(id)),
     reasons: Object.fromEntries([...shown.reasons].filter(([id]) => ids.has(id))),
     source: shown.source === "assistant" ? "assistant" : "genre",
-    note: shown.note,
+    note: [note, shown.note].filter((line) => line !== null).join(" ") || null,
     total,
   };
+}
+
+/**
+ * What the screen says when the viewer's own words matched no film at all and the read widened
+ * to the structured filters alone. It names the words, so a broader answer is never mistaken for
+ * the one that was asked for.
+ */
+export function widenedNote(phrase: string): string {
+  return `The words “${phrase}” found no films, so these match everything else you asked for.`;
 }
 
 /** The films a title lookup found, in the catalogue's order, or null when it found none. */

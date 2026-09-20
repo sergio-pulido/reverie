@@ -205,22 +205,34 @@ export type ActiveRefinement = {
   phrase: string;
   dimensions: readonly string[];
   constraints: readonly string[];
+  /** True for the subject, which is one phrase and comes off whole rather than by name. */
+  subject: boolean;
 };
 
-/** Everything in the state that narrows or orders the result, in a stable order. */
+/** What `withdrawalTurn` needs to know about the thing being taken off. */
+export type Withdrawable = Pick<ActiveRefinement, "phrase" | "dimensions" | "constraints"> & { subject?: boolean };
+
+/**
+ * Everything in the state that narrows or orders the result, in a stable order. The subject
+ * leads, because it is what the viewer asked for rather than a limit on the answer, and like
+ * every other item it can be taken off.
+ */
 export function activeRefinements(state: PreferenceState): ActiveRefinement[] {
+  const subject: ActiveRefinement[] = state.subject
+    ? [{ key: "subject", label: `About \u201c${state.subject.phrase}\u201d`, phrase: state.subject.phrase, dimensions: [], constraints: [], subject: true }]
+    : [];
   const wanted = wantedGenres(state).map((genre): ActiveRefinement => {
     const name = genreDimension(genre);
-    return { key: `dimension:${name}`, label: genreLabel(genre), phrase: state.dimensions[name].quote, dimensions: [name], constraints: [] };
+    return { key: `dimension:${name}`, label: genreLabel(genre), phrase: state.dimensions[name].quote, dimensions: [name], constraints: [], subject: false };
   });
   const constraints = Object.values(state.constraints)
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
     .map(({ id, predicate, quote }): ActiveRefinement => {
       const genre = predicate.kind === "excludeTag" ? genreOfTag(predicate.tag) : null;
       const paired = genre ? pairedAvoidance(state, genre) : [];
-      return { key: `constraint:${id}`, label: describePredicate(predicate), phrase: quote, dimensions: paired, constraints: [id] };
+      return { key: `constraint:${id}`, label: describePredicate(predicate), phrase: quote, dimensions: paired, constraints: [id], subject: false };
     });
-  return [...wanted, ...constraints];
+  return [...subject, ...wanted, ...constraints];
 }
 
 /** A refused genre is also stated as unwanted; withdrawing the refusal clears both. */
@@ -231,21 +243,20 @@ function pairedAvoidance(state: PreferenceState, genre: GenreSlug): string[] {
 }
 
 /**
- * The turn that withdraws something: the constraints are removed and the dimensions are set
- * back to "no direction". Its transcript quotes what is being withdrawn, and so grounds its own
- * evidence. Null when nothing it names is still in effect.
+ * The turn that withdraws something: the constraints are removed, the dimensions are set back to
+ * "no direction", and the subject, if that is what is being taken off, is cleared. Its transcript
+ * quotes what is being withdrawn, and so grounds its own evidence; clearing states nothing, so it
+ * needs no quote of its own. Null when nothing it names is still in effect.
  */
-export function withdrawalTurn(
-  state: PreferenceState,
-  target: Pick<ActiveRefinement, "phrase" | "dimensions" | "constraints">,
-): TurnInput | null {
+export function withdrawalTurn(state: PreferenceState, target: Withdrawable): TurnInput | null {
   const turnId = nextTurnId(state);
   const quote = `Never mind "${target.phrase.slice(0, WITHDRAWN_PHRASE_MAX)}"`;
   const dimensions = target.dimensions.filter(
     (name) => Object.hasOwn(state.dimensions, name) && state.dimensions[name].value !== null,
   );
   const constraints = target.constraints.filter((id) => Object.hasOwn(state.constraints, id));
-  if (dimensions.length === 0 && constraints.length === 0) return null;
+  const clearSubject = target.subject === true && state.subject !== null;
+  if (dimensions.length === 0 && constraints.length === 0 && !clearSubject) return null;
 
   return {
     sessionId: state.sessionId,
@@ -260,6 +271,7 @@ export function withdrawalTurn(
     ),
     setConstraints: [],
     removeConstraints: constraints,
+    clearSubject,
   };
 }
 

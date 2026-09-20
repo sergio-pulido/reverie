@@ -347,3 +347,36 @@ describe("the old browsing path", () => {
     assert.equal(document.querySelector("h1")?.textContent, INVITATION);
   });
 });
+
+describe("what the film is about", () => {
+  const ASKED = "a film about a family with some pets";
+  const PHRASE = "a family with some pets";
+
+  it("searches the catalogue for the viewer's own words, beside the filters", async () => {
+    const { catalogue } = await openSearch();
+    await say(ASKED);
+    const reads = catalogue.requests.filter(({ query }) => query === PHRASE);
+    assert.ok(reads.length > 0, `the words reached the catalogue: ${JSON.stringify(catalogue.requests.map(({ query }) => query))}`);
+    assert.ok(turns()[0].posters.length > 0, "and films came back");
+  });
+
+  it("shows the words in the strip and takes them off again", async () => {
+    const { catalogue } = await openSearch();
+    await say(ASKED);
+    const chip = document.querySelector<HTMLButtonElement>(`.search-strip [aria-label="Remove About \u201c${PHRASE}\u201d"]`);
+    assert.ok(chip, `the strip offers the subject: ${Array.from(document.querySelectorAll(".search-strip button")).map((button) => button.getAttribute("aria-label")).join(" | ")}`);
+    catalogue.requests.length = 0;
+    await click(chip);
+    await settle(6);
+    assert.equal(document.querySelector(`.search-strip [aria-label^="Remove About"]`), null, "the subject is off the strip");
+    assert.ok(catalogue.requests.length === 0 || catalogue.requests.every(({ query }) => query === ""), "and no read asks for it any more");
+  });
+
+  it("falls back to the filters alone when the words match nothing, and says so", async () => {
+    await openSearch("/discover", { unknown: [PHRASE] });
+    await say(ASKED);
+    const [turn] = turns();
+    assert.ok(turn.posters.length > 0, "the screen is not left empty");
+    assert.match(turn.caption ?? "", /The words \u201ca family with some pets\u201d found no films/);
+  });
+});

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { fetchCatalogue, toRpcFilters } from "../api/_lib/supabase-catalogue";
 import {
+  CATALOGUE_LIMITS,
   catalogueQuerySchema,
   readCatalogueFilters,
   writeCatalogueFilters,
@@ -10,7 +11,7 @@ import {
 } from "../src/catalogue/contract";
 import { CATALOGUE_CONFIGURATION } from "../src/catalogue/domain";
 import { REFINEMENTS, refinementTurn } from "../src/catalogue/refinements";
-import { isRefined, toShortlistFilters } from "../src/catalogue/shortlistFilters";
+import { isRefined, toShortlistFilters, toShortlistRead } from "../src/catalogue/shortlistFilters";
 import type { Constraint, PreferenceState } from "../src/preferences/schema";
 import { applyTurn, newState, rejectCandidate } from "../src/preferences/state";
 
@@ -192,5 +193,37 @@ describe("the shortlist migration", () => {
     assert.match(code, /security invoker/);
     assert.match(code, /'original_language'/);
     assert.equal(/grant execute[^;]*\banon\b/i.test(code), false, "anonymous callers without a session get nothing");
+  });
+});
+
+describe("the subject in a shortlist read", () => {
+  /** A state that says what the film is about, stated as a turn would state it. */
+  function about(phrase: string, transcript: string): PreferenceState {
+    return applyTurn(
+      newState("s"),
+      { sessionId: "s", turnId: "t1", expectedStateVersion: 0, transcript, dimensions: {}, setConstraints: [], removeConstraints: [], setSubject: phrase },
+      CATALOGUE_CONFIGURATION,
+    );
+  }
+
+  it("counts as a refinement on its own, with no genre or limit beside it", () => {
+    assert.equal(isRefined(newState("s")), false);
+    assert.equal(isRefined(about("family pets", "a film about a family with some pets")), true);
+  });
+
+  it("travels as the search term, with the filters unchanged beside it", () => {
+    const read = toShortlistRead(choose(about("heist goes wrong", "a heist that goes wrong"), "want-thriller"));
+    assert.equal(read.subject, "heist goes wrong");
+    assert.deepEqual(read.filters, { includeGenres: ["thriller"] });
+  });
+
+  it("is an empty term when the viewer has not said what the film is about", () => {
+    assert.equal(toShortlistRead(choose(newState("s"), "want-horror")).subject, "");
+  });
+
+  it("is never longer than the catalogue query accepts", () => {
+    const long = "pets ".repeat(40).trim();
+    const read = toShortlistRead(about(long.slice(0, 119), long));
+    assert.ok(read.subject.length <= CATALOGUE_LIMITS.queryMaxLength);
   });
 });

@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { isRefined, toShortlistFilters } from "../catalogue/shortlistFilters";
+import { isRefined, toShortlistRead } from "../catalogue/shortlistFilters";
 import { useCatalogueRead } from "../discover/CatalogueReadContext";
 import { orderShortlist, type RankingStatus } from "../discover/rankedShortlist";
 import { useConversation } from "../discover/useConversation";
 import { useRefinement } from "../discover/useRefinement";
 import { carriesRequest } from "./filler";
 import { messageIntent } from "./intent";
-import { lookupResults, SNAPSHOT_SIZE } from "./results";
+import { lookupResults, SNAPSHOT_SIZE, widenedNote } from "./results";
 import type { TurnOutcome, WaitingTurn } from "./TurnFilms";
 import { useShortlist } from "./useShortlist";
 
@@ -43,8 +43,8 @@ export function useSearch() {
   useEffect(() => setWaiting((current) => (current.length === 0 ? current : [])), [state.sessionId]);
 
   const refined = isRefined(state);
-  const filters = useMemo(() => (refined ? toShortlistFilters(state) : null), [refined, state]);
-  const shortlist = useShortlist(filters, { enabled: refined });
+  const shortlistRead = useMemo(() => (refined ? toShortlistRead(state) : null), [refined, state]);
+  const shortlist = useShortlist(shortlistRead, { enabled: refined });
   const response = shortlist.state?.phase === "ready" ? shortlist.state.response : null;
   const shown = useMemo(() => (response ? orderShortlist(response.items, state, NOT_RANKED, false) : null), [response, state]);
 
@@ -101,11 +101,15 @@ export function useSearch() {
     settle,
     check,
     send,
-    /** The live read of the current state, which a waiting turn with the same filters shares. */
-    shared: { key: shortlist.key, state: shortlist.state },
+    /** The live read of the current state, which a waiting turn with the same read shares. */
+    shared: { key: shortlist.key, state: shortlist.state, widened: shortlist.widened },
     /** The live shortlist, for the strip and the filter panel: null until the current filters are answered. */
     live: shown && response ? { shown, total: response.total } : null,
     liveFailure: shortlist.state && shortlist.state.phase !== "ready" && shortlist.state.phase !== "loading" ? shortlist.state.safeMessage : null,
-    filters,
+    /** Said beside the count when the viewer's own words matched nothing and the filters answered alone. */
+    liveNotice: shortlist.widened && state.subject ? widenedNote(state.subject.phrase) : null,
+    /** The whole read the current state asks for: its subject and its filters. */
+    read: shortlistRead,
+    filters: shortlistRead?.filters ?? null,
   };
 }

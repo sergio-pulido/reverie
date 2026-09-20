@@ -1,5 +1,4 @@
 import { useSyncExternalStore } from "react";
-import { TmdbAttribution } from "../discover/TmdbAttribution";
 import { Footer } from "../chrome";
 import type { ScenarioCard } from "../lib/escapeRoom";
 import { TopBar } from "../shell/TopBar";
@@ -45,7 +44,7 @@ export function CreateScreen({ scenarios, scenariosNotice, onChoose }: CreateScr
           </div>
         </article></li>;
       })}</ul>
-    </section><TmdbAttribution /><Footer />
+    </section><Footer />
   </main>;
 }
 

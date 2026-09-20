@@ -1,4 +1,3 @@
-import { TmdbAttribution } from "../discover/TmdbAttribution";
 import {
   PORTION_ABSOLUTE_MAX_SECONDS,
   PORTION_ABSOLUTE_MIN_SECONDS,
@@ -110,7 +109,7 @@ export function CreateRoom({ way, title, premise, visibility, sourceKind, import
     </form>
     <figure className="setup-scene"><ModeIllustration mode={way} /><figcaption>{way === "director" ? "A screenplay to start from. A Director session of your own." : way === "jam" ? "One shared script. Space for everyone’s ideas." : "An authored world. One character. Your next move."}</figcaption></figure>
   </section>
-  <TmdbAttribution /><Footer />
+  <Footer />
   </main>;
 }
 

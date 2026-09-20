@@ -145,7 +145,8 @@ for (const way of ["director", "jam", "escape"] as const) {
     await render(show({ way, sourceKind: way === "escape" ? "escape-room" : "from-scratch", scenarioId: "night-audit" }));
     assert.ok(document.querySelector("[data-top-bar]"));
     assert.ok(document.querySelector("footer"));
-    assert.match(document.querySelector(".discover-attribution")?.textContent ?? "", /TMDB/);
+    // Nothing on a create form is a TMDB record, so the credit that follows one is not here.
+    assert.equal(document.querySelector(".discover-attribution"), null);
     assert.ok(document.querySelector(`.setup-scene .mode-${way}`));
     assert.equal(Boolean(document.querySelector(".create-admission")), way !== "director");
     await focusOn(document.querySelector('[data-row="title"]'));

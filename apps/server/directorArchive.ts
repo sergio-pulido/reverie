@@ -64,6 +64,18 @@ export class DirectorArchiveSink {
         segment,
         containerContentType(container),
       );
+      // The one unambiguous "the archive has begun" in the record.
+      //
+      // Without it, a session with no segments has two very different causes
+      // that look identical from outside: no media track ever arrived, or the
+      // track arrived and storage refused it. The first is a provider problem,
+      // the second is ours, and telling them apart used to mean reading the
+      // container's stdout — which nothing keeps.
+      await this.options.index.recordAudit(this.options.sessionId, {
+        at: new Date().toISOString(),
+        kind: "archive_opened",
+        detail: `${codec}/${container}`,
+      });
     }, { truncatedReason: "init_storage_failure" });
   }
 
@@ -136,9 +148,25 @@ export class DirectorArchiveSink {
     task: () => Promise<void>,
     failure: { countLostSegment?: boolean; truncatedReason?: string } = {},
   ): void {
-    this.queue = this.queue.then(task).catch(() => {
+    this.queue = this.queue.then(task).catch((error: unknown) => {
       if (failure.countLostSegment) this.failedSegments += 1;
       this.truncated ??= failure.truncatedReason ?? null;
+      // Say so, in the record a reader can actually reach.
+      //
+      // Every failure here used to be swallowed whole: the archive simply
+      // ended, `truncated_reason` was overwritten by the route's own close,
+      // and a room whose film never reached storage looked exactly like a room
+      // that had not been recorded. Two afternoons went into telling those
+      // apart by hand. The audit trail is already served by the archive routes,
+      // so this is the one place where saying it costs nothing.
+      void this.options.index
+        .recordAudit(this.options.sessionId, {
+          at: new Date().toISOString(),
+          kind: "archive_failed",
+          detail: failure.truncatedReason ?? "unknown",
+        })
+        .catch(() => undefined);
+      void error;
     });
   }
 }

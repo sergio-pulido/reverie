@@ -7,6 +7,7 @@ import discoverTurn from "../../api/discover/turn";
 import discoverCritique from "../../api/discover/critique";
 import discoverRank from "../../api/discover/rank";
 import voiceTranscribe from "../../api/voice/transcribe";
+import evaluate from "../../api/evaluate";
 import {
   createJamsRouter,
   InMemoryJamStore,
@@ -73,6 +74,9 @@ export function createApiApp(
   });
   app.all("/api/discover/critique", (request, response) => {
     void discoverCritique(request, response);
+  });
+  app.all("/api/evaluate", (request, response) => {
+    void evaluate(request, response);
   });
   app.all("/api/voice/transcribe", (request, response) => {
     void voiceTranscribe(request, response);

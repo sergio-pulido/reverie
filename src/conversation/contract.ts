@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { catalogueTitleSchema } from "../catalogue/contract.js";
+import { catalogueTitleSchema, type CatalogueTitle } from "../catalogue/contract.js";
 import { turnInputSchema } from "../preferences/schema.js";
 import { MAX_ASSISTANT_LINE_CHARS, MAX_MESSAGE_CHARS } from "./decision.js";
 
@@ -16,8 +16,8 @@ export const CONVERSATION_LIMITS = {
   maxReasonChars: 160,
   /** Picks one critique call covers: the top picks the ranking produced, never more. */
   maxCritiquePicks: 3,
-  /** One part of a critique: two sentences of it, still readable across a room. */
-  maxCritiquePartChars: 240,
+  /** One part of a critique: two sentences with room to finish, still readable across a room. */
+  maxCritiquePartChars: 320,
 } as const;
 
 export const turnRequestSchema = z.strictObject({
@@ -31,6 +31,20 @@ export const turnRequestSchema = z.strictObject({
 export const rankCandidateSchema = catalogueTitleSchema
   .pick({ id: true, title: true, year: true, genres: true, runtimeMinutes: true, originalLanguage: true, rating: true })
   .extend({ synopsis: z.string().trim().max(CONVERSATION_LIMITS.rankSynopsisChars).optional() });
+
+/** The few fields the model judges a film by, with the synopsis cut to a gist. */
+export function toRankCandidate(title: CatalogueTitle): RankCandidate {
+  return {
+    id: title.id,
+    title: title.title,
+    year: title.year,
+    genres: title.genres,
+    runtimeMinutes: title.runtimeMinutes,
+    originalLanguage: title.originalLanguage,
+    rating: title.rating,
+    synopsis: title.synopsis?.slice(0, CONVERSATION_LIMITS.rankSynopsisChars),
+  };
+}
 
 /**
  * What the critic wrote about one pick. Three parts, all required: a recommendation with

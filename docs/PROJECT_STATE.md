@@ -2168,6 +2168,118 @@ the existing `:root:not([data-input="pointer"])` guard.
 - **Not verified:** no fal session was opened, so the live cost line has been exercised against
   a fake spend payload rather than a real take.
 
+## 2026-09-20 — One endpoint Galtea can call: `POST /api/evaluate`
+
+Galtea evaluates a deployed agent by calling one HTTP endpoint. Discover's three conversational
+endpoints are no use to it: each needs a viewer's Supabase session, and an anonymous one expires
+inside an hour, so a token pasted into an evaluation suite would die partway through the run.
+
+**`POST /api/evaluate` runs the whole funnel for one viewer message** — interpret, apply the turn
+the engine accepted, read the catalogue for the state that produced, rank, critique — and answers
+with what the viewer would have seen. The body is `{ "input", "history"? }`; the history is
+earlier viewer messages replayed through the same engine in order, so a multi-turn case is a real
+conversation rather than a state handed in. Each request runs in a fresh throwaway session.
+
+**It is authenticated by one static token**, `Authorization: Bearer <GALTEA_EVAL_TOKEN>`, held in
+the environment and compared over SHA-256 digests so neither the value nor its length leaks
+through how long the check takes. A viewer's Supabase token is never accepted here, and the eval
+token is never logged, echoed or returned. With no `GALTEA_EVAL_TOKEN` configured the endpoint is
+`503 EVAL_NOT_CONFIGURED` rather than open. `.env.example` carries the placeholder; the real value
+lives only in the ignored `.env.local` and in the Vercel project.
+
+**It is not a second funnel.** The three model steps moved out of the handlers into
+`api/_lib/discover-funnel.ts` — `interpretStep`, `rankStep`, `critiqueStep`, each behind the same
+in-process concurrency cap — and `/api/discover/turn`, `/api/discover/rank` and
+`/api/discover/critique` now call them too, so there is one implementation with two callers. The
+shortlist is `toShortlistRead` plus the same `fetchCatalogue` adapter `/api/catalogue` uses, the
+order is `orderByAssistant`, and `toRankCandidate` moved from the browser's `assistantClient` into
+`src/conversation/contract.ts` so both paths map a title the same way. The browser's fallbacks
+hold as well: a ranking that does not arrive leaves the deterministic scorer's order, and a
+critique that does not arrive leaves the ranking's reasons. Only a failure to interpret ends the
+call, because then there is no turn to read the catalogue for.
+
+**The catalogue is read as the server, never as the caller.** The harness has no Supabase session
+and must not be given one. `search_catalogue_titles` is granted to `authenticated` and revoked
+from `anon`, so the anon key alone cannot read it; `api/_lib/supabase-server-session.ts` resolves
+`SUPABASE_SERVICE_ROLE_KEY` when it is set, and otherwise signs the server in anonymously with the
+anon key and caches that session per process. Without either there is no catalogue, and the
+endpoint says so rather than answering with nothing.
+
+### Verified
+
+- `npx tsc --noEmit` clean. `pnpm build` clean.
+- `pnpm test`: 1336 tests, 1325 pass, 3 fail, 8 cancelled. The failures are the pre-existing
+  `directorPieces` / `directorPieceMuxer` worker-thread tests, which fail the same way on this
+  machine without this change.
+- New: `tests/evaluateEndpoint.test.ts` (10) over a fake provider and a fake catalogue — the four
+  ways a token can be wrong, a missing configuration, four malformed bodies, the single-turn case,
+  the multi-turn case (the history's genre and the message's length are both in the catalogue
+  read, and the film the constraint rules out appears nowhere in the answer), the titles and the
+  critic's reasons in `output`, and both fallbacks.
+- Against the local Node server on port 4387, the real Nebius provider and the hosted Supabase
+  project, with no `SUPABASE_SERVICE_ROLE_KEY` set — so the anonymous server session is the path
+  that ran:
+  - no header, a wrong token and a token in the wrong scheme each answered `401 UNAUTHENTICATED`;
+    a body of `{"nope":1}` answered `400 INVALID_REQUEST`.
+  - `{"input":"a scary film under two hours"}` answered 200 with
+    `filters {maxRuntime: 119, includeGenres: ["horror"]}`, 3,902 matching titles, picks
+    *The Nun II* (2023), *Talk to Me* (2023) and *No One Will Save You* (2023), and a critique on
+    each — three parts apiece, in `output`.
+  - `{"input":"actually nothing scary, a comedy about a heist that goes wrong","history":["something for a Friday night","nothing over two hours"]}`
+    answered 200 with `subject "heist goes wrong"` and
+    `filters {maxRuntime: 119, includeGenres: ["comedy","thriller"], excludeGenres: ["horror"]}`:
+    the length came from the history's second message, the horror exclusion and the subject from
+    the message being evaluated. Both turns of the history were really replayed.
+
+### Not verified
+
+- No call against the deployed Vercel function. Everything above ran through the local Express
+  server, which mounts the same handler.
+- The `SUPABASE_SERVICE_ROLE_KEY` branch of the server session. No such key is configured here, so
+  only the anonymous path has a receipt.
+- No Galtea run. The response shape is what the brief asked for; whether an evaluator grades
+  `output` well is not something a unit test can answer.
+
+## 2026-09-20 — A critic's note on each of Discover's top picks
+
+- `POST /api/discover/critique` is a third conversational call, behind the same guards as the
+  other two: same-origin, signed in, 30 requests a minute, one of six slots, 32 KB of body,
+  aborted when the viewer goes away. It takes the ranking's top three and the rest of the row as
+  titles it may not name, and answers with `why`, `watching` and `reservation` for each pick.
+- Where the ranking call is forbidden everything outside the catalogue row, this one is sent for
+  what the model knows about these films. It is fenced by what can be checked against the row
+  instead: a withheld title named, a running time or release year the row contradicts, an invented
+  score, a verdict borrowed from critics or audiences, or the critique turning to face the viewer
+  each refuse the whole reply, once with the reason and then for good. A part that runs long is
+  cut back to its whole sentences rather than refused. A pick whose reservation is missing or
+  hollow loses its critique.
+- A turn hands its films over the moment they are ranked and stays open for its critique, so the
+  extra call is never in front of the posters. The note lands in the same snapshot, whose films
+  and order are untouched. A critic that times out or is refused leaves the row exactly as it was,
+  with the ranking's reasons and no line in the conversation about it.
+- At 1920 a pick's card turns sideways: the poster, then why this one and the one thing against
+  it, in a 700-pixel slot. At 390 a paragraph will not stand beside a 132-pixel poster, so the
+  card carries the note's opening four lines and the whole of it — what watching it is like
+  included — opens with the film. A card read aloud says the note where it used to say the
+  ranking's reason.
+- Nothing the critic writes can reach the preference engine: a critique proposes no turn and
+  carries no quote. The browser still checks every note against the picks it is showing and the
+  state version it asked about before a word of it is drawn.
+- Verified live: `pnpm verify:conversation` three times against Nebius
+  (`Qwen/Qwen3-30B-A3B-Instruct-2507`), 12 of 12 critique calls written, 12 s to 23 s each. The
+  notes name casts, scenes and specific failings — "the embalmed hand isn't just a prop", "the
+  alien's design and behavior remain frustratingly opaque" — against ranking reasons in the same
+  runs that read "Perfect blend of whimsy and humor". One run shows the reservation rule working:
+  The Super Mario Bros. Movie lost its critique rather than take a hollow one.
+- Known gap, measured not guessed: the critic writes confidently about films the model does not
+  know. Probed with two invented titles among three, it critiqued all three and cited a closing
+  scene of a film that does not exist. The prompt asks it to leave such a film out and that
+  instruction does not bind on this model. The checks here are about consistency with the
+  catalogue, not truth.
+- `pnpm verify:conversation` now prints the critique for each pick, because a note that restates
+  the genres is a prompt that has not worked and only reading them says so.
+- `pnpm test` 1188/1199, the 11 failures the same pre-existing `directorPieceMuxer` and
+  `directorSegmenter` worker tests as on `main`; `npx tsc --noEmit` clean.
 ## 2026-09-20 — A finished film plays from the deployment (RV-25)
 
 - The director archive reads exist as a Vercel function

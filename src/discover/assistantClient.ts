@@ -4,9 +4,9 @@ import {
   CONVERSATION_LIMITS,
   critiqueResponseSchema,
   rankResponseSchema,
+  toRankCandidate,
   turnResponseSchema,
   type CritiqueResponse,
-  type RankCandidate,
   type RankResponse,
   type TurnResponse,
 } from "../conversation/contract";
@@ -58,20 +58,6 @@ async function post<S extends z.ZodType>(
 
 export function requestTurn(message: string, state: PreferenceState, previousQuestion: string | null): Promise<TurnResponse | null> {
   return post("/api/discover/turn", { message, state, previousQuestion }, turnResponseSchema);
-}
-
-/** The few fields the model judges a film by, with the synopsis cut to a gist. */
-export function toRankCandidate(title: CatalogueTitle): RankCandidate {
-  return {
-    id: title.id,
-    title: title.title,
-    year: title.year,
-    genres: title.genres,
-    runtimeMinutes: title.runtimeMinutes,
-    originalLanguage: title.originalLanguage,
-    rating: title.rating,
-    synopsis: title.synopsis?.slice(0, CONVERSATION_LIMITS.rankSynopsisChars),
-  };
 }
 
 export function requestRanking(

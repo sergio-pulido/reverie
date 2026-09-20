@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { rankRequestSchema, type RankOk } from "../../src/conversation/contract.js";
-import { eligibleRankCandidates, rankCandidates } from "../_lib/discover-assistant.js";
+import { eligibleRankCandidates } from "../_lib/discover-assistant.js";
+import { rankStep } from "../_lib/discover-funnel.js";
 import {
   abortOnDisconnect,
   admit,
@@ -12,7 +13,6 @@ import {
   readAccessToken,
   readJsonBody,
   resolveProvider,
-  withSlot,
   type DiscoverEndpointOptions,
 } from "../_lib/discover-http.js";
 import { sendJson } from "../_lib/http.js";
@@ -61,7 +61,7 @@ export default async function discoverRank(request: IncomingMessage, response: S
   }
 
   const signal = abortOnDisconnect(response);
-  const result = await withSlot(() => rankCandidates(provider.complete, state, candidates, options.now, signal));
+  const result = await rankStep(provider, state, candidates, { now: options.now, signal });
   if (isUnavailable(result)) {
     sendJson(response, 200, result);
     return;

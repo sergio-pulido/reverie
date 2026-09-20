@@ -189,12 +189,13 @@ describe("the Movie Jam screens", () => {
   });
 
   it("climb to their parents with repeated Back, never replaying screens already left", async () => {
-    await render(<App />, [{ path: "/home" }, { path: "/jams", state: { [FROM]: "/home" } }, { path: "/jams/new", state: { [FROM]: "/jams" } }]);
+    // The door, then the form: Back climbs form → door → home, never through the jam list.
+    await render(<App />, [{ path: "/home" }, { path: "/create", state: { [FROM]: "/home" } }, { path: "/jams/new", state: { [FROM]: "/create" } }]);
     assert.equal(current(), "Movie Jam");
     await press("Escape");
     await settle();
-    assert.equal(window.location.pathname, "/jams");
-    assert.equal(current(), "Movie Jam", "the registry lands on its bar");
+    assert.equal(window.location.pathname, "/create");
+    assert.equal(current(), "Movie Jam", "the door lands on its bar");
     await press("Escape");
     await settle();
     assert.equal(window.location.pathname, "/home");

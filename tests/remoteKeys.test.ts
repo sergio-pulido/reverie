@@ -47,7 +47,10 @@ describe("leaving a screen", () => {
       ["discover", "/home"],
       ["jams", "/home"],
       ["join", "/home"],
-      ["create", "/jams"],
+      ["about", "/home"],
+      // The door is a sibling of the home; the jam form below it returns to the door.
+      ["create", "/home"],
+      ["newJam", "/create"],
       ["studio", "/jams"],
       ["script", "/jams/new"],
     ];
@@ -64,13 +67,13 @@ describe("leaving a screen", () => {
     assert.deepEqual(leaveAction({ screen: "discover", filmOpen: false, from: "/home" }), { kind: "history-back" });
     assert.deepEqual(leaveAction({ screen: "discover", filmOpen: true, from: "/home" }), { kind: "history-back" });
     assert.deepEqual(leaveAction({ screen: "discover", filmOpen: true, from: "/discover" }), { kind: "history-back" });
-    assert.deepEqual(leaveAction({ screen: "create", filmOpen: false, from: "/jams" }), { kind: "history-back" });
+    assert.deepEqual(leaveAction({ screen: "newJam", filmOpen: false, from: "/create" }), { kind: "history-back" });
   });
 
   it("replaces the entry instead of replaying screens the viewer has left", () => {
     // Search, then Movie Jam, then Search again: Back goes home, not through Movie Jam.
     assert.deepEqual(leaveAction({ screen: "discover", filmOpen: false, from: "/jams" }), { kind: "replace", path: "/home" });
-    assert.deepEqual(leaveAction({ screen: "create", filmOpen: false, from: "/home" }), { kind: "replace", path: "/jams" });
+    assert.deepEqual(leaveAction({ screen: "newJam", filmOpen: false, from: "/home" }), { kind: "replace", path: "/create" });
     assert.deepEqual(leaveAction({ screen: "discover", filmOpen: true, from: null }), { kind: "replace", path: "/discover" });
   });
 

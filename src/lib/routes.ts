@@ -15,6 +15,7 @@ export type Screen =
   | "jams"
   | "community"
   | "create"
+  | "newJam"
   | "join"
   | "script"
   | "studio"
@@ -30,6 +31,12 @@ export const LANDING_PATH = "/";
 export const HOME_PATH = "/home";
 export const JAMS_PATH = "/jams";
 export const NEW_JAM_PATH = "/jams/new";
+/**
+ * The one door. Making a film alone, making one with a room and playing an escape room are
+ * three different experiences; this is where you choose between them, and each leads into the
+ * flow it already had.
+ */
+export const CREATE_PATH = "/create";
 export const JOIN_PATH = "/join";
 /** The conversation, with a film's own page beneath it at `/discover/:id`. */
 export const DISCOVER_PATH = "/discover";
@@ -65,11 +72,12 @@ export function directorPath(slug: string) {
 export function screenFromPath(pathname: string): Screen {
   if (pathname === LANDING_PATH) return "landing";
   if (pathname === ABOUT_PATH || pathname === `${ABOUT_PATH}/`) return "about";
+  if (pathname === CREATE_PATH || pathname === `${CREATE_PATH}/`) return "create";
   if (pathname === DISCOVER_PATH || pathname === `${DISCOVER_PATH}/` || FILM_PAGE.test(pathname)) return "discover";
   if (pathname === CATALOG_PATH || pathname === `${CATALOG_PATH}/`) return "catalog";
   if (pathname === COMMUNITY_PATH || pathname === `${COMMUNITY_PATH}/`) return "community";
   if (pathname === "/jams") return "jams";
-  if (pathname === "/jams/new") return "create";
+  if (pathname === "/jams/new") return "newJam";
   if (pathname === "/join") return "join";
   if (DIRECTOR_SLUG.test(pathname)) return "director";
   if (pathname.startsWith("/jams/")) return "studio";

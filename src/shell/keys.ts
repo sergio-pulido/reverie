@@ -1,4 +1,4 @@
-import { HOME_PATH, JAMS_PATH, NEW_JAM_PATH, DISCOVER_PATH, type Screen } from "../lib/routes";
+import { CREATE_PATH, HOME_PATH, JAMS_PATH, NEW_JAM_PATH, DISCOVER_PATH, type Screen } from "../lib/routes";
 
 /**
  * Remote and keyboard conventions the whole app agrees on. Pure, so they are testable without a
@@ -52,7 +52,11 @@ export function parentPath(screen: Screen, filmOpen: boolean, from: string | nul
     // Not a destination, but read from anywhere; Back leaves it for the home like the rest.
     case "about":
       return HOME_PATH;
+    // The door is a sibling of the home; the form below it returns to the door.
     case "create":
+      return HOME_PATH;
+    case "newJam":
+      return CREATE_PATH;
     case "studio":
     // A Director session is opened from the Movie Jam list, and Back returns there.
     case "director":

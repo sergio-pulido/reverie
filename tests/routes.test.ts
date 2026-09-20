@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   ABOUT_PATH,
   BAR_DESTINATIONS,
+  CREATE_PATH,
   CATALOG_PATH,
   COMMUNITY_PATH,
   DESTINATION_PATH,
@@ -42,6 +43,16 @@ test("About is its own screen, reached by name, and belongs to no destination", 
   for (const path of ["/abouts", "/about/us", "/jams/about"]) assert.notEqual(screenFromPath(path), "about", path);
 });
 
+test("the door is its own screen at /create, and the jam form sits under it", () => {
+  assert.equal(CREATE_PATH, "/create");
+  assert.equal(screenFromPath("/create"), "create");
+  assert.equal(screenFromPath("/create/"), "create");
+  // Back from the form returns to the door that opened it; the door is a sibling of the home.
+  assert.equal(parentPath("newJam", false, null), CREATE_PATH);
+  assert.equal(parentPath("create", false, null), HOME_PATH);
+  for (const path of ["/creates", "/create/new", "/jams/create"]) assert.notEqual(screenFromPath(path), "create", path);
+});
+
 test("the landing belongs to no destination either, carrying no bar at all", () => {
   assert.equal(destinationOf("landing"), null);
 });
@@ -51,7 +62,7 @@ test("the top bar reaches Discover as a destination of its own", () => {
   assert.equal(DESTINATION_PATH.discover, "/discover");
   assert.deepEqual(Object.keys(DESTINATION_PATH).sort(), ["catalog", "community", "discover", "home", "jam"]);
   assert.equal(destinationOf("home"), "home");
-  for (const screen of ["jams", "create", "join", "script", "studio"] as const) assert.equal(destinationOf(screen), "jam", screen);
+  for (const screen of ["jams", "create", "newJam", "join", "script", "studio"] as const) assert.equal(destinationOf(screen), "jam", screen);
 });
 
 test("a Director session is its own screen at /director/:slug", () => {
@@ -120,7 +131,7 @@ test("only the exact root is the landing page", () => {
 
 test("the existing screens still resolve as before", () => {
   assert.equal(screenFromPath("/jams"), "jams");
-  assert.equal(screenFromPath("/jams/new"), "create");
+  assert.equal(screenFromPath("/jams/new"), "newJam");
   assert.equal(screenFromPath("/join"), "join");
   assert.equal(screenFromPath("/jams/night-swim-4k2"), "studio");
   assert.equal(jamSlugFromPath("/jams/night-swim-4k2"), "night-swim-4k2");

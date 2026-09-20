@@ -44,9 +44,9 @@ test("the seven sections are there, in order", () => {
   ]);
 });
 
-test("every call to action opens something that exists: the home, Discover or Movie Jam", () => {
+test("every call to action opens something that exists: the home, Discover or the door", () => {
   const external = hrefs(markup).filter((href) => !href.startsWith("#"));
-  assert.deepEqual([...new Set(external)].sort(), ["/about", "/discover", "/home", "/jams"]);
+  assert.deepEqual([...new Set(external)].sort(), ["/about", "/create", "/discover", "/home"]);
   assert.deepEqual([...new Set(hrefs(markup).filter((href) => href.startsWith("#")))].sort(), ["#discover", "#top"]);
   // "Open Reverie" opens Reverie: the app's own home, never one screen inside it.
   for (const match of markup.matchAll(/<a [^>]*href="([^"]*)"[^>]*>Open Reverie/g)) assert.equal(match[1], "/home");

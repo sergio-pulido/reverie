@@ -1,6 +1,7 @@
 import { FormEvent, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { AboutScreen } from "./about/AboutScreen";
 import { CatalogScreen } from "./catalog/CatalogScreen";
+import { CreateScreen, type CreateWay } from "./create/CreateScreen";
 import { providerIdOf, type CatalogueTitle } from "./catalogue/contract";
 import { CommunityScreen } from "./community/CommunityScreen";
 import type { Jam as GeneratedJam, JamSource } from "./core/jam";
@@ -17,6 +18,7 @@ import { safeMessageOf } from "./lib/errors";
 import { createJam as createJamRoom, type JamPersistence, type JamRoom, type JamVisibility } from "./lib/jams";
 import {
   ABOUT_PATH,
+  CREATE_PATH,
   DESTINATION_PATH,
   JAMS_PATH,
   LANDING_PATH,
@@ -55,7 +57,7 @@ import { useRemoteConventions } from "./shell/useRemoteConventions";
 const LandingRoute = lazy(() => import("./landing/LandingRoute"));
 
 /** Screens with no rows of their own to land in: a remote arrives on their top bar. */
-const LANDS_ON_TOP_BAR: ReadonlySet<Screen> = new Set(["about", "catalog", "community", "jams", "create", "join", "script", "studio", "director"]);
+const LANDS_ON_TOP_BAR: ReadonlySet<Screen> = new Set(["about", "catalog", "community", "jams", "create", "newJam", "join", "script", "studio", "director"]);
 
 /**
  * Screens a film page is drawn as a layer over rather than in place of, so they keep their scroll,
@@ -108,6 +110,8 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
   const [visibility, setVisibility] = useState<JamVisibility>("invite_only");
   const [persistence, setPersistence] = useState<JamPersistence>(hasSupabaseConfiguration() ? "remote" : "preview");
   const [sourceKind, setSourceKind] = useState<SourceKind>("from-scratch");
+  /** Which of the three the viewer chose at the door. It decides where a finished jam opens. */
+  const [way, setWay] = useState<CreateWay>("jam");
   const [importedScript, setImportedScript] = useState("");
   /** The escape rooms this build ships, read from the server, never invented here. */
   const [scenarios, setScenarios] = useState<readonly ScenarioCard[]>([]);
@@ -148,9 +152,12 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
-  /** The escape rooms are this server's own data, so they are read when they are needed. */
+  /**
+   * The escape rooms are this server's own data, so they are read when they are needed: at the
+   * door, which has to say whether there are any, and on the form, which has to offer them.
+   */
   useEffect(() => {
-    if (screen !== "create" || scenarios.length > 0) return;
+    if ((screen !== "create" && screen !== "newJam") || scenarios.length > 0) return;
     let cancelled = false;
     void readScenarios()
       .then((cards) => {
@@ -193,10 +200,20 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
     leave();
   }
 
-  function startJam() {
+  /** The door. Everything that makes something new goes through it. */
+  function startSomething() {
     setRegisteredRoom(null);
     setGeneratedJam(null);
-    navigate("create", NEW_JAM_PATH);
+    navigate("create", CREATE_PATH);
+  }
+
+  /** One of the three chosen: the flow it already had, opened with that choice carried into it. */
+  function chooseWay(chosen: CreateWay) {
+    setWay(chosen);
+    setSourceKind(chosen === "escape" ? "escape-room" : "from-scratch");
+    setRegisteredRoom(null);
+    setGeneratedJam(null);
+    navigate("newJam", NEW_JAM_PATH);
   }
 
   function openFilm(title: CatalogueTitle | undefined, providerId: string) {
@@ -204,15 +221,20 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
     navigate("discover", filmPath(providerId));
   }
 
-  /** "Start a Jam from this": the Movie Jam form, filled with a title and premise drawn from the film. */
+  /**
+   * "Start a Jam from this": the Movie Jam form, filled with a title and premise drawn from the
+   * film. It does not pass through the door: choosing a film has already said which of the three
+   * this is.
+   */
   function startJamFrom(title: CatalogueTitle) {
     const seed = jamSeedFrom(title);
     setRoomTitle(seed.title);
     setPremise(seed.premise);
+    setWay("jam");
     setSourceKind("from-scratch");
     setRegisteredRoom(null);
     setGeneratedJam(null);
-    navigate("create", NEW_JAM_PATH);
+    navigate("newJam", NEW_JAM_PATH);
     // Chosen from deep in a conversation: the form opens at its top, not where search was scrolled.
     window.scrollTo({ top: 0 });
   }
@@ -320,7 +342,9 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
       }
       const script = body.jam as GeneratedJam;
       setGeneratedJam(script);
-      navigate("script", `/jams/${created.jam.slug}`);
+      // Alone, the film opens in its Director session; with people, in the script the room shares.
+      if (way === "director") navigate("director", directorPath(created.jam.slug));
+      else navigate("script", `/jams/${created.jam.slug}`);
       if (created.persistence === "preview") setNotice("Supabase is not configured, so the jam is registered in this browser as a local preview only.");
     } catch (error) {
       setNotice(safeMessageOf(error, "The jam could not be registered."));
@@ -344,7 +368,7 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
         <HomeScreen
           inert={filmOverHome}
           onOpenFilm={(title) => openFilm(title, providerIdOf(title.id))}
-          onStartJam={startJam}
+          onStartJam={startSomething}
           onJoin={() => navigate("join", JOIN_PATH)}
         />
       </>;
@@ -376,13 +400,16 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
     if (screen === "director") return <DirectorScreen slug={slug} />;
     if (screen === "jams") {
       return <JamRegistry
-        onNew={startJam}
+        onNew={startSomething}
         onOpen={(jam, mode) => { applyJam(jam, mode); navigate("studio", `/jams/${jam.slug}`); }}
         onDirect={(jam, mode) => { applyJam(jam, mode); navigate("director", directorPath(jam.slug)); }}
       />;
     }
     if (screen === "create") {
-      return <CreateRoom title={roomTitle} premise={premise} visibility={visibility} sourceKind={sourceKind} importedScript={importedScript} scenarios={scenarios} scenarioId={scenarioId} scenariosNotice={scenariosNotice} onScenarioId={setScenarioId} totalSeconds={totalSeconds} portionMinSeconds={portionMinSeconds} portionMaxSeconds={portionMaxSeconds} onTitle={setRoomTitle} onPremise={setPremise} onVisibility={setVisibility} onSourceKind={setSourceKind} onImportedScript={setImportedScript} onTotalSeconds={setTotalSeconds} onPortionMinSeconds={setPortionMinSeconds} onPortionMaxSeconds={setPortionMaxSeconds} onSubmit={createRoom} isCreating={isCreating} notice={notice} />;
+      return <CreateScreen scenarios={scenarios} scenariosNotice={scenariosNotice} onChoose={chooseWay} />;
+    }
+    if (screen === "newJam") {
+      return <CreateRoom way={way} title={roomTitle} premise={premise} visibility={visibility} sourceKind={sourceKind} importedScript={importedScript} scenarios={scenarios} scenarioId={scenarioId} scenariosNotice={scenariosNotice} onScenarioId={setScenarioId} totalSeconds={totalSeconds} portionMinSeconds={portionMinSeconds} portionMaxSeconds={portionMaxSeconds} onTitle={setRoomTitle} onPremise={setPremise} onVisibility={setVisibility} onSourceKind={setSourceKind} onImportedScript={setImportedScript} onTotalSeconds={setTotalSeconds} onPortionMinSeconds={setPortionMinSeconds} onPortionMaxSeconds={setPortionMaxSeconds} onSubmit={createRoom} isCreating={isCreating} notice={notice} />;
     }
     if (screen === "script" && generatedJam) {
       return <ScriptScreen jam={generatedJam} roomTitle={roomTitle} onStudio={() => setLocation((current) => ({ ...current, screen: "studio" }))} />;

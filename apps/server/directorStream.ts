@@ -282,6 +282,20 @@ export class DirectorStream {
       await this.teardown();
       throw new DirectorError("The director stream returned no answer.", true);
     }
+    // What the provider offered back. No candidates here, and none arriving
+    // later, means there was never an address to try and ICE checks forever.
+    {
+      const lines = answerSdp.split("\n");
+      const candidates = lines.filter((line) => line.startsWith("a=candidate"));
+      console.info("director answer candidates", {
+        sessionId: this.options.sessionId,
+        count: candidates.length,
+        types: candidates.map((line) => / typ (\S+)/.exec(line)?.[1] ?? "?"),
+        protocols: candidates.map((line) => /^a=candidate:\S+ \d+ (\S+)/i.exec(line)?.[1] ?? "?"),
+        trickle: lines.some((line) => line.includes("ice-options:trickle")),
+        endOfCandidates: lines.some((line) => line.includes("end-of-candidates")),
+      });
+    }
     await connection.setRemoteDescription({ type: "answer", sdp: answerSdp });
     this.audit.record({ kind: "session_opened" });
   }

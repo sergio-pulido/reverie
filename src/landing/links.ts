@@ -1,4 +1,4 @@
-import { DISCOVER_PATH, HOME_PATH } from "../lib/routes";
+import { ABOUT_PATH, DISCOVER_PATH, HOME_PATH } from "../lib/routes";
 
 /**
  * "Open Reverie": the app's own home. Opening Reverie is arriving in it, not arriving in one
@@ -12,3 +12,6 @@ export const DISCOVER_URL = DISCOVER_PATH;
 
 /** "Start a Movie Jam": the jam registry, where a room is started. Movie Jam is live. */
 export const JAM_URL = "/jams";
+
+/** "About Reverie": what it is, what it runs on and who built it. Not a destination. */
+export const ABOUT_URL = ABOUT_PATH;

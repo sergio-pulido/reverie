@@ -17,12 +17,15 @@ const LABELS: Readonly<Record<Destination, string>> = {
  * marked by its lens as well as its name) and, at the trailing edge, the viewer's account. It
  * holds no text field: choosing Search opens the search screen with its own field focused.
  *
+ * `current` is the destination the screen belongs to, or null on a screen that belongs to none
+ * (About), where nothing on the bar is marked as the page.
+ *
  * It scrolls away with the page. A remote reaches it again with Up from the first row, or with
  * Back from anywhere on the page. Left and Right move along it, Down returns to the page: to
  * `onEnterPage` when the screen steers its own rows, otherwise to the first thing below the bar,
  * or, on a page with nothing to focus, a step further down the page.
  */
-export function TopBar({ current, onEnterPage }: { current: Destination; onEnterPage?: () => void }) {
+export function TopBar({ current, onEnterPage }: { current: Destination | null; onEnterPage?: () => void }) {
   const shell = useShell();
 
   function follow(event: MouseEvent<HTMLAnchorElement>, action: () => void) {

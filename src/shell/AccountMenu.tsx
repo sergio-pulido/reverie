@@ -124,6 +124,8 @@ export function AccountMenu() {
           {/* Present and focusable on purpose. The account screen is not built yet, and this
               opens nothing rather than pretending it does. */}
           <button type="button" className="account-menu-item" role="menuitem" data-account-item="">Account</button>
+          {/* Not a destination on the bar, so this and the page's footer are how it is reached. */}
+          <button type="button" className="account-menu-item" role="menuitem" data-account-item="" onClick={() => { close(); shell.openAbout(); }}>About Reverie</button>
           <button type="button" className="account-menu-item" role="menuitem" data-account-item="" onClick={logOut}>Log out</button>
           {failure && <p className="account-menu-failure" role="alert">{failure}</p>}
         </div>

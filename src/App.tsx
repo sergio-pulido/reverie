@@ -1,4 +1,5 @@
 import { FormEvent, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { AboutScreen } from "./about/AboutScreen";
 import { CatalogScreen } from "./catalog/CatalogScreen";
 import { providerIdOf, type CatalogueTitle } from "./catalogue/contract";
 import { CommunityScreen } from "./community/CommunityScreen";
@@ -15,6 +16,7 @@ import { openEscapeRoom, readScenarios, type ScenarioCard } from "./lib/escapeRo
 import { safeMessageOf } from "./lib/errors";
 import { createJam as createJamRoom, type JamPersistence, type JamRoom, type JamVisibility } from "./lib/jams";
 import {
+  ABOUT_PATH,
   DESTINATION_PATH,
   JAMS_PATH,
   LANDING_PATH,
@@ -53,7 +55,7 @@ import { useRemoteConventions } from "./shell/useRemoteConventions";
 const LandingRoute = lazy(() => import("./landing/LandingRoute"));
 
 /** Screens with no rows of their own to land in: a remote arrives on their top bar. */
-const LANDS_ON_TOP_BAR: ReadonlySet<Screen> = new Set(["catalog", "community", "jams", "create", "join", "script", "studio", "director"]);
+const LANDS_ON_TOP_BAR: ReadonlySet<Screen> = new Set(["about", "catalog", "community", "jams", "create", "join", "script", "studio", "director"]);
 
 /**
  * Screens a film page is drawn as a layer over rather than in place of, so they keep their scroll,
@@ -172,7 +174,9 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
   const filmOpen = screen === "discover" && film !== null;
   /** Where the open film was chosen (at whatever path that screen was served), or Discover. */
   const openedFrom = filmOpen && from !== null ? screenFromPath(from) : null;
-  const filmOrigin: Destination = openedFrom && FILM_LAYER_OVER.has(openedFrom) ? destinationOf(openedFrom) : "discover";
+  // Every screen in FILM_LAYER_OVER belongs to a destination, so the fallback is never reached
+  // by one of them; it is what a film page opened from anywhere else answers.
+  const filmOrigin: Destination = (openedFrom && FILM_LAYER_OVER.has(openedFrom) ? destinationOf(openedFrom) : null) ?? "discover";
 
   /** Back from the top bar. Answers false on the home, whose Back belongs to the platform. */
   function leave() {
@@ -241,6 +245,14 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
         navigate(destination === "jam" ? "jams" : destination, DESTINATION_PATH[destination]);
       },
       search,
+      /** About is not a destination: it is opened by name, from the footer and the account menu. */
+      openAbout() {
+        if (screen === "about") {
+          window.scrollTo({ top: 0 });
+          return;
+        }
+        navigate("about", ABOUT_PATH);
+      },
       /**
        * A real sign-out, then the public landing. `/` is deliberately outside the app's own
        * screens: nothing the signed-out viewer was looking at is carried into it.
@@ -359,6 +371,7 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
         onStartJam={startJamFrom}
       />;
     }
+    if (screen === "about") return <AboutScreen />;
     if (screen === "community") return <CommunityScreen />;
     if (screen === "director") return <DirectorScreen slug={slug} />;
     if (screen === "jams") {

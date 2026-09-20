@@ -7,11 +7,13 @@ export type Shell = {
   go: (destination: Destination) => void;
   /** Open the search screen with its field focused. */
   search: () => void;
+  /** Open `/about`. It is not a destination, so it is asked for by name rather than chosen. */
+  openAbout: () => void;
   /** Sign out of the anonymous Supabase session and leave for the public landing at `/`. */
   logOut: () => Promise<void>;
 };
 
-const NOWHERE: Shell = { go: () => undefined, search: () => undefined, logOut: async () => undefined };
+const NOWHERE: Shell = { go: () => undefined, search: () => undefined, openAbout: () => undefined, logOut: async () => undefined };
 
 const ShellContext = createContext<Shell>(NOWHERE);
 

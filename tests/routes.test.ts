@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  ABOUT_PATH,
   BAR_DESTINATIONS,
   CATALOG_PATH,
   COMMUNITY_PATH,
@@ -27,6 +28,22 @@ test("Discover is its own screen at exactly /discover", () => {
   for (const path of ["/discovery", "/discovers", "/jams/discover"]) {
     assert.notEqual(screenFromPath(path), "discover", path);
   }
+});
+
+test("About is its own screen, reached by name, and belongs to no destination", () => {
+  assert.equal(ABOUT_PATH, "/about");
+  assert.equal(screenFromPath("/about"), "about");
+  assert.equal(screenFromPath("/about/"), "about");
+  assert.equal(destinationOf("about"), null, "nothing on the bar is marked while it is open");
+  assert.equal(BAR_DESTINATIONS.includes("about" as never), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(DESTINATION_PATH, "about"), false);
+  // It climbs to the home, like every other sibling of the home.
+  assert.equal(parentPath("about", false, null), HOME_PATH);
+  for (const path of ["/abouts", "/about/us", "/jams/about"]) assert.notEqual(screenFromPath(path), "about", path);
+});
+
+test("the landing belongs to no destination either, carrying no bar at all", () => {
+  assert.equal(destinationOf("landing"), null);
 });
 
 test("the top bar reaches Discover as a destination of its own", () => {

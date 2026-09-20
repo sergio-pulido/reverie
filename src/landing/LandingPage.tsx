@@ -3,7 +3,7 @@ import { DiscoverSection } from "./DiscoverSection";
 import { FilmFigure } from "./FilmFigure";
 import type { LandingFilm, LandingFilms } from "./films";
 import { JamSection } from "./JamSection";
-import { APP_URL, JAM_URL } from "./links";
+import { ABOUT_URL, APP_URL, JAM_URL } from "./links";
 
 /** The same wording the catalogue carries on every record. Required by TMDB's terms. */
 const TMDB_ATTRIBUTION =
@@ -127,6 +127,7 @@ function LandingFooter() {
   return <footer className="landing-footer">
     <div className="landing-footer-bar">
       <div className="landing-footer-brand"><Brand /></div>
+      <a href={ABOUT_URL} className="landing-label landing-nav-link landing-footer-about">About Reverie</a>
       <div className="landing-attribution">
         <span className="landing-tmdb">TMDB</span>
         <p>{TMDB_ATTRIBUTION}</p>

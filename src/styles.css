@@ -50,6 +50,8 @@ h1 em { color: #cbd5ff; font-weight: 500; }
 .steps h2 { margin: 29px 0 12px; font-size: 20px; font-weight: 600; }
 .steps p { color: #b4b8c7; line-height: 1.5; margin-bottom: 0; }
 footer { width: 100%; max-width: 1410px; margin: 0 auto; padding: 24px 48px; border-top: 1px solid rgba(213, 218, 255, .12); display: flex; justify-content: space-between; color: #8e94a8; }
+.footer-link { color: #c4c8dd; text-decoration: underline; text-underline-offset: 4px; }
+.footer-link:hover { color: #fffdf8; }
 .jam-kind { display: flex; gap: 10px; margin-bottom: 21px; }
 .jam-kind button { flex: 1; padding: 12px 14px; border-radius: 6px; border: 1px solid #48506a; background: transparent; color: #c2c4d0; font-size: 14px; font-weight: 600; }
 .jam-kind button.active { background: #f6f4ee; border-color: #f6f4ee; color: #10131d; }

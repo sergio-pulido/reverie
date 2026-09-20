@@ -49,6 +49,8 @@ export function parentPath(screen: Screen, filmOpen: boolean, from: string | nul
     case "jams":
     case "community":
     case "join":
+    // Not a destination, but read from anywhere; Back leaves it for the home like the rest.
+    case "about":
       return HOME_PATH;
     case "create":
     case "studio":

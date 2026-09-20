@@ -8,6 +8,7 @@
 
 export type Screen =
   | "landing"
+  | "about"
   | "home"
   | "discover"
   | "catalog"
@@ -37,6 +38,13 @@ export const CATALOG_PATH = "/catalog";
 /** What the rooms around you are making. A later slice fills it; today it is a placeholder screen. */
 export const COMMUNITY_PATH = "/community";
 /**
+ * What Reverie is, what it is built on, and who built it.
+ *
+ * Deliberately NOT a destination. The bar carries the places you work; About is read once and
+ * reached from where a viewer looks for it — the page's footer and the account menu.
+ */
+export const ABOUT_PATH = "/about";
+/**
  * One person directing one film, at `/director/:slug`.
  *
  * It is NOT a sixth top-bar destination. The bar's five already have to fit a 360px screen, and
@@ -56,6 +64,7 @@ export function directorPath(slug: string) {
  */
 export function screenFromPath(pathname: string): Screen {
   if (pathname === LANDING_PATH) return "landing";
+  if (pathname === ABOUT_PATH || pathname === `${ABOUT_PATH}/`) return "about";
   if (pathname === DISCOVER_PATH || pathname === `${DISCOVER_PATH}/` || FILM_PAGE.test(pathname)) return "discover";
   if (pathname === CATALOG_PATH || pathname === `${CATALOG_PATH}/`) return "catalog";
   if (pathname === COMMUNITY_PATH || pathname === `${COMMUNITY_PATH}/`) return "community";
@@ -98,9 +107,14 @@ export function filmPath(providerId: string) {
 /** The places the top bar leads to. Every screen belongs to exactly one. */
 export type Destination = "home" | "discover" | "catalog" | "jam" | "community";
 
-export function destinationOf(screen: Screen): Destination {
-  // The landing carries no top bar; it answers "home" so the type stays total.
-  if (screen === "home" || screen === "landing") return "home";
+/**
+ * Which of the bar's destinations a screen belongs to, or `null` for a screen that belongs to
+ * none: the landing, which carries no bar at all, and About, which carries the bar with nothing
+ * on it marked, because it is not one of the places the bar leads.
+ */
+export function destinationOf(screen: Screen): Destination | null {
+  if (screen === "landing" || screen === "about") return null;
+  if (screen === "home") return "home";
   if (screen === "discover") return "discover";
   if (screen === "catalog") return "catalog";
   if (screen === "community") return "community";

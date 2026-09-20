@@ -17,8 +17,10 @@ import {
   startDirectorSession,
   watchDirectorStream,
   type OpenedDirectorSession,
+  type StopReason,
 } from "../lib/directorSession";
 import { attachHlsStream } from "../lib/hlsPlayback";
+import { playedToEnd } from "../core/directorCompletion";
 
 /**
  * One person's live Director session.
@@ -73,9 +75,14 @@ export interface DirectorSession {
   attached: boolean;
   /** True until the server has said whether this room is already playing. */
   joining: boolean;
+  /**
+   * True once the take this screen was watching ended because it had been
+   * played to the end of the film, rather than because somebody pressed Stop.
+   */
+  endedAtFilmLength: boolean;
   failure: string | null;
   start: () => Promise<void>;
-  stop: () => Promise<void>;
+  stop: (reason?: StopReason) => Promise<void>;
   direct: (body: string, beatIndex?: number) => Promise<boolean>;
   dismissFailure: () => void;
   /** Hands the live track to a video element, or takes it back on unmount. */
@@ -91,6 +98,10 @@ export function useDirectorSession(
   const [beats, setBeats] = useState<DirectorBeatWindow | null>(null);
   const [producedThrough, setProducedThrough] = useState<number | null>(null);
   const [playheadSeconds, setPlayheadSeconds] = useState<number | null>(null);
+  /** The film's own length, as the server reads it off this jam's script. */
+  const [filmSeconds, setFilmSeconds] = useState<number | null>(null);
+  /** Set when this screen is the one that stopped a take it had watched out. */
+  const [playedOut, setPlayedOut] = useState(false);
   const [audit, setAudit] = useState<DirectorAuditEntry[]>([]);
   const [spend, setSpend] = useState<DirectorSpend>(UNKNOWN_SPEND);
   const [configured, setConfigured] = useState(true);
@@ -136,7 +147,10 @@ export function useDirectorSession(
     setSpend(opened.spend);
     setAttached(opened.attached);
     setRecordingDurable(opened.recordingDurable);
+    setFilmSeconds(opened.filmSeconds ?? null);
     setProducedThrough(null);
+    // A new take has not been watched out; the last one's ending is not its news.
+    setPlayedOut(false);
     remember(opened.beats);
   }, [remember]);
 
@@ -194,6 +208,29 @@ export function useDirectorSession(
     };
   }, [jamId]);
 
+  /**
+   * Lets go of a take that has already ended on the server.
+   *
+   * Two things end one without this screen asking: somebody else in the room
+   * pressing Stop, and the film reaching its selected length. Both leave this
+   * hook polling a session that no longer answers, and a screen that went on
+   * reading `live` would keep offering a Stop for a stream that is over — and
+   * keep an empty frame where the finished take belongs. There is nothing left
+   * to end, so this never calls the end route.
+   *
+   * `producedThrough` is deliberately kept: how far the take got is what the
+   * timeline still has to say about it once it has stopped.
+   */
+  const letGo = useCallback((ended: string) => {
+    if (!jamId) return;
+    setRecording(directorRecordingSrc(jamId, ended));
+    setSessionId(null);
+    setViewerId(null);
+    setLiveDelivery(false);
+    setAttached(false);
+    setBeats(null);
+  }, [jamId]);
+
   // Polling is the surface until Realtime events land, matching the player.
   useEffect(() => {
     if (!jamId || !sessionId) return;
@@ -206,8 +243,13 @@ export function useDirectorSession(
         setAudit(snapshot.audit);
         setSpend(snapshot.spend);
         remember(snapshot.beats);
-      } catch {
-        // A closed session stops answering; the stop path owns that state.
+      } catch (error) {
+        if (cancelled) return;
+        // Somebody else stopped it, or the server reclaimed it. Either way this
+        // is polling a session that no longer exists.
+        if (error instanceof DirectorSessionError && error.code === "not_found") {
+          letGo(sessionId);
+        }
       }
     };
     void tick();
@@ -221,7 +263,7 @@ export function useDirectorSession(
       clearInterval(poll);
       clearInterval(renew);
     };
-  }, [jamId, sessionId, viewerId, remember]);
+  }, [jamId, sessionId, viewerId, remember, letGo]);
 
   // HLS is the room-wide delivery path where the server has enabled it.
   useEffect(() => {
@@ -294,22 +336,46 @@ export function useDirectorSession(
     }
   }, [adopt, configuration, jamId]);
 
-  const stop = useCallback(async () => {
-    if (!jamId || !sessionId) return;
-    setBusy(true);
-    try {
-      await endDirectorSession(jamId, sessionId);
-      setRecording(directorRecordingSrc(jamId, sessionId));
-    } catch {
-      // Ending is idempotent server-side; nothing useful to say here.
-    } finally {
-      setSessionId(null);
-      setViewerId(null);
-      setLiveDelivery(false);
-      setBeats(null);
-      setBusy(false);
-    }
-  }, [jamId, sessionId]);
+  const stop = useCallback(
+    async (reason?: StopReason) => {
+      if (!jamId || !sessionId) return;
+      setBusy(true);
+      try {
+        // No viewer id: this ends the take for the room, which is what both a
+        // pressed Stop and a film that has been watched out mean.
+        await endDirectorSession(jamId, sessionId, undefined, reason);
+        setRecording(directorRecordingSrc(jamId, sessionId));
+      } catch {
+        // Ending is idempotent server-side; nothing useful to say here.
+      } finally {
+        setSessionId(null);
+        setViewerId(null);
+        setLiveDelivery(false);
+        setBeats(null);
+        setBusy(false);
+      }
+    },
+    [jamId, sessionId],
+  );
+
+  /**
+   * Stops a take the viewer has watched to the end of the film.
+   *
+   * This is the only automatic stop, and it is keyed on the position the media
+   * element has actually reached — never on time since Play, and never on the
+   * provider's progress. Generation runs far ahead of playback: keyed on that,
+   * four takes were torn down 1ms after their last chunk, before hls.js had a
+   * playable segment, and the room saw nothing.
+   *
+   * `busy` guards it so the one-shot cannot be sent twice while the first end
+   * is still in flight.
+   */
+  useEffect(() => {
+    if (!live || busy || playedOut) return;
+    if (!playedToEnd(playheadSeconds, filmSeconds)) return;
+    setPlayedOut(true);
+    void stop("played_to_end");
+  }, [live, busy, playedOut, playheadSeconds, filmSeconds, stop]);
 
   const direct = useCallback(
     async (body: string, beatIndex?: number) => {
@@ -379,6 +445,9 @@ export function useDirectorSession(
   return {
     sessionId,
     live,
+    // This screen's own answer: it sent the stop, so it is the one that can
+    // say a take ended because it had been watched to the end of the film.
+    endedAtFilmLength: !live && playedOut,
     busy,
     state,
     beats,

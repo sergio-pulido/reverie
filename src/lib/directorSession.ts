@@ -41,6 +41,14 @@ export interface OpenedDirectorSession {
   /** False when this server is not delivering the stream live. */
   liveDelivery: boolean;
   maxSessionSeconds: number;
+  /**
+   * The film's own length, when this server holds the script.
+   *
+   * A take ends at whichever comes first, this or the session ceiling. Null
+   * means the server could not read the script, never that the film is
+   * endless.
+   */
+  filmSeconds: number | null;
   /** False when the server has no object storage: the recording is lost on restart. */
   recordingDurable: boolean;
   /** Where the room is now. Opening moves it to playing; attaching reports it. */
@@ -64,6 +72,8 @@ export interface DirectorBudget {
   configured: boolean;
   /** Where a take stops itself, so the commitment can be stated before the press. */
   maxSessionSeconds: number;
+  /** The film's length, which is the earlier stop whenever it is the shorter. */
+  filmSeconds: number | null;
   spend: DirectorSpend;
 }
 
@@ -166,10 +176,14 @@ export function sendDirection(
  * stop is the moment the room ends, and a caller that had to re-fetch the jam
  * to discover that would show a stale state in between.
  */
+export type StopReason = "played_to_end";
+
 export function endDirectorSession(
   jamId: string,
   sessionId: string,
   viewerId?: string,
+  /** Why, when nobody pressed anything. Recorded on the trail as the close. */
+  reason?: StopReason,
 ): Promise<{ lifecycle: JamLifecycle }> {
   return call(`/api/jams/${jamId}/director/session/${sessionId}/end`, {
     method: "POST",
@@ -178,7 +192,10 @@ export function endDirectorSession(
     // request a chance to finish after the document begins unloading, so the
     // last viewer does not leave the paid stream to the idle fallback.
     keepalive: true,
-    body: JSON.stringify(viewerId ? { viewerId } : {}),
+    body: JSON.stringify({
+      ...(viewerId ? { viewerId } : {}),
+      ...(reason ? { reason } : {}),
+    }),
   });
 }
 

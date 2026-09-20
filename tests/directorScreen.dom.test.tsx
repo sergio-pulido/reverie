@@ -7,6 +7,7 @@ import {
   SLUG,
   playButton,
   playLiveVideo,
+  stopButton,
   turnCards,
   type FakeServer,
 } from "./directorScreen";
@@ -197,6 +198,40 @@ describe("the stage, in its three states", () => {
     assert.match(text(".director-transport-note"), /cannot be scrubbed/);
     // A running take is not the room's clock, so it offers no controls to drive.
     assert.equal(document.querySelectorAll(".director-transport-button").length, 0);
+  });
+
+  it("stops a take once the film has been PLAYED to its end, not generated to it", async () => {
+    // The bug this replaced: the take ended when the provider had generated
+    // the whole film, which on four measured takes was 17 seconds after Play
+    // and 1ms after the last chunk — before hls.js had a playable segment, so
+    // the room saw nothing. Generation finishing is not somebody watching.
+    server = await openDirector({
+      offsetSeconds: 24,
+      state: { status: "streaming", generatedSeconds: 30, chunksReceived: 3 },
+    });
+    await click(playButton());
+    await settle();
+
+    // The whole 30s film is generated and the take is still running, because
+    // nobody has watched any of it yet.
+    assert.equal(document.querySelector(".director-stage")?.getAttribute("data-phase"), "generating");
+    assert.equal(stopButton().disabled, false);
+
+    // Watched most of the way: still running.
+    await playLiveVideo(20);
+    assert.equal(document.querySelector(".director-stage")?.getAttribute("data-phase"), "generating");
+
+    // Watched to the end of the film: now it stops itself.
+    await playLiveVideo(30);
+    await settle();
+    assert.equal(document.querySelector(".director-stage")?.getAttribute("data-phase"), "still");
+    assert.match(text(".director-stage-line"), /played to the end of the film/);
+    assert.equal(stopButton().disabled, true, "there is nothing left to stop");
+    assert.equal(playButton().disabled, false, "and the next take is one press away");
+
+    // The stop says why, so the trail can tell it from a pressed Stop.
+    const ends = server.requests.filter((request) => request.includes("/end"));
+    assert.equal(ends.length, 1);
   });
 
   it("still holds the finished session as a frame, with the room's clock under it", async () => {

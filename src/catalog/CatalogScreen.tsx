@@ -5,10 +5,12 @@ import { Artwork } from "../discover/Artwork";
 import { RANKED_BY, orderShortlist, type RankingStatus, type ShownShortlist } from "../discover/rankedShortlist";
 import { TMDB_ATTRIBUTION_FALLBACK, TmdbAttribution } from "../discover/TmdbAttribution";
 import { useRefinement } from "../discover/useRefinement";
+import { MadeGrid } from "../made/MadeGrid";
+import { useMadeInReverie, type MadeFilm } from "../made/madeInReverie";
 import { TopBar } from "../shell/TopBar";
-import { focusTopBar } from "../shell/topBarFocus";
 import type { Feed, FeedController } from "./pageFeed";
 import { RefinementBar } from "./RefinementBar";
+import { SourceFilter, type CatalogSource } from "./SourceFilter";
 import { useCatalogue, type CatalogueState } from "./useCatalogue";
 import { useGridNavigation } from "./useGridNavigation";
 
@@ -16,6 +18,8 @@ type CatalogScreenProps = {
   /** A film page opened from here covers the catalogue, which keeps its place underneath. */
   inert?: boolean;
   onOpenFilm: (title: CatalogueTitle) => void;
+  /** Opens a room made here. Its own screen is the room's, not a film page. */
+  onOpenMade: (film: MadeFilm) => void;
 };
 
 /** How far below the viewport the end of the grid starts loading the next page. */
@@ -39,10 +43,19 @@ type ReturnFocus = { id: string; index: number };
  * Unrefined, the grid pages through the catalogue in the order the query answers. Once a chip is
  * chosen it reads one shortlist instead, filtered in the database and ordered by the deterministic
  * scorer, and says so above the grid rather than implying a ranking it did not make.
+ *
+ * The source switch at the top decides which shelf is being browsed: the catalogue Reverie
+ * reads, or what has been made here. They are the same kind of thing on the same shelf, which
+ * is the product's claim, so made work is a filter over this grid rather than a place of its own.
+ * A title search and the chips narrow the catalogue, so they are only shown with it.
  */
-export function CatalogScreen({ inert = false, onOpenFilm }: CatalogScreenProps) {
+export function CatalogScreen({ inert = false, onOpenFilm, onOpenMade }: CatalogScreenProps) {
+  const [source, setSource] = useState<CatalogSource>("catalogue");
+  // The rooms are read when the viewer asks for them, and not before.
+  const made = useMadeInReverie(source === "made" && !inert);
   const [searchInput, setSearchInput] = useState("");
   const searchRef = useRef<HTMLInputElement | null>(null);
+  const sourceRef = useRef<HTMLDivElement | null>(null);
   const refineRef = useRef<HTMLElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const returnFocus = useRef<ReturnFocus | null>(null);
@@ -61,6 +74,12 @@ export function CatalogScreen({ inert = false, onOpenFilm }: CatalogScreenProps)
   const pickIds = shown?.pickIds ?? NO_PICKS;
 
   const focusSearch = useCallback(() => searchRef.current?.focus(), []);
+  const focusSource = useCallback(() => sourceRef.current?.querySelector<HTMLButtonElement>("button")?.focus(), []);
+  /** Down from the switch: the catalogue's field, or the first thing the made grid shows. */
+  const enterSource = useCallback(() => {
+    if (searchRef.current) searchRef.current.focus();
+    else document.querySelector<HTMLButtonElement>(".catalog-made-card")?.focus();
+  }, []);
   const focusRefine = useCallback((rail: "first" | "last") => {
     const rails = refineRef.current?.querySelectorAll<HTMLElement>("[data-rail]");
     const target = rails && rails.length > 0 ? rails[rail === "first" ? 0 : rails.length - 1] : null;
@@ -135,8 +154,9 @@ export function CatalogScreen({ inert = false, onOpenFilm }: CatalogScreenProps)
         )}
         <div className="catalog-intro">
           <h1>The catalogue</h1>
-          <p className="catalog-note">Every film Reverie can read. Search it, narrow it, and open anything.</p>
-          <label className="catalog-search">
+          <p className="catalog-note">{source === "made" ? "What has been made in Reverie: public rooms you are part of, beside the films you came to watch." : "Every film Reverie can read. Search it, narrow it, and open anything."}</p>
+          <SourceFilter source={source} onSource={setSource} barRef={sourceRef} onExitDown={enterSource} />
+          {source === "catalogue" && <label className="catalog-search">
             <span className="sr-only">Search films by title</span>
             <input
               ref={searchRef}
@@ -153,7 +173,7 @@ export function CatalogScreen({ inert = false, onOpenFilm }: CatalogScreenProps)
                 }
                 if (event.key === "ArrowUp") {
                   event.preventDefault();
-                  focusTopBar();
+                  focusSource();
                 }
                 // Escape first clears what was typed; on an empty field it is Back, for the app.
                 if (event.key === "Escape" && searchInput) {
@@ -162,12 +182,14 @@ export function CatalogScreen({ inert = false, onOpenFilm }: CatalogScreenProps)
                 }
               }}
             />
-          </label>
+          </label>}
         </div>
-        {spotlight && <Spotlight title={spotlight} />}
+        {source === "catalogue" && spotlight && <Spotlight title={spotlight} />}
       </section>
 
-      <RefinementBar
+      {source === "made" && <MadeGrid state={made} onOpen={onOpenMade} />}
+
+      {source === "catalogue" && <><RefinementBar
         state={refinement.state}
         notice={refinement.notice}
         matchCount={state.phase === "ready" ? state.response.total : null}
@@ -214,7 +236,7 @@ export function CatalogScreen({ inert = false, onOpenFilm }: CatalogScreenProps)
         />
       )}
 
-      {response && items.length > 0 && <TmdbAttribution text={attribution} />}
+      {response && items.length > 0 && <TmdbAttribution text={attribution} />}</>}
     </main>
   );
 }

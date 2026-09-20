@@ -1,7 +1,24 @@
 import type { ReactNode } from "react";
+import { ABOUT_PATH } from "./lib/routes";
+import { useShell } from "./shell/ShellContext";
 
+/**
+ * The page's own footer. "About Reverie" lives here rather than on the bar: the bar carries the
+ * places you work, and what Reverie is, what it runs on and who built it is read once, from the
+ * bottom of a page or from the account menu.
+ */
 export function Footer() {
-  return <footer><span>REVERIE / MOVIE JAM</span><span>Made for HackBarna 2026</span><span>Every story can branch.</span></footer>;
+  const shell = useShell();
+  return <footer>
+    <span>REVERIE / MOVIE JAM</span>
+    <a className="footer-link" href={ABOUT_PATH} onClick={(event) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      shell.openAbout();
+    }}>About Reverie</a>
+    <span>Made for HackBarna 2026</span>
+    <span>Every story can branch.</span>
+  </footer>;
 }
 
 export function LiveScene({ compact = false }: { compact?: boolean }) {

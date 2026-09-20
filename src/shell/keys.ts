@@ -1,4 +1,4 @@
-import { HOME_PATH, JAMS_PATH, NEW_JAM_PATH, DISCOVER_PATH, type Screen } from "../lib/routes";
+import { CREATE_PATH, HOME_PATH, JAMS_PATH, NEW_JAM_PATH, DISCOVER_PATH, type Screen } from "../lib/routes";
 
 /**
  * Remote and keyboard conventions the whole app agrees on. Pure, so they are testable without a
@@ -31,10 +31,11 @@ export function backAction({ key, keyCode = 0, editable, handled, inTopBar, repe
 }
 
 /**
- * Where leaving a screen goes: its parent. Home, Discover, Catalog, Movie Jam and Community are
- * siblings under the home; a jam's screens sit under Movie Jam; the script goes back to its setup; a film page goes
- * back to wherever it was opened from, or to search when it was reached by URL. The home has no
- * parent: Back there belongs to the platform.
+ * Where leaving a screen goes: its parent. Home, Discover, Catalog, Create and Yours are
+ * siblings under the home; a jam's screens sit under Yours and the jam form under Create; the
+ * script goes back to its setup; a film page goes back to wherever it was opened from, or to
+ * search when it was reached by URL. The home has no parent: Back there belongs to the
+ * platform.
  */
 export function parentPath(screen: Screen, filmOpen: boolean, from: string | null): string | null {
   if (filmOpen) return from ?? DISCOVER_PATH;
@@ -47,10 +48,15 @@ export function parentPath(screen: Screen, filmOpen: boolean, from: string | nul
     case "discover":
     case "catalog":
     case "jams":
-    case "community":
     case "join":
+    // Not a destination, but read from anywhere; Back leaves it for the home like the rest.
+    case "about":
       return HOME_PATH;
+    // The door is a sibling of the home; the form below it returns to the door.
     case "create":
+      return HOME_PATH;
+    case "newJam":
+      return CREATE_PATH;
     case "studio":
     // A Director session is opened from the Movie Jam list, and Back returns there.
     case "director":

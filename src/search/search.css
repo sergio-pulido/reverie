@@ -10,8 +10,12 @@
   --focus: #ffffff;
   --accent: #cfd7ff;
   --listening: #e5484d;
-  --attribution-height: 64px;
   --control-height: 92px;
+  /* The composer's resting weight, and the room between its two controls. */
+  --composer-edge: rgba(207, 215, 255, .26);
+  --composer-edge-hover: rgba(207, 215, 255, .5);
+  --composer-ground: rgba(20, 26, 48, .72);
+  --composer-gap: 18px;
   --card-width: 200px;
   /* What is on screen, and how much of the bottom a phone's keyboard has taken. `useViewport`
      publishes both from the visual viewport; without it the whole screen is assumed. */
@@ -19,7 +23,6 @@
   --keyboard: var(--search-keyboard, 0px);
 }
 .search-shell {
-  --attribution-space: 0px;
   min-height: 100vh;
   min-height: 100dvh;
   display: flex;
@@ -27,9 +30,8 @@
   background: radial-gradient(circle at 78% 4%, #2a2e4d 0, transparent 30rem), linear-gradient(160deg, #070a11 0%, #0a0f1a 60%, #131228 100%);
   color: var(--ink);
 }
-/* Films on screen bring the TMDB attribution, fixed to the bottom. Its height is kept free under
-   the page, so the dock's own place already clears it and never has to ride up over a line. */
-.search-shell-films { --attribution-space: var(--attribution-height); padding-bottom: var(--attribution-space); }
+/* Films on screen bring the TMDB credit, which is the page's own footer below the stage. It
+   is in the flow, so nothing has to be kept free for it. */
 .search-stage { flex: 1; display: flex; flex-direction: column; width: 100%; }
 
 /* At rest: one line, the field and the microphone, in the middle of the screen, and nothing else. */
@@ -55,7 +57,7 @@
 .search-turn {
   display: grid;
   gap: 14px;
-  scroll-margin: 140px 0 calc(var(--attribution-space) + 280px);
+  scroll-margin: 140px 0 280px;
 }
 .search-line { max-width: min(1200px, 80%); margin: 0; font-size: 27px; line-height: 1.4; overflow-wrap: anywhere; }
 .search-line-viewer {
@@ -213,7 +215,7 @@ button.search-card:hover .search-card-poster { box-shadow: 0 0 0 3px rgba(207, 2
 /* The dock: the strip of what is narrowing, and the field. It stays on screen as the talk grows. */
 .search-dock {
   position: sticky;
-  bottom: calc(var(--attribution-space) + var(--keyboard));
+  bottom: var(--keyboard);
   z-index: 4;
   display: grid;
   gap: 12px;
@@ -221,8 +223,12 @@ button.search-card:hover .search-card-poster { box-shadow: 0 0 0 3px rgba(207, 2
   padding: 36px var(--safe-x) 24px;
   background: linear-gradient(0deg, #080b13 0%, #080b13 74%, rgba(8, 11, 19, 0) 100%);
 }
+/* The composer at rest is quiet: the field and the microphone are two soft shapes with room
+   between them, outlined by a hairline rather than ringed. Nothing about it competes with the
+   invitation above it, because at rest there is nothing to say yet. What speaks is the focused
+   state — see the focus rules below, which are also what a remote and a keyboard rely on. */
 .search-composer { display: grid; gap: 10px; }
-.search-composer-form { display: flex; align-items: center; gap: 18px; }
+.search-composer-form { display: flex; align-items: center; gap: var(--composer-gap); }
 
 /* Voice: an icon and nothing else. Recording turns it red and makes it a stop square; the halo,
    in the same red, follows the input level. */
@@ -234,12 +240,13 @@ button.search-card:hover .search-card-poster { box-shadow: 0 0 0 3px rgba(207, 2
   width: var(--control-height);
   height: var(--control-height);
   padding: 0;
-  border: 3px solid #6f7bb8;
+  border: 2px solid var(--composer-edge);
   border-radius: 50%;
-  background: rgba(24, 30, 56, .92);
+  background: var(--composer-ground);
   color: var(--ink);
-  transition: transform .16s ease, background-color .16s ease, color .16s ease;
+  transition: transform .16s ease, background-color .16s ease, border-color .16s ease, color .16s ease;
 }
+.voice-control:hover, .search-field input:hover { border-color: var(--composer-edge-hover); }
 .voice-control-icon { display: block; }
 .voice-control-recording {
   border-color: #ffd0cc;
@@ -271,21 +278,26 @@ button.search-card:hover .search-card-poster { box-shadow: 0 0 0 3px rgba(207, 2
   width: 100%;
   height: var(--control-height);
   padding: 0 30px;
-  border: 3px solid #6f7bb8;
+  border: 2px solid var(--composer-edge);
   border-radius: 18px;
-  background: rgba(24, 30, 56, .92);
+  background: var(--composer-ground);
   color: var(--ink);
   font: inherit;
   font-size: 30px;
-  transition: transform .16s ease, background-color .16s ease;
+  transition: transform .16s ease, background-color .16s ease, border-color .16s ease, box-shadow .16s ease;
 }
 .search-field input::placeholder { color: #aab1d0; }
 .search-field input::-webkit-search-cancel-button { display: none; }
+/* Focused, it is the loudest thing on the screen: a white ring off the edge, a lit ground and
+   the lift. The `:root:not([data-input="pointer"])` half is the input-modality guard the whole
+   app uses — a remote gives the browser no pointer and often no keyboard, so `:focus-visible`
+   alone would leave the field unmarked for exactly the viewer who needs the mark most. */
 .search-field input:focus-visible, :root:not([data-input="pointer"]) .search-field input:focus {
-  outline: 5px solid var(--focus);
-  outline-offset: 5px;
+  outline: 4px solid var(--focus);
+  outline-offset: 4px;
   border-color: #ffffff;
   background: #2b3560;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .5);
   transform: scale(1.012);
 }
 .search-send {
@@ -506,9 +518,10 @@ button.search-card:hover .search-card-poster { box-shadow: 0 0 0 3px rgba(207, 2
   .search-shell, .search-layer, .search-overlay {
     --safe-x: 16px;
     --card-width: 132px;
-    --control-height: 56px;
-    /* The attribution wraps to four lines on a phone; its reserved height follows. */
-    --attribution-height: 116px;
+    /* Both controls are one comfortable thumb tall, and stay apart by half of one, so a thumb
+       reaching for the microphone never lands on the edge of the field. */
+    --control-height: 58px;
+    --composer-gap: 14px;
   }
 
   /* At rest, high: the heading and the field stand near the top of the screen, so a keyboard
@@ -547,15 +560,18 @@ button.search-card:hover .search-card-poster { box-shadow: 0 0 0 3px rgba(207, 2
   .search-heard-chip { font-size: 16px; padding: 9px 15px; }
   .search-results-preview .search-card-slot { width: 112px; }
 
-  /* The dock: its own padding clears a phone's home indicator, and the keyboard lifts it. */
-  .search-dock { padding: 14px var(--safe-x) calc(12px + env(safe-area-inset-bottom, 0px)); }
-  .search-composer-form { gap: 8px; }
-  .search-field input { padding: 0 14px; border-width: 2px; border-radius: 14px; font-size: 17px; }
-  .voice-control { border-width: 2px; }
+  /* The dock stands on whichever is taller: the bottom bar, or what the keyboard covers. With
+     the keyboard closed it sits on the bar; with it open the bar has slid away and the dock
+     takes the keyboard's own edge, so the two are never both in that space. */
+  .search-dock {
+    bottom: max(var(--keyboard), var(--bottom-bar-space));
+    padding: 14px var(--safe-x) 12px;
+  }
+  .search-field input { padding: 0 18px; border-radius: 16px; font-size: 17px; }
   .voice-control-icon { width: 26px; height: 26px; }
   /* The send button gives its label back to the field and keeps the arrow: two words and a
      microphone beside a 360-pixel field leave nothing to read what is being typed. */
-  .search-send { width: var(--control-height); padding: 0; border-width: 2px; border-radius: 14px; font-size: 26px; font-weight: 400; }
+  .search-send { width: var(--control-height); padding: 0; border-width: 2px; border-radius: 16px; font-size: 26px; font-weight: 400; }
   .search-send-word {
     position: absolute;
     width: 1px;

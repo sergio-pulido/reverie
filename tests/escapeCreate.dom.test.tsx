@@ -1,14 +1,15 @@
 import { cleanup, click, render } from "./render";
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
+import type { CreateWay } from "../src/create/CreateScreen";
 import { CreateRoom, type SourceKind } from "../src/screens/CreateRoom";
 import type { ScenarioCard } from "../src/lib/escapeRoom";
 
 afterEach(cleanup);
 
 /**
- * The escape room is a third source beside starting from scratch and
- * importing a script — the same screen, the same room, a different world.
+ * The escape room is one of the three ways in, chosen at `/create` — the same registration
+ * screen and the same room underneath, a different world.
  */
 
 const SCENARIOS: ScenarioCard[] = [
@@ -31,6 +32,7 @@ const SCENARIOS: ScenarioCard[] = [
 ];
 
 function show(overrides: {
+  way?: CreateWay;
   sourceKind?: SourceKind;
   scenarioId?: string;
   scenarios?: ScenarioCard[];
@@ -39,6 +41,7 @@ function show(overrides: {
   onScenarioId?: (value: string) => void;
 } = {}) {
   return <CreateRoom
+    way={overrides.way ?? (overrides.sourceKind === "escape-room" ? "escape" : "jam")}
     title="Untitled Movie Jam"
     premise="A signal changes what the room thinks is possible."
     visibility="invite_only"
@@ -74,16 +77,18 @@ function submit(): HTMLButtonElement {
 }
 
 describe("starting a jam from an escape room", () => {
-  it("offers three sources, and asking for the third says so", async () => {
+  it("offers a written or an imported script, the escape room having its own door now", async () => {
     const chosen: SourceKind[] = [];
     await render(show({ onSourceKind: (value) => chosen.push(value) }));
-    assert.deepEqual(sources().map((button) => button.textContent), [
-      "From scratch",
-      "Import a script",
-      "Escape room",
-    ]);
-    await click(sources()[2]);
-    assert.deepEqual(chosen, ["escape-room"]);
+    assert.deepEqual(sources().map((button) => button.textContent), ["From scratch", "Import a script"]);
+    await click(sources()[1]);
+    assert.deepEqual(chosen, ["import-script"]);
+  });
+
+  it("asks an escape room for no story source at all: the room is the story", async () => {
+    await render(show({ way: "escape", sourceKind: "escape-room", scenarioId: "night-audit" }));
+    assert.equal(document.querySelector(".jam-kind"), null);
+    assert.match(document.querySelector(".setup-intro .eyebrow")?.textContent ?? "", /ESCAPE ROOM/);
   });
 
   it("the picker lists the rooms the server named, and nothing else", async () => {

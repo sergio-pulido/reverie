@@ -3,26 +3,19 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { App } from "../src/App";
 import { CatalogueReadProvider } from "../src/discover/CatalogueReadContext";
+import { COMMUNITY_PATH, HOME_PATH } from "../src/lib/routes";
 import { liveTopBar } from "../src/shell/topBarFocus";
 import { fakeCatalogue } from "./catalogueFake";
 
 afterEach(cleanup);
-
-/**
- * The screen the shell opened that is still a placeholder. Catalog was the other one and now
- * browses the catalogue (`catalog.dom.test.tsx`); Community is waiting for its own slice. What a
- * placeholder must not do is read anything, so the catalogue is given to it and its requests are
- * counted.
- */
-const PLACEHOLDER = { path: "/community", heading: "Community", current: "Community" } as const;
 
 /** Where the bar leads, and what each destination is called on it. */
 const DESTINATIONS = [
   { path: "/home", current: "Home" },
   { path: "/discover", current: "Discover" },
   { path: "/catalog", current: "Catalog" },
-  { path: "/jams", current: "Movie Jam" },
-  { path: "/community", current: "Community" },
+  { path: "/create", current: "Create" },
+  { path: "/jams", current: "Yours" },
 ] as const;
 
 async function open(path: string) {
@@ -32,24 +25,6 @@ async function open(path: string) {
 }
 
 describe("the screens the shell opens", () => {
-  it(`${PLACEHOLDER.path} says it is being built, under the shared bar, reading nothing`, async () => {
-    const catalogue = await open(PLACEHOLDER.path);
-    assert.equal(document.querySelectorAll("h1").length, 1);
-    assert.equal(document.querySelector("h1")?.textContent, PLACEHOLDER.heading);
-    assert.match(document.querySelector(".placeholder-layout p:not(.eyebrow)")?.textContent ?? "", /being built/i);
-    assert.ok(liveTopBar(), "the shared top bar is on the screen");
-    assert.equal(liveTopBar()!.querySelector('[aria-current="page"]')?.textContent, PLACEHOLDER.current);
-    assert.deepEqual(catalogue.requests, [], "the screen reads no data");
-  });
-
-  it(`${PLACEHOLDER.path} lands a remote on its bar, and Back climbs to the home`, async () => {
-    await open(PLACEHOLDER.path);
-    assert.equal(focused().getAttribute("aria-current"), "page");
-    assert.equal(focused().textContent, PLACEHOLDER.current);
-    assert.equal(await press("Escape"), true);
-    assert.equal(window.location.pathname, "/home");
-  });
-
   it("reaches every destination from the bar of another screen", async () => {
     await open("/home");
     for (const { path, current } of DESTINATIONS) {
@@ -58,5 +33,25 @@ describe("the screens the shell opens", () => {
       assert.ok(item, `the bar has ${current}`);
       assert.equal(item.getAttribute("href"), path);
     }
+  });
+
+  it("has no Community destination: what is made here is a shelf and a filter now", async () => {
+    await open("/home");
+    const labels = Array.from(liveTopBar()!.querySelectorAll<HTMLAnchorElement>("a[data-top-bar-item]")).map((link) => link.textContent?.trim());
+    assert.deepEqual(labels, DESTINATIONS.map(({ current }) => current));
+  });
+
+  it("lands a shared /community link on the home, and says so in the URL", async () => {
+    await open(COMMUNITY_PATH);
+    assert.equal(window.location.pathname, HOME_PATH, "the link still lands");
+    assert.equal(liveTopBar()!.querySelector('[aria-current="page"]')?.textContent, "Home");
+  });
+
+  it("lands a remote on the door's bar, and Back climbs to the home", async () => {
+    await open("/create");
+    assert.equal(focused().getAttribute("aria-current"), "page");
+    assert.equal(focused().textContent, "Create");
+    assert.equal(await press("Escape"), true);
+    assert.equal(window.location.pathname, "/home");
   });
 });

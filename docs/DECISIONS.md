@@ -192,6 +192,101 @@ falls back to the structured filters alone and the row says which words found no
 words are dropped, never the filters, and only when keeping them would leave the viewer with
 nothing — a narrowing that silently stops narrowing is worse than one that says it did.
 
+## 2026-09-20 — Three experiences get one door, and Movie Jam stops meaning all of them
+
+Reverie makes films three ways. Alone, as a Director session: one person talks and the stream
+answers. With people, as a Movie Jam: a room shares one screenplay and settles each turn between
+them. And as an escape room: an authored place with a way out, which a room solves by sharing
+control of one character inside it.
+
+Two of those were reached by choosing **Movie Jam** and then picking a story source in a form
+headed NEW MOVIE JAM. That said the wrong thing about both. A Director session is not a jam with
+nobody in it — nothing about it is a room, and the whole point is that there is no one to wait
+for. An escape room is not a way of writing a screenplay — nothing is written in advance but the
+place. Calling all three a Movie Jam made the product's own most interesting distinction
+invisible at exactly the moment a viewer has to choose.
+
+So there is one door, `/create`, and it offers the three by what the experience *is* rather than
+by what it is called. Picking one opens the flow that already existed for it; the registration
+form underneath now knows which of the three it is registering, so an escape room is asked for no
+story source, a Director session is not asked who can join, and what a Jam is is explained only
+to someone about to make one.
+
+**The door does not become a fourth product.** Everything below it is the code that was already
+there: the same `POST /api/jams`, the same script, the same room row, the same Studio and Director
+screens. What changed is the question asked at the top and where a finished jam opens — alone, in
+its own Director session; with people, in the script the room shares.
+
+**Where a deployment cannot do one of them, the door says so.** The escape room's routes are the
+local Node server's, so a build without that server lists no rooms. The card then states it in
+the server's own words, offers nothing, and says the other two are unaffected. The alternative —
+a button that leads to a screen that cannot load — is the failure this door exists to prevent.
+
+**Consequently `/jams` is not "Movie Jam" either.** It is where everything you have started lives,
+which is three different things, so it is **Yours** and each card says which of the three it is.
+The path does not change: a link to it is a link to your work.
+
+The bar therefore carries **Create** and **Yours** where it used to carry one Movie Jam. They are
+different questions — *make something* and *go back to something* — and a single destination
+answering both is what made the door necessary in the first place.
+
+## 2026-09-20 — Community becomes a shelf and a filter, because it was never a different place
+
+The landing makes one claim above all others: *the thing you watch and the thing you make are the
+same thing*. A destination called Community contradicted it. Putting films made in Reverie behind
+their own door says they are a different kind of thing, kept somewhere else, visited on purpose —
+which is exactly what the product says it is not doing.
+
+So Community stops being one of the five. What was going to fill it is now two things in the
+places the claim actually has to hold:
+
+- **A "Made in Reverie" shelf on the home**, standing among the catalogue's shelves, between the
+  Movie Jam spotlight and the next genre. Not above them and not in a section of its own: one
+  shelf among shelves is the claim, stated as layout.
+- **A source filter in Catalog**, switching the same grid between the catalogue's titles and the
+  ones made here. Not a second grid on a second screen — the same browse, a different shelf.
+
+**Both read real data, and both are careful about what that data can say.** They read the public
+rooms this viewer can read. `jams` is readable only by a room's host or its members, and no policy
+grants a browser a wider read, so this is the public work this identity is part of and not a public
+gallery — `madeInReverie.ts` says so where the next reader will find it. Neither claims a playable
+film: a jam's script lives in the process that generated it and its clips live in private buckets
+no browser can reach, so what a room produced is reported as the room's own state. Neither draws a
+poster, because nothing readable holds artwork for a room and an invented one would be a lie about
+a film nobody can see. Both say plainly when there is nothing yet.
+
+**`/community` still resolves.** It redirects to the home through a named table rather than
+404ing, because a path that has been shared outlives the screen it named.
+
+## 2026-09-20 — On a phone the destinations belong at the bottom, and it costs the television nothing
+
+The bar was built for a television read from three metres and then squeezed: at 360 pixels its
+five destinations shrank to 14-point labels and scrolled sideways inside the bar, which is how
+"Movie Jam" came to read as "Movie J". The earlier decision that a Director session could not be a
+sixth destination rested on that squeeze. This supersedes the mechanical half of that argument —
+the category argument in it still stands, and Director is still not a destination.
+
+Below 720px the five destinations leave the top bar for a fixed bar along the bottom, where a
+thumb is: an icon and a short label each, clearing the safe-area inset. The top bar stays exactly
+where it was and keeps the brand mark and the account avatar.
+
+**It is one list, moved, not a second bar.** The same `<ul>`, the same items, the same
+`data-top-bar-item` attributes and the same keyboard handler; only `shell.css` changes with the
+width. Rendering a phone bar beside a television bar would have meant two sets of destinations in
+the document, and every helper that walks "the bar" — `topBarItems`, `focusTopBar`, the Left/Right
+axis onto the account — would have had to learn which one was real. Above the breakpoint nothing
+moves at all, which is the point: the television layout and the remote's focus order are the same
+markup they were.
+
+**Create is drawn as an action, not a tab.** It is the one item on the bar that makes something
+rather than going somewhere, and a filled disc says that faster than a label can.
+
+**The bar never sits over the composer.** A phone keyboard does not resize the page, so anything
+fixed to the bottom of it lands on whatever the keyboard pushed up — the Discover dock, which
+lifts itself by the visual viewport's reading. The bar slides down by exactly that same reading,
+and the dock stands on whichever of the two is taller. One number, read once by the screen that
+can read it, moving both.
+
 ## 2026-09-20 — Two ways to reach a film, and neither pretends to be the other
 
 Reverie now has both a conversation (`/discover`) and a catalogue (`/catalog`). The tempting move

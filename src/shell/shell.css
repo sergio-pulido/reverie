@@ -137,8 +137,10 @@
 }
 .account-menu-failure { margin: 8px 0 2px; padding: 0 14px; color: #ffb4a2; font-size: 15px; line-height: 1.4; }
 
-/* Search carries its lens beside its name. */
-.top-bar-search-icon { display: block; flex: none; margin-right: 10px; }
+/* On a television only Discover carries a mark: its lens, beside its name. The other four are
+   drawn for the phone's bottom bar and are not shown here. */
+.top-bar-item-icon { display: none; flex: none; }
+.top-bar-item[data-destination="discover"] .top-bar-item-icon { display: block; margin-right: 10px; }
 .top-bar-item:focus-visible, :root:not([data-input="pointer"]) .top-bar-item:focus {
   outline: 4px solid #ffffff;
   outline-offset: 4px;
@@ -207,22 +209,100 @@
 }
 .site-shell input, .site-shell textarea, .site-shell select { transition: transform .16s ease, background-color .16s ease; }
 
+/* A phone. The destinations leave the top bar for a fixed bar along the bottom, where a thumb
+   is: the top bar keeps the brand and the account and nothing else. It is the same list, the
+   same items and the same keyboard handler — only where it is drawn changes — so the remote's
+   focus order is untouched and no destination is rendered twice. */
 @media (max-width: 720px) {
+  :root {
+    --bottom-bar-height: 58px;
+    /* What the bar occupies, its safe-area inset included. Screens that dock something to the
+       bottom of the page keep this much free. */
+    --bottom-bar-space: calc(var(--bottom-bar-height) + env(safe-area-inset-bottom, 0px));
+  }
   .top-bar { gap: 6px; padding: 12px 12px 8px; }
   .top-bar-brand-name { display: none; }
   .top-bar-brand-mark { font-size: 26px; }
-  .top-bar-destinations { gap: 0; min-width: 0; }
-  .top-bar-item { min-height: 44px; padding: 6px 8px; border-width: 2px; font-size: 14px; }
-  .top-bar-search-icon { width: 18px; height: 18px; margin-right: 5px; }
+
+  .top-bar-destinations {
+    position: fixed;
+    z-index: 20;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    gap: 0;
+    padding: 4px 2px env(safe-area-inset-bottom, 0px);
+    /* Opaque: posters scroll under it, and a bar you can read the page through is a bar you
+       cannot read. */
+    background: #080b13;
+    border-top: 1px solid rgba(213, 218, 255, .16);
+    overflow-x: visible;
+    /* A phone keyboard does not resize the page, so a bar fixed to the bottom of it would sit
+       over whatever the keyboard pushed up — the Discover composer. The screen publishes how
+       much of the screen the keyboard covers; the bar slides down by exactly that, out of the
+       way, and comes back when the keyboard closes. */
+    transform: translateY(var(--search-keyboard, 0px));
+    transition: transform .12s ease;
+  }
+  /* A film page and the search sheets are layers over a screen that is `inert` beneath them.
+     Its bar is still in the document and would draw a second, dead copy over the live one. */
+  [inert] .top-bar-destinations { display: none; }
+  .top-bar-destinations > li { flex: 1 1 0; }
+
+  .top-bar-item {
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    min-height: var(--bottom-bar-height);
+    padding: 6px 2px;
+    border: 0;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .01em;
+  }
+  /* Where the viewer is: the whole tab lights up, and its mark sits on a lit ground. */
+  .top-bar-item[aria-current="page"] { border-color: transparent; color: #fffdf8; }
+  .top-bar-item[aria-current="page"] .top-bar-item-icon {
+    border-radius: 999px;
+    background: rgba(207, 215, 255, .18);
+    box-shadow: 0 0 0 7px rgba(207, 215, 255, .18);
+  }
+  .top-bar-item[data-destination="create"][aria-current="page"] .top-bar-item-icon {
+    background: #ffffff;
+    box-shadow: none;
+  }
+  .top-bar-item-icon,
+  .top-bar-item[data-destination="discover"] .top-bar-item-icon { display: block; margin: 0; }
+  .top-bar-item-icon svg { width: 22px; height: 22px; }
+
+  /* Create is not a place you go: it is the thing you do. It is drawn as an action — a filled
+     disc with the label under it — so it reads as the one button among four tabs. */
+  .top-bar-item[data-destination="create"] .top-bar-item-icon {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 26px;
+    border-radius: 999px;
+    background: #cfd7ff;
+    color: #0a0f1a;
+  }
+  .top-bar-item[data-destination="create"] { color: #e7e9f6; }
+
+  .top-bar-item:focus-visible, :root:not([data-input="pointer"]) .top-bar-item:focus {
+    outline-width: 3px;
+    outline-offset: -3px;
+    transform: none;
+  }
+
   .tv-action { min-height: 48px; padding: 10px 18px; font-size: 18px; }
   .account-avatar { width: 40px; height: 40px; border-width: 2px; font-size: 15px; }
   .account-avatar-neutral { width: 13px; height: 13px; border-width: 2px; }
   .account-menu { min-width: 200px; }
   .account-menu-item { padding: 11px 12px; font-size: 17px; }
-}
-/* On the narrowest phones the destinations need the brand mark's room. */
-@media (max-width: 350px) {
-  .top-bar-brand { display: none; }
+
+  /* The page keeps the bar's height free under it, so nothing ends underneath it. */
+  body { padding-bottom: var(--bottom-bar-space); }
 }
 
 @media (prefers-reduced-motion: reduce) {

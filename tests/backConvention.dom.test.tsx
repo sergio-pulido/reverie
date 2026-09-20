@@ -158,7 +158,7 @@ describe("a film page", () => {
   });
 });
 
-describe("the Movie Jam screens", () => {
+describe("the jam form", () => {
   it("go up from the first field into the bar, and leave fields their own keys", async () => {
     await render(<App />, "/jams/new");
     await press("ArrowDown");
@@ -177,24 +177,25 @@ describe("the Movie Jam screens", () => {
 
     await focusOn(title);
     assert.equal(await press("ArrowUp"), true);
-    assert.equal(current(), "Movie Jam");
+    assert.equal(current(), "Create");
   });
 
   it("answer Back from any field by focusing the bar", async () => {
     await render(<App />, "/jams/new");
     await focusOn(document.querySelector("textarea"));
     assert.equal(await press("Escape"), true);
-    assert.equal(current(), "Movie Jam");
+    assert.equal(current(), "Create");
     assert.deepEqual(scrollCalls.at(-1), { top: 0 });
   });
 
   it("climb to their parents with repeated Back, never replaying screens already left", async () => {
-    await render(<App />, [{ path: "/home" }, { path: "/jams", state: { [FROM]: "/home" } }, { path: "/jams/new", state: { [FROM]: "/jams" } }]);
-    assert.equal(current(), "Movie Jam");
+    // The door, then the form: Back climbs form → door → home, never through the jam list.
+    await render(<App />, [{ path: "/home" }, { path: "/create", state: { [FROM]: "/home" } }, { path: "/jams/new", state: { [FROM]: "/create" } }]);
+    assert.equal(current(), "Create");
     await press("Escape");
     await settle();
-    assert.equal(window.location.pathname, "/jams");
-    assert.equal(current(), "Movie Jam", "the registry lands on its bar");
+    assert.equal(window.location.pathname, "/create");
+    assert.equal(current(), "Create", "the door lands on its bar");
     await press("Escape");
     await settle();
     assert.equal(window.location.pathname, "/home");
@@ -202,7 +203,7 @@ describe("the Movie Jam screens", () => {
 
   it("never leave on a held Back", async () => {
     await render(<App />, [{ path: "/home" }, { path: "/jams", state: { [FROM]: "/home" } }]);
-    assert.equal(current(), "Movie Jam");
+    assert.equal(current(), "Yours");
     await press("Escape", { repeat: true });
     await settle();
     assert.equal(window.location.pathname, "/jams");

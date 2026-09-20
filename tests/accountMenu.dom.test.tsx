@@ -87,18 +87,18 @@ describe("the account avatar", () => {
     assert.equal(await walkRight(), avatar(), "Right from the last destination reaches the avatar and stops there");
     assert.equal(topBarItems(liveTopBar()!).at(-1), avatar());
     await press("ArrowLeft");
-    assert.equal(focused().textContent, "Community", "Left goes back to the last destination");
+    assert.equal(focused().textContent, "Yours", "Left goes back to the last destination");
   });
 });
 
 describe("the account menu", () => {
-  it("opens on OK with the display name above Account and Log out, and focus inside it", async () => {
+  it("opens on OK with the display name above its items, and focus inside it", async () => {
     await open({ userId: ADA, displayName: "Ada Lovelace" });
     await walkRight();
     assert.equal(await press("Enter"), true);
     assert.equal(avatar().getAttribute("aria-expanded"), "true");
     assert.equal(menu()!.querySelector(".account-menu-name")?.textContent, "Ada Lovelace");
-    assert.deepEqual(menuItems().map((item) => item.textContent), ["Account", "Log out"]);
+    assert.deepEqual(menuItems().map((item) => item.textContent), ["Account", "About Reverie", "Log out"]);
     assert.equal(focused(), menuItems()[0]);
   });
 
@@ -115,11 +115,13 @@ describe("the account menu", () => {
     assert.equal(await press("ArrowUp"), true);
     assert.equal(focused().textContent, "Account", "Account is the first item");
     await press("ArrowDown");
+    assert.equal(focused().textContent, "About Reverie");
+    await press("ArrowDown");
     assert.equal(focused().textContent, "Log out");
     await press("ArrowDown");
     assert.equal(focused().textContent, "Log out", "Log out is the last item");
     await press("ArrowUp");
-    assert.equal(focused().textContent, "Account");
+    assert.equal(focused().textContent, "About Reverie");
   });
 
   for (const key of ["Escape", "GoBack", "Backspace"]) {
@@ -140,15 +142,15 @@ describe("the account menu", () => {
     await open({ userId: ADA, displayName: "Ada Lovelace" });
     await click(avatar());
     // Tab cycles inside the menu instead of walking out into the bar or the page.
-    for (const expected of ["Log out", "Account", "Log out"]) {
+    for (const expected of ["About Reverie", "Log out", "Account"]) {
       assert.equal(await press("Tab"), true);
       assert.equal(focused().textContent, expected);
     }
     assert.equal(await press("Tab", { shiftKey: true }), true);
-    assert.equal(focused().textContent, "Account");
+    assert.equal(focused().textContent, "Log out");
     // The bar's own axis does not run underneath the open menu either.
     assert.equal(await press("ArrowRight"), true);
-    assert.equal(focused().textContent, "Account");
+    assert.equal(focused().textContent, "Log out");
     assert.ok(menu(), "the menu is still open");
   });
 
@@ -163,9 +165,20 @@ describe("the account menu", () => {
     assert.ok(menu(), "the menu is still open");
   });
 
+  it("opens /about on About Reverie, and closes", async () => {
+    await open({ userId: ADA, displayName: "Ada Lovelace" });
+    await click(avatar());
+    await press("ArrowDown");
+    assert.equal(focused().textContent, "About Reverie");
+    assert.equal(await press("Enter"), true);
+    assert.equal(window.location.pathname, "/about");
+    assert.equal(menu(), null, "the menu closed behind it");
+  });
+
   it("signs out for real on Log out and lands on /", async () => {
     const seen = await open({ userId: ADA, displayName: "Ada Lovelace" });
     await click(avatar());
+    await press("ArrowDown");
     await press("ArrowDown");
     assert.equal(focused().textContent, "Log out");
     assert.equal(await press("Enter"), true);

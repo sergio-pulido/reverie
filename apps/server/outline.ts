@@ -60,7 +60,10 @@ export type CascadeRunner = (script: JamScript, edit: OutlineEditIntent) => Prom
  */
 export interface OutlineStream {
   readonly jamId: string;
-  updateScript(script: JamScript): { accepted: boolean; promptVersion?: number };
+  updateScript(
+    script: JamScript,
+    changedFromBeatIndex: number,
+  ): { accepted: boolean; refusal?: "stream_not_ready" | "beat_locked"; promptVersion?: number };
 }
 
 export type TargetingRunner = (
@@ -274,7 +277,7 @@ export class OutlineEditQueue {
         record.revision = landed.revision;
         record.status = "landed";
         record.finishedAt = this.now().toISOString();
-        record.streamsUpdated = this.deliver(record.jamId, landed.script);
+        record.streamsUpdated = this.deliver(record.jamId, landed.script, record.beatIndex);
         return;
       } catch (error) {
         if (error instanceof StaleRevisionError && attempt < COMMIT_ATTEMPTS) {
@@ -299,24 +302,28 @@ export class OutlineEditQueue {
    * Puts the landed revision in the provider's hands, for every take running
    * on this jam.
    *
-   * The WHOLE script goes, not the edited beat. A beat on its own was the old
-   * shape and it does not work: fal is given a script at `configure` and plans
-   * from it, so a single beat sent as a steering prompt changes what it makes
-   * NEXT rather than what it makes at that beat's offset — and a beat appended
-   * to the script stopped the stream outright. Replacing the script is the one
-   * verb that means "the story is now this".
+   * The current revision goes with the first changed beat, not that beat by
+   * itself. The stream keeps the immutable prefix, cuts at a safe boundary,
+   * and replaces the remaining script. A beat sent as a steering prompt
+   * changes what fal makes next rather than what it makes at that beat's
+   * offset, while appending to the configured script stops the stream.
    *
    * Best-effort on top of a commit that already stands: a stream that cannot
    * take it is counted out, never thrown, and with no take running there is
    * nothing to do and nothing wrong.
    */
-  private deliver(jamId: string, script: JamScript): number {
+  private deliver(jamId: string, script: JamScript, changedFromBeatIndex: number): number {
     let updated = 0;
     for (const stream of this.streamsFor(jamId)) {
       try {
-        if (stream.updateScript(script).accepted) updated += 1;
-      } catch {
-        // A stream that throws is a stream that did not take it.
+        if (stream.updateScript(script, changedFromBeatIndex).accepted) updated += 1;
+      } catch (error) {
+        // Delivery is best-effort after the revision commits, but a transport
+        // fault must remain diagnosable without logging script/provider data.
+        console.warn("outline revision delivery failed", {
+          jamId,
+          error: error instanceof Error ? error.name : "unknown_error",
+        });
       }
     }
     return updated;

@@ -19,8 +19,8 @@ export interface DirectorScriptBeat {
  *
  * `prompt` carries more than text: it may also carry `script` — beats with
  * their offsets — with `script_mode` saying whether they replace the plan from
- * the next chunk or queue after it. That is what lets a script be handed over
- * a beat at a time instead of all at once in `configure`.
+ * the next chunk or queue after it. Reverie uses that shape to replace a
+ * changed script's tail; `configure` still carries the whole opening script.
  */
 export type DirectorClientMessage =
   | { type: "configure"; [key: string]: unknown }
@@ -136,9 +136,9 @@ export interface DirectorState {
   /**
    * How long a chunk is, as fal reports it when it configures the session.
    *
-   * Null until it says. It matters because beats are handed over one chunk
-   * ahead of the frontier: how far ahead "one chunk" is cannot be guessed from
-   * the script, whose beats are a different length entirely.
+   * Null until it says. It matters because a replacement is cut one chunk
+   * ahead of the reported frontier: how far ahead "one chunk" is cannot be
+   * read from the script, whose beats are a different length entirely.
    */
   chunkSeconds: number | null;
   /**
@@ -254,22 +254,22 @@ export function nextPromptMessage(
 }
 
 /**
- * The next `prompt` message, putting the whole current script in fal's hands.
+ * The next `prompt` message, replacing fal's current script.
  *
  * The same versioned channel a direction uses — fal's `prompt` takes a
  * `script` as well as text — so a changed story reaches the provider the way
  * every other update does: a new `prompt_version`, one higher than the last.
  *
- * **`replace`, and the WHOLE script, both measured rather than chosen.** Two
+ * **`replace`, and a complete tail, both measured rather than chosen.** Two
  * paid takes settled it (docs/DECISIONS.md, 2026-09-20): given only part of
  * the film, fal does not wait at the end of what it has — it wraps to the top
  * and re-renders the opening — and beats appended to it mid-flight stopped the
  * chunks altogether. It wants a complete script, so it gets one, and a change
  * replaces that script rather than being bolted onto it.
  *
- * The beats before the frontier are included unchanged. They cost nothing —
- * fal has already made them — and leaving them out would hand it a script
- * starting at an offset it has passed, which is the shape that made it jump.
+ * The caller cuts the current film at the end of the chunk in flight and
+ * re-bases the remaining beats to zero. Replacing re-anchors fal's own script
+ * clock to that beginning; sending the whole film would restart the opening.
  *
  * `replan: false` keeps this a correction of the plan rather than an
  * interruption of it: the chunk being generated is left alone, and the new

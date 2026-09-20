@@ -369,8 +369,8 @@ told everything — it is a record of how far it has got.
 The edit record reports `streamsUpdated`: how many running takes took the revision. Zero is the
 ordinary answer between takes and says nothing is wrong.
 
-**What delivery costs.** A direction is a control message on a session that is already billing for
-wall-clock time, so fanning one out to several streams adds no charge per this server's own
+**What delivery costs.** A replacement is a control message on a session that is already billing
+for wall-clock time, so fanning one out to several streams adds no charge per this server's own
 accounting: `DirectorSessionLedger` bills `max(60, seconds) × usdPerSecond` on close, counting
 duration and never prompts, and each of those streams was billing whether or not anyone directed
 it. The paid call in this path is the cascade completion — one per edit, regardless of how many
@@ -434,7 +434,7 @@ provider body or an internal prompt.
 | `queue_full` | ten edits already wait for this jam | yes |
 | `invalid_cascade` | the model's rewrite did not cover the tail exactly, twice; nothing was written | yes, as a new edit |
 | `generation_failed` | the provider did not answer or rejected the call; nothing was written | yes, as a new edit |
-| `beat_locked` | a direction names a beat the stream has already committed to (director route; recorded on the edit as a refused direction) | no |
+| `beat_locked` | a direction or script replacement names a beat that is now current or imminent; nothing is sent to that stream | no |
 
 `portion_locked` at admission is an HTTP `409` on the `POST`; the same code after admission is a
 `failed` ledger entry, because the request that queued the edit has already been answered.
@@ -450,7 +450,7 @@ provider body or an internal prompt.
 
 The edit record: `{ id, requestId, jamId, intent, beatIndex, summary?, reason?, mechanism,
 authorId?, status, queuedAt, startedAt?, finishedAt?, baseRevision?, revision?, error?,
-direction? }`.
+streamsUpdated? }`.
 
 `PATCH /api/jams/:id/script/portions/:portionIndex` is kept as the expert path for prose. It does
 not touch `summary`, so a portion whose action was patched by hand keeps the beat it had; the beat
@@ -490,8 +490,9 @@ and imported scripts (`src/core/outlineSummary.ts`, `apps/server/outlineWriter.t
 intent and command schemas (`src/core/outlineEdit.ts`); the cascade prompt for both intents and
 its provider wiring; `JamStore.commitScript` with the boundary and revision guards; the per-jam
 edit queue, worker and ledger and the four routes (`apps/server/outline.ts`); delivery of the
-edited beat as a direction to every open stream; `DirectorStreamRegistry.beatWindow` and
-`streamsFor`; the outline panel on the script screen and in the Studio.
+landed revision as a tail replacement to every open stream whose live boundary still leaves the
+first changed beat editable; `DirectorStreamRegistry.beatWindow` and `streamsFor`; the outline
+panel on the script screen and in the Studio.
 
 Earlier (RV-17): the `summary` field, `buildOutline` and `beatAt` (`src/core/outline.ts`), and
 the cascade schema and application (`src/core/outlineCascade.ts`).
@@ -507,8 +508,9 @@ refused at the door, that a boundary moving under a running cascade refuses the 
 edit waiting behind it, and that both failures are visible in the ledger; that a competing edit
 makes the worker recompute once and give up the second time rather than overwrite; that an
 unexpected failure still settles the record so the jam's queue keeps moving; that a full queue is
-refused; that the landed beat reaches every open stream of that jam and no other's, and that a
-refused direction does not undo the commit; that no provider means no fabricated cascade; and that
+refused; that the landed revision reaches every eligible open stream of that jam with the first
+changed beat named, a beat that became blocked sends no replacement, and a provider refusal does
+not undo the commit; that no provider means no fabricated cascade; and that
 the panel shows played, generating and editable beats, renders a missing beat as missing, and
 sends `set` and `reroll` with the revision the reader was looking at. What they do not prove is
 anything about a real model's output.

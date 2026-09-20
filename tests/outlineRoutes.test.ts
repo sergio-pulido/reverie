@@ -7,6 +7,7 @@ import { InMemoryJamStore, type PlaybackGuard } from "../apps/server/jams";
 import {
   createOutlineRouter,
   type CascadeRunner,
+  type OutlineStream,
   type TargetingRunner,
 } from "../apps/server/outline";
 import { OutlineWriterError } from "../apps/server/outlineWriter";
@@ -53,6 +54,7 @@ type Behaviour = (script: JamScript, edit: { intent: string; beatIndex: number; 
 let behaviour: Behaviour;
 let cascadeCalls = 0;
 const seenBeats: string[][] = [];
+let outlineStreams: OutlineStream[] = [];
 
 /** Rewrites the tail the way a model would, so the result is a valid script. */
 const rewriteTail: Behaviour = async (script, edit) => {
@@ -105,6 +107,7 @@ before(async () => {
         lockedBeatIndex: minEditablePortionIndex === 0 ? null : minEditablePortionIndex - 1,
         minEditableBeatIndex: minEditablePortionIndex,
       }),
+      streamsFor: (jamId) => outlineStreams.filter((stream) => stream.jamId === jamId),
     }),
   );
   await new Promise<void>((resolve) => {
@@ -124,6 +127,7 @@ beforeEach(() => {
   aimed.length = 0;
   cascadeCalls = 0;
   seenBeats.length = 0;
+  outlineStreams = [];
 });
 
 /** A fresh jam, so one test's queue is never another's. */
@@ -258,18 +262,26 @@ test("a reroll asks for something else without inventing a replacement", async (
   assert.equal(outline.beats[2].summary, "something else at 2");
 });
 
-// The queue used to push a landed beat to the open streams. It no longer
-// does, and these are the tests that said it did. A beat reaches fal when it
-// closes to editing, so an edit — which can only land on a beat that has NOT
-// closed — is picked up by the stream when it hands that beat over.
-// tests/directorStream.test.ts owns that behaviour now.
-
-test("a landed edit pushes nothing at the stream, and says nothing about one", async () => {
+test("a landed revision reaches each running take with its first changed beat", async () => {
   const jam = await newJam();
+  const deliveries: { script: JamScript; changedFromBeatIndex: number }[] = [];
+  outlineStreams = [
+    {
+      jamId: jam.id,
+      updateScript: (script, changedFromBeatIndex) => {
+        deliveries.push({ script, changedFromBeatIndex });
+        return { accepted: true, promptVersion: 2 };
+      },
+    },
+  ];
   const response = await post(jam.id, setEdit(2, "the stair floods", { authorId: "someone" }));
   const landed = await settleEdit(jam.id, (await response.json()).edit.id);
   assert.equal(landed.status, "landed");
   assert.equal("direction" in landed, false);
+  assert.equal(landed.streamsUpdated, 1);
+  assert.equal(deliveries.length, 1);
+  assert.equal(deliveries[0].changedFromBeatIndex, 2);
+  assert.equal(buildOutline(deliveries[0].script)[2].summary, "the stair floods");
 });
 
 test("edits are applied one at a time, each on the result of the one before", async () => {

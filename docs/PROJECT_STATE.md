@@ -2752,10 +2752,16 @@ own.
   as `script_replaced`.
 - **The replacement is the TAIL, re-based to zero, cut at the frontier plus one chunk** — because
   replacing re-anchors fal's own script clock to the new script's beginning. `DirectorStream`
-  keeps `scriptOriginSeconds` so every reading of "where is the film" stays on the FILM's clock
-  while fal's restarts.
+  keeps an origin for each `prompt_version`, so every reading of "where is the film" stays on the
+  FILM's clock while fal's restarts and while an older chunk is still in flight.
 - The cut is one chunk ahead of the last report, so the worst case is up to ten seconds repeating
   rather than a skipped beat. How far fal has dispatched past its last report is not observable.
+- Review hardening keeps that guarantee under races: script origins are keyed by
+  `prompt_version`, so an old-version chunk arriving after a replacement is still translated on
+  the old clock; two revisions before another chunk reuse one cut instead of skipping forward;
+  and an unknown chunk length uses fal's five-second minimum, which may overlap but cannot cut
+  late. Delivery also carries the first changed beat and rechecks the live lock window at the
+  provider boundary, so a beat that became current or imminent after commit sends no replacement.
 - The outline queue delivers again, and `OutlineEditRecord.streamsUpdated` says how many running
   takes took the revision. The lock window is back to the frontier rule (the beat being generated
   and the one after it), because a change now reaches everything not yet dispatched.

@@ -32,6 +32,21 @@ dispatched past its last report is not visible — in one take it had dispatched
 another it had not. Cutting a chunk early repeats up to ten seconds; cutting a chunk late skips a
 beat. A repeat is a stutter, a skip is a missing scene, so the cut is early by construction.
 
+**The cut follows the prompt version, not the act of sending.** A replacement does not move the
+observed film frontier. Chunks already in flight can still arrive under the previous
+`prompt_version`, and their offsets remain on that version's origin; each sent version records its
+own origin and a chunk selects it by the version it reports. Two revisions sent before another
+chunk therefore reuse the same cut instead of advancing the film twice without evidence. Before
+fal reports its chunk length, the cut uses the five-second minimum rather than the fifteen-second
+maximum: uncertainty is resolved toward overlap, never a hole.
+
+**A blocked beat is checked at the last possible boundary.** The outline queue checks the lock
+window when it admits an edit and again inside the revision commit. Delivery names the first beat
+that revision changed and the stream checks its current window once more immediately before it
+sends `replace`. If a chunk arrived after the commit and made that beat current or imminent, no
+replacement crosses it; the story revision remains landed and that take reports that it did not
+take the update.
+
 **What this costs the room is nothing it did not already pay.** The lock window is back to the
 rule the screen always stated — the beat being generated and the one after it — because a change
 now reaches everything fal has not dispatched, rather than only what it has not been told. At

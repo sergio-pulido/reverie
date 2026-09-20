@@ -1198,10 +1198,8 @@ test("opening a session reports the same spend the read route does", async () =>
   await endSession(jam.id, opened.sessionId);
 });
 
-// The script is handed to fal a chunk at a time, not all at once in
-// `configure`. That is what makes an edit reach the picture: a beat fal has
-// been given is planned from and cannot change, so a beat is only given once
-// it has closed — and what is sent is read from the story as it stands then.
+// fal gets the whole opening script. A revision replaces its remaining tail,
+// re-based to the cut where the old plan stops.
 
 /** What fal was sent that carried a script, parsed. */
 function scriptsSent(): {
@@ -1233,7 +1231,7 @@ test("a changed story replaces the script the running take is working from", asy
 
   const rewritten = structuredClone(jam.script);
   rewritten.scenes[1].portions[1].action = "The door gives to a flood.";
-  assert.deepEqual(stream.updateScript(rewritten), { accepted: true, promptVersion: 2 });
+  assert.deepEqual(stream.updateScript(rewritten, 3), { accepted: true, promptVersion: 2 });
 
   const [sent] = scriptsSent();
   assert.ok(sent, "the script went to the provider");
@@ -1251,6 +1249,17 @@ test("a changed story replaces the script the running take is working from", asy
   assert.equal(replaced.length, 1);
   assert.equal(replaced[0].detail, "4 beats from 10s");
 
+  peer.channel.deliver({ type: "prompt_applied", prompt_version: 2 });
+  assert.equal(
+    stream.entries.some((entry) => entry.kind === "direction_applied"),
+    false,
+    "a script acknowledgement is not a direction acknowledgement",
+  );
+  assert.equal(
+    stream.entries.some((entry) => entry.kind === "script_replacement_applied"),
+    true,
+  );
+
   await endSession(jam.id, sessionId);
 });
 
@@ -1260,7 +1269,10 @@ test("a stream that is not ready takes no script, and says so rather than throwi
   // The control channel never opened.
   const stream = liveStreams.get(sessionId);
   assert.ok(stream);
-  assert.deepEqual(stream.updateScript(jam.script), { accepted: false });
+  assert.deepEqual(stream.updateScript(jam.script, 2), {
+    accepted: false,
+    refusal: "stream_not_ready",
+  });
   assert.deepEqual(scriptsSent(), []);
 
   await endSession(jam.id, sessionId);
@@ -1306,7 +1318,7 @@ test("after a replacement the film's clock keeps running, though fal's restarts"
   const stream = liveStreams.get(sessionId)!;
   assert.equal(stream.beats.currentBeatIndex, 2);
 
-  stream.updateScript(jam.script);
+  stream.updateScript(jam.script, 4);
   // The cut is at 40s — the frontier plus the chunk in flight — which is still
   // inside beat 2, so the film has not moved and neither has the window.
   assert.equal(stream.beats.currentBeatIndex, 2);
@@ -1318,6 +1330,91 @@ test("after a replacement the film's clock keeps running, though fal's restarts"
     script_offset_seconds: 10,
   });
   assert.equal(stream.beats.currentBeatIndex, 3, "10s on fal's clock is 50s on the film's");
+  assert.equal(
+    stream.entries.filter((entry) => entry.kind === "chunk_received").at(-1)
+      ?.scriptOffsetSeconds,
+    50,
+    "the audit records the film clock, not fal's restarted clock",
+  );
+
+  await endSession(jam.id, sessionId);
+});
+
+test("an old-version chunk after replacement does not jump onto the new clock", async () => {
+  const jam = buildJam(15, 4);
+  const { sessionId } = await openJamSession(jam);
+  peer.channel.open();
+  peer.channel.deliver({ type: "configured", prompt_version: 1, chunk_duration: 10 });
+  peer.channel.deliver({
+    type: "chunk",
+    chunk_index: 0,
+    prompt_version: 1,
+    playback_seconds: 10,
+    script_offset_seconds: 30,
+  });
+  const stream = liveStreams.get(sessionId)!;
+  assert.deepEqual(stream.updateScript(jam.script, 4), { accepted: true, promptVersion: 2 });
+
+  // This was already in flight under the original script. Its 40 means film
+  // 40, not replacement origin 40 + old-script offset 40.
+  peer.channel.deliver({
+    type: "chunk",
+    chunk_index: 1,
+    prompt_version: 1,
+    playback_seconds: 10,
+    script_offset_seconds: 40,
+  });
+  assert.equal(stream.beats.currentBeatIndex, 2);
+  assert.equal(
+    stream.entries.filter((entry) => entry.kind === "chunk_received").at(-1)
+      ?.scriptOffsetSeconds,
+    40,
+  );
+
+  await endSession(jam.id, sessionId);
+});
+
+test("two revisions before another chunk reuse the same cut", async () => {
+  const jam = buildJam(15, 4);
+  const { sessionId } = await openJamSession(jam);
+  peer.channel.open();
+  peer.channel.deliver({ type: "configured", prompt_version: 1, chunk_duration: 10 });
+  peer.channel.deliver({
+    type: "chunk",
+    chunk_index: 0,
+    prompt_version: 1,
+    playback_seconds: 10,
+    script_offset_seconds: 30,
+  });
+  const stream = liveStreams.get(sessionId)!;
+  assert.deepEqual(stream.updateScript(jam.script, 4), { accepted: true, promptVersion: 2 });
+  assert.deepEqual(stream.updateScript(jam.script, 4), { accepted: true, promptVersion: 3 });
+
+  const replacements = stream.entries.filter((entry) => entry.kind === "script_replaced");
+  assert.deepEqual(
+    replacements.map((entry) => entry.scriptOffsetSeconds),
+    [40, 40],
+    "sending a plan does not move the observed frontier",
+  );
+  assert.deepEqual(
+    scriptsSent().map((message) => message.script.map((beat) => beat.offset)),
+    [[0, 5, 20, 35, 50, 65], [0, 5, 20, 35, 50, 65]],
+  );
+
+  await endSession(jam.id, sessionId);
+});
+
+test("before fal reports its chunk length the replacement cuts early, never late", async () => {
+  const jam = buildJam(15, 4);
+  const { sessionId } = await openJamSession(jam);
+  peer.channel.open();
+  const stream = liveStreams.get(sessionId)!;
+  assert.deepEqual(stream.updateScript(jam.script, 2), { accepted: true, promptVersion: 2 });
+
+  const [replacement] = stream.entries.filter((entry) => entry.kind === "script_replaced");
+  assert.equal(replacement.scriptOffsetSeconds, 5);
+  assert.equal(replacement.detail, "8 beats from 5s");
+  assert.deepEqual(scriptsSent()[0].script.map((beat) => beat.offset), [0, 10, 25, 40, 55, 70, 85, 100]);
 
   await endSession(jam.id, sessionId);
 });
@@ -1336,8 +1433,36 @@ test("with the film already made past the cut there is nothing to replace", asyn
     script_offset_seconds: 50,
   });
   const stream = liveStreams.get(sessionId)!;
-  assert.deepEqual(stream.updateScript(jam.script), { accepted: false });
+  assert.deepEqual(stream.updateScript(jam.script, 3), {
+    accepted: false,
+    refusal: "beat_locked",
+  });
   assert.deepEqual(scriptsSent(), [], "nothing is sent that could only repeat what is made");
+
+  await endSession(jam.id, sessionId);
+});
+
+test("a changed beat that becomes blocked is refused at the provider boundary", async () => {
+  const jam = buildJam(15, 4);
+  const { sessionId } = await openJamSession(jam);
+  peer.channel.open();
+  peer.channel.deliver({ type: "configured", prompt_version: 1, chunk_duration: 10 });
+  peer.channel.deliver({
+    type: "chunk",
+    chunk_index: 0,
+    prompt_version: 1,
+    playback_seconds: 10,
+    script_offset_seconds: 30,
+  });
+  const stream = liveStreams.get(sessionId)!;
+
+  // Beat 3 was editable earlier, but at film offset 30 the provider is making
+  // beat 2 and beat 3 is the blocked successor. Delivery re-checks now.
+  assert.deepEqual(stream.updateScript(jam.script, 3), {
+    accepted: false,
+    refusal: "beat_locked",
+  });
+  assert.deepEqual(scriptsSent(), [], "no replacement crosses a blocked beat");
 
   await endSession(jam.id, sessionId);
 });

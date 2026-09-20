@@ -1,5 +1,5 @@
+import { FalBudget } from "./falBudget";
 import { DIRECTOR_MIN_BILLED_SECONDS } from "./providers/falDirector";
-import { readPositive, SpendAccount } from "./spendLedger";
 
 /**
  * Server-owned accounting for Director sessions.
@@ -11,9 +11,9 @@ import { readPositive, SpendAccount } from "./spendLedger";
  * A session nobody closes expires on its own, because the alternative is a
  * budget that leaks whenever a browser tab dies.
  *
- * The money itself lives in a `SpendAccount` shared with everything else this
- * process can spend, so `FAL_ASSET_BUDGET_USD` stays a ceiling on the process
- * rather than one each feature gets a private copy of.
+ * The budget itself is shared (./falBudget): beat generation spends the same
+ * FAL_ASSET_BUDGET_USD, so a room streaming and a room generating beats cannot
+ * between them commit twice the total the server was given.
  */
 
 /** fal's list price per generated second; the promotional rate is lower. */
@@ -33,24 +33,29 @@ export function resolveDirectorLimits(
   env: NodeJS.ProcessEnv,
 ): DirectorSessionLimits {
   return {
-    budgetUsd: readPositive(env.FAL_ASSET_BUDGET_USD, 0),
-    usdPerSecond: readPositive(
+    budgetUsd: positiveNumber(env.FAL_ASSET_BUDGET_USD, 0),
+    usdPerSecond: positiveNumber(
       env.REVERIE_DIRECTOR_USD_PER_SECOND,
       DEFAULT_USD_PER_SECOND,
     ),
     maxConcurrentSessions: Math.max(
       1,
-      Math.floor(readPositive(env.REVERIE_DIRECTOR_MAX_SESSIONS, 1)),
+      Math.floor(positiveNumber(env.REVERIE_DIRECTOR_MAX_SESSIONS, 1)),
     ),
     // 120s reserves $9.60 at list price, so two streams still fit the $20
     // budget the project ships with. A higher ceiling is an explicit choice.
     maxSessionSeconds: Math.max(
       DIRECTOR_MIN_BILLED_SECONDS,
       Math.floor(
-        readPositive(env.REVERIE_DIRECTOR_MAX_SESSION_SECONDS, 120),
+        positiveNumber(env.REVERIE_DIRECTOR_MAX_SESSION_SECONDS, 120),
       ),
     ),
   };
+}
+
+function positiveNumber(raw: string | undefined, fallback: number): number {
+  const value = Number(raw?.trim());
+  return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
 export type SessionRefusal =
@@ -73,17 +78,16 @@ export interface OpenSession {
 
 export class DirectorSessionLedger {
   private readonly sessions = new Map<string, OpenSession>();
+  private readonly settlers = new Map<string, (actualUsd: number) => void>();
   private counter = 0;
-  private readonly account: SpendAccount;
+  private readonly budget: FalBudget;
 
   constructor(
     private readonly limits: DirectorSessionLimits,
     private readonly now: () => number = () => Date.now(),
-    account?: SpendAccount,
+    budget?: FalBudget,
   ) {
-    // A ledger given no account gets one of its own at its own limit, which is
-    // what tests want; the server passes the process-wide account instead.
-    this.account = account ?? new SpendAccount(limits.budgetUsd);
+    this.budget = budget ?? new FalBudget(limits.budgetUsd);
   }
 
   /** Worst-case cost of a session that runs to its allowed limit. */
@@ -100,11 +104,11 @@ export class DirectorSessionLedger {
   }
 
   get committedUsd(): number {
-    return this.account.committedUsd;
+    return this.budget.spentUsd;
   }
 
   get remainingUsd(): number {
-    return this.account.remainingUsd;
+    return this.budget.remainingUsd;
   }
 
   open(streamKey: string): OpenSession | SessionRefusal {
@@ -122,7 +126,8 @@ export class DirectorSessionLedger {
       return "too_many_sessions";
     }
     const reservedUsd = this.reservationUsd();
-    if (!this.account.commit(reservedUsd)) return "budget_exhausted";
+    const settle = this.budget.reserve(reservedUsd);
+    if (!settle) return "budget_exhausted";
     this.counter += 1;
     const at = this.now();
     const session: OpenSession = {
@@ -132,6 +137,7 @@ export class DirectorSessionLedger {
       lastSeenAt: at,
       reservedUsd,
     };
+    this.settlers.set(session.sessionId, settle);
     this.sessions.set(session.sessionId, session);
     return session;
   }
@@ -154,7 +160,8 @@ export class DirectorSessionLedger {
   release(sessionId: string): boolean {
     const session = this.sessions.get(sessionId);
     if (!session) return false;
-    this.account.refund(session.reservedUsd);
+    this.settlers.get(sessionId)?.(0);
+    this.settlers.delete(sessionId);
     this.sessions.delete(sessionId);
     return true;
   }
@@ -169,7 +176,8 @@ export class DirectorSessionLedger {
 
   private settle(session: OpenSession): void {
     const ranSeconds = (this.now() - session.startedAt) / 1000;
-    this.account.settle(session.reservedUsd, this.billedUsd(ranSeconds));
+    this.settlers.get(session.sessionId)?.(this.billedUsd(ranSeconds));
+    this.settlers.delete(session.sessionId);
     this.sessions.delete(session.sessionId);
   }
 
@@ -181,7 +189,12 @@ export class DirectorSessionLedger {
   expireIdle(): void {
     const cutoff = this.now() - SESSION_IDLE_TIMEOUT_MS;
     for (const session of [...this.sessions.values()]) {
-      if (session.lastSeenAt <= cutoff) this.sessions.delete(session.sessionId);
+      if (session.lastSeenAt > cutoff) continue;
+      // Settled at the full reservation, not at elapsed time: the server cannot
+      // know fal stopped generating, and guessing low would understate spend.
+      this.settlers.get(session.sessionId)?.(session.reservedUsd);
+      this.settlers.delete(session.sessionId);
+      this.sessions.delete(session.sessionId);
     }
   }
 

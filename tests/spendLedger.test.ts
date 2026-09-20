@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { FalBudget } from "../apps/server/falBudget";
 import { resolveSpendAccount, SpendAccount } from "../apps/server/spendLedger";
 import { DirectorSessionLedger } from "../apps/server/directorSessions";
 
@@ -43,7 +44,9 @@ test("two features sharing one account share one ceiling", () => {
   // The whole reason the account exists: a director session and an escape
   // room segment must not each believe they own FAL_ASSET_BUDGET_USD.
   const account = new SpendAccount(20);
-  const director = new DirectorSessionLedger(LIMITS, () => 1_000, account);
+  // The ledger reserves through the budget's face on that same account, so the
+  // two APIs are two ways of spending one ceiling, not two ceilings.
+  const director = new DirectorSessionLedger(LIMITS, () => 1_000, new FalBudget(20, account));
   assert.notEqual(typeof director.open("jam:a"), "string");
   assert.equal(account.committedUsd, 60 * 0.08);
   assert.equal(account.commit(20 - 60 * 0.08), true, "the rest of the budget is still there");

@@ -1,7 +1,9 @@
 import { useState, type FormEvent } from "react";
 import {
+  CONSENT_KIND_LABEL,
   CONSENT_MAX_PURPOSE,
   isConsentEffective,
+  isTrackKind,
   LIVE_TRACK_KINDS,
   type LiveConsent,
   type LiveTrackKind,
@@ -9,12 +11,9 @@ import {
 import { authorName, type JamMember } from "../core/room";
 import { Notice } from "../chrome";
 import { useLiveStage } from "./useLiveStage";
+import type { useConsentRegister } from "./useConsentRegister";
 
-const KIND_LABEL: Record<LiveTrackKind, string> = {
-  camera: "Camera",
-  microphone: "Microphone",
-  screen: "Screen",
-};
+type ConsentRegister = ReturnType<typeof useConsentRegister>;
 
 const CONNECTION_LABEL: Record<string, string> = {
   idle: "NOT ON STAGE",
@@ -29,18 +28,23 @@ const CONNECTION_LABEL: Record<string, string> = {
  * The live stage panel. Nothing here publishes on its own: a track starts only after its
  * owner has declared a purpose, and stops the moment that consent is withdrawn or expires.
  */
-export function LiveStage({ jamId, userId, members, canJoin }: {
+export function LiveStage({ jamId, userId, members, canJoin, register }: {
   jamId: string;
   userId: string;
   members: readonly JamMember[];
   canJoin: boolean;
+  register: ConsentRegister;
 }) {
-  const { state, permitted, joined, refs, actions } = useLiveStage(jamId, userId, canJoin);
+  const { state, permitted, joined, refs, actions } = useLiveStage(jamId, userId, canJoin, register);
   const [kind, setKind] = useState<LiveTrackKind>("camera");
   const [purpose, setPurpose] = useState("");
 
   const now = Date.now();
-  const active = state.consents.filter((consent) => isConsentEffective(consent, now));
+  // Only what this panel can actually publish. A likeness grant lives in its own panel and
+  // must never be listed here, where every row reads as something going out on the stage.
+  const active = register.consents.filter(
+    (consent) => isTrackKind(consent.kind) && isConsentEffective(consent, now),
+  );
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -63,7 +67,7 @@ export function LiveStage({ jamId, userId, members, canJoin }: {
           is for, and nothing is recorded: this slice has no archive, export or transformation.
         </p>}
 
-    {state.error && <Notice>{state.error}</Notice>}
+    {(state.error ?? register.error) && <Notice>{state.error ?? register.error}</Notice>}
 
     <div className="studio-actions">
       {joined
@@ -82,7 +86,7 @@ export function LiveStage({ jamId, userId, members, canJoin }: {
     <form className="contribution-form live-consent-form" onSubmit={submit}>
       <label className="sr-only" htmlFor="live-kind">What are you contributing?</label>
       <select id="live-kind" value={kind} onChange={(event) => setKind(event.target.value as LiveTrackKind)}>
-        {LIVE_TRACK_KINDS.map((option) => <option key={option} value={option}>{KIND_LABEL[option]}</option>)}
+        {LIVE_TRACK_KINDS.map((option) => <option key={option} value={option}>{CONSENT_KIND_LABEL[option]}</option>)}
       </select>
       <label className="sr-only" htmlFor="live-purpose">What is it for?</label>
       <input
@@ -107,7 +111,7 @@ export function LiveStage({ jamId, userId, members, canJoin }: {
         consent={consent}
         owner={authorName(members, consent.owner_id)}
         isOwner={consent.owner_id === userId}
-        publishing={consent.owner_id === userId && permitted.has(consent.kind) && joined}
+        publishing={consent.owner_id === userId && isTrackKind(consent.kind) && permitted.has(consent.kind) && joined}
         onWithdraw={() => void actions.withdraw(consent.id)}
       />)}
     </ul>
@@ -125,7 +129,7 @@ function ConsentRow({ consent, owner, isOwner, publishing, onWithdraw }: {
   return <li>
     <span className={publishing ? "roster-dot online" : "roster-dot"} aria-label={publishing ? "publishing" : "permitted"} />
     <span>
-      <strong>{KIND_LABEL[consent.kind]}</strong> · {owner}{isOwner ? " · you" : ""}
+      <strong>{CONSENT_KIND_LABEL[consent.kind]}</strong> · {owner}{isOwner ? " · you" : ""}
       <br />
       <span className="form-note">
         “{consent.purpose}” · until {expires.toLocaleTimeString()} · {consent.asset_ref}

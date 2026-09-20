@@ -3,6 +3,16 @@ import { describe, it } from "node:test";
 import { isStaleIdentityError, JamError, safeMessageOf, toJamError } from "../src/lib/errors";
 
 describe("toJamError", () => {
+  it("states a value the schema refuses, rather than reporting an outage", () => {
+    // Reached for real: granting a likeness against a database whose register predates the
+    // likeness kind raised 23514. Reported as `unavailable` it read as a transient fault and
+    // invited a retry that would send the same value again.
+    const error = toJamError({ code: "23514", message: "violates check constraint" }, "That consent could not be recorded.");
+    assert.equal(error.code, "invalid_input");
+    assert.equal(error.retryable, false);
+    assert.match(error.safeMessage, /missing a migration/);
+  });
+
   it("shows a message our own schema authored, without the marker", () => {
     const error = toJamError({ code: "42501", message: "jam: only the host can change membership" }, "fallback");
     assert.equal(error.code, "forbidden");

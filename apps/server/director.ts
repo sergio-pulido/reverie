@@ -127,8 +127,8 @@ export class DirectorStreamRegistry {
 export interface DirectorRouterOptions {
   config?: DirectorConfig | null;
   limits?: DirectorSessionLimits;
-  /** The process-wide fal budget. Omitted, the ledger keeps its own. */
-  account?: SpendAccount;
+  /** Supplied so several routers reserve against one shared fal budget. */
+  ledger?: DirectorSessionLedger;
   recordings?: DirectorRecordingStore;
   index?: DirectorIndexStore;
   registry?: DirectorStreamRegistry;
@@ -155,7 +155,7 @@ export function createDirectorRouter(
 ): Router {
   const router = express.Router();
   const limits = options.limits ?? resolveDirectorLimits(process.env);
-  const ledger = new DirectorSessionLedger(limits, options.now, options.account);
+  const ledger = options.ledger ?? new DirectorSessionLedger(limits, options.now);
   const recordings = options.recordings ?? resolveDirectorRecordingStore();
   const index = options.index ?? resolveDirectorIndexStore();
   const streams = options.registry ?? new DirectorStreamRegistry();

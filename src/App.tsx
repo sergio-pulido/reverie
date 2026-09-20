@@ -57,6 +57,9 @@ import { ShellProvider, type Shell } from "./shell/ShellContext";
 import { focusIsLost, focusTopBar } from "./shell/topBarFocus";
 import { useRemoteConventions } from "./shell/useRemoteConventions";
 
+/** Where the whole studio runs when this deployment carries only the catalogue and Discover. */
+const STUDIO_URL = "https://reverie-production-f007.up.railway.app";
+
 /** Loaded only if the app itself renders `/`; a production build serves `/` as static HTML. */
 const LandingRoute = lazy(() => import("./landing/LandingRoute"));
 
@@ -375,7 +378,7 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
         // A deployment that serves only the catalogue and Discover has no
         // studio behind /api/jams at all: say that, rather than blaming the script.
         setNotice(response.status === 404
-          ? "The live studio is not attached to this deployment: Director, Movie Jam and Escape Room run on the studio server. Discover and the catalogue work here."
+          ? `The live studio is not attached to this deployment: Director, Movie Jam and Escape Room run at ${STUDIO_URL}. Discover and the catalogue work here.`
           : `Jam registered, but its script is not ready: ${body?.error?.safeMessage ?? "the script could not be created."}`);
         return;
       }

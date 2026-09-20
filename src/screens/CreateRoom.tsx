@@ -96,6 +96,8 @@ export function CreateRoom({ way, title, premise, visibility, sourceKind, import
         <label>Total length (s)<input {...rows.cellProps("total", 0)} type="number" min={TOTAL_MIN_SECONDS} max={TOTAL_MAX_SECONDS} step={1} value={totalSeconds} onChange={(event) => onTotalSeconds(Number(event.target.value))} required /></label>
         <label>Shortest portion (s)<input {...rows.cellProps("min", 0)} type="number" min={PORTION_ABSOLUTE_MIN_SECONDS} max={PORTION_ABSOLUTE_MAX_SECONDS} value={portionMinSeconds} onChange={(event) => onPortionMinSeconds(Number(event.target.value))} required /></label>
         <label>Longest portion (s)<input {...rows.cellProps("max", 0)} type="number" min={PORTION_ABSOLUTE_MIN_SECONDS} max={PORTION_ABSOLUTE_MAX_SECONDS} value={portionMaxSeconds} onChange={(event) => onPortionMaxSeconds(Number(event.target.value))} required /></label>
+        {/* The floor is a price, not a preference, so it says which. */}
+        <p className="form-note">Every take is billed {TOTAL_MIN_SECONDS} seconds whatever length you pick, so {TOTAL_MIN_SECONDS} is the shortest film worth making: below it you are paying for video the room never gets to see.</p>
       </div>}
       {/* Alone is alone: a Director session has nobody to admit, so it is registered invite-only. */}
       {way !== "director" && <fieldset className="create-admission"><legend>Who can join?</legend><div className="jam-kind" role="radiogroup" aria-label="Who can join?">

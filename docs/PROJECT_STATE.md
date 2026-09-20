@@ -2561,6 +2561,60 @@ in `tests/escapeSessions.test.ts`, which is where the server behaviour they cove
 screen reads `beats[].media` from the snapshot this fix corrects, so it needs no change of its
 own.
 
+## 2026-09-20 — A take stops when the film has been watched out (RV-28)
+
+- A director take now ends when a viewer has **played** to the end of the film — the script's
+  own total runtime — instead of running until somebody presses Stop. The rule is
+  `playedToEnd` in `src/core/directorCompletion.ts`, read off the media element's `currentTime`
+  four times a second on both screens, with a 0.25s tolerance.
+- **The first build of this was wrong and was probed against fal before it shipped.** It ended
+  the take when the provider had generated the film's runtime. Four real takes:
+  `session_opened` 11:52:06, first chunk 11:52:14.8, last chunk 11:52:23.788,
+  `session_closed` 11:52:23.790 — a 20s film generated in 17s of wall clock and torn down 1ms
+  after the last chunk, before hls.js had a playable segment. Every one of those rooms saw
+  nothing. Generation runs ahead of playback by design, so it can never be the stop.
+- The server no longer ends a take on its own progress. It records `film_generated` (the whole
+  film exists, and which reading crossed first) and keeps only the ceilings that need no
+  viewer: `maxSessionSeconds`, the idle reclaim, the viewer refcount.
+- `POST .../session/:id/end` accepts `reason` from a closed enum (`played_to_end`) and records
+  it on `session_closed`, so a take that was watched out can be told from a pressed Stop.
+- `filmSeconds` is answered by `GET .../director/budget` and both session responses; the room
+  says where a take ends before Play is pressed.
+- **Accepted cost:** the provider keeps generating past the last beat while the viewer catches
+  up, bounded by `maxSessionSeconds` (120s). Halting generation without tearing down delivery
+  is the better shape and is not attempted: what fal does after `{"type":"stop"}` is unprobed.
+- Verified: `pnpm test` 1411/1411, `npx tsc --noEmit` clean, `pnpm build` clean. Coverage in
+  `tests/directorCompletion.test.ts` (both rules, the stream over a fake peer, the recorded
+  stop reason), `tests/directorRoutes.test.ts` (generation ends nothing, the reason is
+  recorded, an unknown reason is refused), and a DOM test per screen driving a real playhead.
+- **Not verified since the change:** no paid session has been opened against the rewritten
+  trigger. The four takes above were the previous build. What is proven is the diagnosis, not
+  the fix.
+- One existing test changed on purpose: "spend follows the seconds the stream actually
+  generated" runs against a two-minute film, because `buildJam()` in `tests/directorRoutes.test.ts`
+  now takes `(portionSeconds, portionsPerScene)` and portions cap at 15s.
+
+## 2026-09-20 — A film is at least sixty seconds (RV-31)
+
+- `TOTAL_MIN_SECONDS` 10 → 60 and `DEFAULT_TOTAL_SECONDS` 20 → 60. fal bills a Director session
+  a 60-second minimum whether or not it is used, so a 20-second film cost exactly what a
+  60-second one costs and discarded two thirds of it. The Create form already reads the constant
+  for its input bounds, and now says why the floor is there.
+- **The minimum is verified, not assumed.** https://fal.ai/h3-max-director: "$0.08 / second",
+  minimum "60 seconds", "A session shorter than that still bills $4.80". Four places in this
+  repo asserted the number and none cited a source; the citation now sits with the constant in
+  `apps/server/providers/falDirector.ts`.
+- **Deliberately not done:** removing `DIRECTOR_MIN_BILLED_SECONDS` from the spend model. It is
+  fal's floor, not ours, so removing it saves nothing and makes the ledger under-report the
+  invoice.
+- **Trade this makes, and it is real:** at 20s the provider's overrun past the last beat was
+  absorbed by the 60s minimum and cost nothing. At 60s the film fills the minimum exactly, so
+  overrun now bills on top. Bounded by `maxSessionSeconds`; the proper fix is the same unprobed
+  question RV-28 left open.
+- Verified: `pnpm test` 1411/1411, `npx tsc --noEmit` clean. Six fixtures moved off the old
+  20-second default (`buildDefaultFormatScript` is now 3×4×5s), and one DOM test that grabbed
+  the first `.form-note` in the create form now asks for the note it means.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

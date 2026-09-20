@@ -3,13 +3,20 @@ import { z } from "zod";
 // Script timing is configurable per jam: the host picks the total runtime and
 // the portion length band. Soft bounds are what we ask the writer for; hard
 // bounds add a little slack so a beat can breathe without breaking validation.
-export const DEFAULT_TOTAL_SECONDS = 20;
+// A session's paid floor, not a taste: fal bills each Director session a
+// minimum of 60 seconds whether or not they are used, so the default film is
+// the length that gets all of what has already been paid for.
+export const DEFAULT_TOTAL_SECONDS = 60;
 export const DEFAULT_PORTION_MIN_SECONDS = 5;
 export const DEFAULT_PORTION_MAX_SECONDS = 5;
 
-// 10s floor keeps tiny test jams possible (e.g. a 10-second jam of 5-second
-// portions) while still requiring at least two portions of the shortest kind.
-export const TOTAL_MIN_SECONDS = 10;
+// The floor is fal's billing minimum, verified against the vendor's own pages
+// on 2026-09-20: a Director session costs 60 seconds x $0.08 whether it runs
+// for sixty seconds or for five ("A session shorter than that still bills
+// $4.80", https://fal.ai/h3-max-director). A shorter film does not make a
+// take cheaper; it throws away film already paid for. Twenty seconds was the
+// default and two thirds of every take was discarded.
+export const TOTAL_MIN_SECONDS = 60;
 // The absolute band is the video model's band, not a product preference:
 // MiniMax H3 Max accepts a whole-second duration in [5, 15], and the Director
 // realtime model publishes the same numbers as min/max chunk duration. A

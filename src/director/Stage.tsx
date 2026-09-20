@@ -17,8 +17,10 @@ export function stagePhaseOf(session: DirectorSession): StagePhase {
 type StageProps = {
   session: DirectorSession;
   beats: readonly TimelineBeat[];
-  /** The beat the stream is on, when it is on one. */
-  currentBeat: TimelineBeat | null;
+  /** The beat the provider is generating, when it is generating one. */
+  generatingBeat: TimelineBeat | null;
+  /** The beat the viewer is watching, when one is on screen. */
+  playingBeat: TimelineBeat | null;
   /** Blocking reason, when a session cannot be opened at all. */
   cannotStart: string | null;
   cellProps: (row: string, index: number) => Record<string, unknown>;
@@ -36,7 +38,8 @@ type StageProps = {
 export function Stage({
   session,
   beats,
-  currentBeat,
+  generatingBeat,
+  playingBeat,
   cannotStart,
   cellProps,
   transport,
@@ -77,11 +80,18 @@ export function Stage({
 
       <div className="director-stage-foot">
         {phase === "generating" ? (
-          <Progress state={session.state} currentBeat={currentBeat} total={beats.length} />
+          <Progress
+            state={session.state}
+            generatingBeat={generatingBeat}
+            playingBeat={playingBeat}
+            total={beats.length}
+          />
         ) : (
           <p className="director-stage-line" role="status">
             {phase === "still"
-              ? "This is the session that just ran, exactly as it was generated."
+              ? session.endedAtFilmLength
+                ? "This take played to the end of the film and stopped itself. It is exactly as it was generated."
+                : "This is the session that just ran, exactly as it was generated."
               : cannotStart ?? "Nothing is streaming."}
           </p>
         )}
@@ -110,7 +120,9 @@ export function Stage({
         </div>
       </div>
 
-      {phase === "still" && transport}
+      {/* Under a running take as much as under a finished one: while it runs
+          this is the only thing on screen that says where the film has got to. */}
+      {phase !== "empty" && transport}
 
       {session.attached && (
         <p className="director-zone-note">
@@ -121,14 +133,23 @@ export function Stage({
   );
 }
 
-/** What the stream has produced, and where it has got to. */
+/**
+ * What the stream has produced, and where it has got to.
+ *
+ * Two positions, not one, because the provider generates ahead of the viewer:
+ * a paid probe (2026-09-20) measured chunks arriving ten seconds at a time,
+ * so the beat being made is routinely several beats in front of the beat on
+ * screen. Reporting the frontier as "on screen" was simply false.
+ */
 function Progress({
   state,
-  currentBeat,
+  generatingBeat,
+  playingBeat,
   total,
 }: {
   state: DirectorState;
-  currentBeat: TimelineBeat | null;
+  generatingBeat: TimelineBeat | null;
+  playingBeat: TimelineBeat | null;
   total: number;
 }) {
   return (
@@ -137,9 +158,12 @@ function Progress({
       {state.status === "streaming"
         ? `${formatClock(state.generatedSeconds)} generated across ${state.chunksReceived} chunk${state.chunksReceived === 1 ? "" : "s"}.`
         : "Connected. The opening of the script is being generated."}{" "}
-      {currentBeat
-        ? `Beat ${currentBeat.number} of ${total} is on screen.`
-        : "No beat is on screen yet."}
+      {playingBeat
+        ? `Beat ${playingBeat.number} of ${total} is on screen.`
+        : "No beat is on screen yet."}{" "}
+      {generatingBeat && generatingBeat.portionIndex !== playingBeat?.portionIndex
+        ? `Beat ${generatingBeat.number} is being generated.`
+        : ""}
     </p>
   );
 }

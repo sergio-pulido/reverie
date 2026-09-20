@@ -57,6 +57,74 @@ fifteen-second beat, and no beat of the finished room is missing; the other stop
 the ceiling with the same narrator configured and asserts nothing was bought and only the
 opening loop ever reached the provider.
 
+## 2026-09-20 — The shortest film is sixty seconds, because that is what a take costs (RV-31)
+
+`TOTAL_MIN_SECONDS` was 10 and the default jam was 20 seconds. fal bills a Director session a
+**60-second minimum whether or not it is used** — verified against the vendor's own pages on
+2026-09-20 rather than inherited as an assumption: https://fal.ai/h3-max-director gives
+"$0.08 / second", a minimum of "60 seconds", and "A session shorter than that still bills
+$4.80"; the learn page says a session cut short after fifteen seconds still costs the full
+$4.80. So a twenty-second film did not cost a third of a minute's take. It cost exactly the
+same and threw two thirds of it away.
+
+The floor and the default are both sixty now. This does not make a take cheaper; it makes a
+take worth what it already cost.
+
+**The cushion this removes, stated because it is the real trade.** While a film was twenty
+seconds, the provider's overrun past the last beat was free: generation ran on while the viewer
+caught up, and all of it fell inside the sixty seconds already being billed. At sixty seconds
+the film fills the minimum exactly, so any overrun now bills on top of it. The bound is
+`maxSessionSeconds`, and the fix — halting generation without tearing down delivery — is the
+same unprobed question RV-28 left open.
+
+**What was NOT done, deliberately.** The instruction that started this was to remove
+`DIRECTOR_MIN_BILLED_SECONDS`. Removing it would not have saved a cent, because it is fal's
+floor and not ours; it would only have made the ledger under-report the invoice, which is the
+one direction a spend control must never be wrong in. The repo asserted that number in four
+places and cited no source in any of them, which is why it took a vendor page to settle. The
+citation now lives with the constant.
+
+## 2026-09-20 — A take ends when the film has been WATCHED to its end, not generated to it (RV-28)
+
+fal does not stop at the last beat. The script reaches it once, at `configure`, and after that
+the stream runs until it is told to stop, so the film's selected length is a boundary only this
+side enforces. The question is which end it is, and the first answer here was wrong in a way
+worth keeping written down.
+
+**Generation finishing is not an ending, and ending on it showed four rooms nothing.** The
+first build stopped the take when `generatedSeconds` reached the script's runtime. Measured
+against fal on 2026-09-20, four takes ran like this: `session_opened` at 11:52:06, the first
+chunk at 11:52:14.8, the second and final chunk at 11:52:23.788 — and `session_closed` at
+11:52:23.790, **one millisecond later**. A 20-second film was generated in 17 seconds of wall
+clock, and the teardown landed before hls.js had a playable segment. The provider runs ahead of
+the viewer by design; keying a stop on its progress ends the take before anybody has seen the
+film it just paid for.
+
+**So the stop is keyed on seconds PLAYED, and on nothing else** — not time since Play, which
+says nothing about what was seen, and not the provider's frontier. `playedToEnd` compares the
+media element's own `currentTime` against the film's length, with a quarter-second tolerance
+because an element can stall a hair short and the playhead is sampled four times a second. A
+null playhead — paused, nothing decoded, no element — is never an end.
+
+**That puts the trigger in the browser, which is where the only honest reading of it lives.**
+The server cannot see what a viewer has watched. It keeps the ceilings that do not need a
+viewer: `maxSessionSeconds`, the idle reclaim, and the viewer refcount. The browser sends the
+same whole-room stop a person's Stop sends, so settle, archive close and the `playing` → `ended`
+transition stay on one path.
+
+**The cost of waiting is real and deliberately accepted.** The provider keeps generating past
+the last beat while the viewer catches up, and `maxSessionSeconds` is what bounds it. Stopping
+generation early without tearing down delivery would be better, and is not attempted here:
+what fal does to a session after `{"type":"stop"}` is unprobed, and if it closes the connection
+the live window dies with it — which is the bug this entry is about.
+
+**The trail keeps both moments.** `film_generated` records that the whole film exists, with
+which reading crossed first: `generatedSeconds`, or the frontier `script_offset_seconds` as a
+backstop — the frontier being the START offset of the chunk being generated, so it crosses a
+chunk late. `session_closed` carries the reason when the caller gives one, from a closed enum
+rather than free text, so a take that was watched out can be told from one somebody pressed
+Stop on.
+
 ## 2026-09-20 — A finished film is read from the deployment, and the archive says why it is empty (RV-25)
 
 The archive routes were written to be portable -- plain reads of Supabase and Storage, with

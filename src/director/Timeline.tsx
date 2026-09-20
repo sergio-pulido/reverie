@@ -1,3 +1,4 @@
+import { useEffect, useRef, type CSSProperties } from "react";
 import type { TimelineBeat } from "../core/directorTimeline";
 import { formatClock } from "../core/clock";
 import { BEAT_STATE_LABEL } from "./beatLabels";
@@ -7,6 +8,8 @@ export const TIMELINE_ROW = "timeline";
 type TimelineProps = {
   beats: readonly TimelineBeat[];
   runtimeSeconds: number;
+  /** Where the viewer is, in seconds, or null when nothing is playing. */
+  playheadSeconds: number | null;
   /** The beat the pointer or focus is resting on, anywhere on the screen. */
   highlighted: number | null;
   /** The beat a direction is aimed at, or null for "wherever the stream is". */
@@ -34,6 +37,7 @@ type TimelineProps = {
 export function Timeline({
   beats,
   runtimeSeconds,
+  playheadSeconds,
   highlighted,
   selected,
   onHighlight,
@@ -41,13 +45,47 @@ export function Timeline({
   cellProps,
   emptyReason,
 }: TimelineProps) {
+  // The beat worth keeping in view: where the viewer is, or failing that the
+  // one being generated before anything has played.
+  const followed =
+    beats.find((beat) => beat.state === "playing")
+    ?? beats.find((beat) => beat.state === "generating")
+    ?? null;
+  const followedIndex = followed?.portionIndex ?? null;
+  const track = useRef<HTMLOListElement | null>(null);
+
+  // Twenty-four beats scroll rather than shrink, so the current one leaves the
+  // viewport as the film runs. Following it is what makes the row readable on
+  // a long film without the viewer chasing it by hand.
+  useEffect(() => {
+    if (followedIndex === null) return;
+    const cell = track.current?.querySelector<HTMLElement>(`[data-beat="${followedIndex}"]`);
+    // jsdom has no layout and does not implement this; the guard keeps the
+    // screen's tests honest rather than mocking it away.
+    if (typeof cell?.scrollIntoView !== "function") return;
+    // The option beats CSS `scroll-behavior`, so the preference has to be read
+    // here too or a reduced-motion viewer gets the animation anyway.
+    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    cell.scrollIntoView({
+      block: "nearest",
+      inline: "center",
+      behavior: still ? "auto" : "smooth",
+    });
+  }, [followedIndex]);
+
   return (
     <section className="director-timeline" aria-label="The film's beats">
       <div className="director-zone-head">
         <div>
           <p className="eyebrow">TIMELINE</p>
           <h2>
-            {beats.length} beat{beats.length === 1 ? "" : "s"} · {formatClock(runtimeSeconds)}
+            {followed
+              ? `Beat ${followed.number} of ${beats.length}`
+              : `${beats.length} beat${beats.length === 1 ? "" : "s"}`}{" "}
+            ·{" "}
+            {playheadSeconds === null
+              ? formatClock(runtimeSeconds)
+              : `${formatClock(playheadSeconds)} / ${formatClock(runtimeSeconds)}`}
           </h2>
         </div>
         <p className="director-zone-note">
@@ -60,7 +98,7 @@ export function Timeline({
           {emptyReason ?? "This film has no beats yet."}
         </p>
       ) : (
-        <ol className="director-beats" data-track="">
+        <ol className="director-beats" data-track="" ref={track}>
           {beats.map((beat, index) => (
             <li key={beat.portionIndex}>
               <button
@@ -94,6 +132,17 @@ export function Timeline({
                   <span className="director-beat-duration">{beat.durationSeconds}s</span>
                   <span className="director-beat-state">{BEAT_STATE_LABEL[beat.state]}</span>
                 </span>
+                {/* Where inside this beat the viewer is. Only the beat being
+                    watched draws one, so the row has exactly one playhead. */}
+                {beat.state === "playing" && playheadSeconds !== null && (
+                  <span
+                    className="director-beat-playhead"
+                    style={
+                      { "--through": throughBeat(playheadSeconds, beat).toFixed(4) } as CSSProperties
+                    }
+                    aria-hidden="true"
+                  />
+                )}
               </button>
             </li>
           ))}
@@ -101,4 +150,11 @@ export function Timeline({
       )}
     </section>
   );
+}
+
+/** How far through one beat the playhead has come, as a 0..1 share. */
+function throughBeat(playheadSeconds: number, beat: TimelineBeat): number {
+  if (beat.durationSeconds <= 0) return 0;
+  const into = (playheadSeconds - beat.startSeconds) / beat.durationSeconds;
+  return Math.min(1, Math.max(0, into));
 }

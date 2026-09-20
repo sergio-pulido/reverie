@@ -12,14 +12,14 @@ import { buildDefaultFormatScript, buildScript } from "./helpers";
 
 const defaultSchema = createJamScriptSchema(DEFAULT_SCRIPT_FORMAT);
 
-test("accepts a 20-second script made of 5-second portions", () => {
+test("accepts a 60-second script made of 5-second portions", () => {
   const script = buildDefaultFormatScript();
-  assert.equal(totalDurationSeconds(script), 20);
+  assert.equal(totalDurationSeconds(script), 60);
   assert.ok(defaultSchema.safeParse(script).success);
 });
 
 test("rejects a script far from the format's target", () => {
-  const script = buildScript(5, 4, 4); // 16 × 5s = 80s, not 20s
+  const script = buildScript(5, 4, 4); // 16 × 5s = 80s, not 60s
   assert.equal(defaultSchema.safeParse(script).success, false);
 });
 
@@ -43,18 +43,18 @@ test("structural schema still refuses a portion the model cannot render", () => 
   assert.equal(jamScriptSchema.safeParse(tooLong).success, false);
 });
 
-test("format defaults to 20 seconds of 5-second portions", () => {
+test("format defaults to 60 seconds of 5-second portions", () => {
   const format = scriptFormatSchema.parse({});
   assert.deepEqual(format, {
-    totalSeconds: 20,
+    totalSeconds: 60,
     portionMinSeconds: 5,
     portionMaxSeconds: 5,
   });
 });
 
 test("format accepts partial overrides", () => {
-  const format = scriptFormatSchema.parse({ totalSeconds: 60 });
-  assert.equal(format.totalSeconds, 60);
+  const format = scriptFormatSchema.parse({ totalSeconds: 120 });
+  assert.equal(format.totalSeconds, 120);
   assert.equal(format.portionMinSeconds, 5);
 });
 
@@ -78,14 +78,17 @@ test("format rejects out-of-range totals", () => {
   assert.equal(scriptFormatSchema.safeParse({ totalSeconds: 721 }).success, false);
 });
 
-test("format accepts a tiny 20-second test jam of 5-second portions", () => {
+test("the shortest film a jam may ask for is the one fal already charges for", () => {
+  // 60s is not a taste: a Director session bills a 60-second minimum, so a
+  // shorter film throws away video that has already been paid for.
   const format = scriptFormatSchema.parse({
-    totalSeconds: 20,
+    totalSeconds: 60,
     portionMinSeconds: 5,
     portionMaxSeconds: 5,
   });
-  assert.equal(format.totalSeconds, 20);
-  assert.equal(scriptFormatSchema.safeParse({ totalSeconds: 8 }).success, false);
+  assert.equal(format.totalSeconds, 60);
+  assert.equal(scriptFormatSchema.safeParse({ totalSeconds: 59 }).success, false);
+  assert.equal(scriptFormatSchema.safeParse({ totalSeconds: 20 }).success, false);
 });
 
 test("format rejects combinations needing more than 48 portions", () => {

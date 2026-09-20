@@ -1,3 +1,5 @@
+import assert from "node:assert/strict";
+import { act } from "react";
 import { render } from "./render";
 import { App } from "../src/App";
 import type { Jam } from "../src/core/jam";
@@ -6,6 +8,7 @@ import type { DirectorBeatWindow } from "../src/core/directorBeats";
 import type { DirectorSpend } from "../src/core/directorSpend";
 import { initialDirectorState, type DirectorState } from "../src/core/directorProtocol";
 import { beatWindowForScript } from "../src/core/directorBeats";
+import { totalDurationSeconds } from "../src/core/script";
 import { buildScript } from "./helpers";
 
 /**
@@ -127,6 +130,7 @@ export function fakeServer(options: ServerOptions = {}): FakeServer {
           attached: Boolean(body.attachOnly),
           liveDelivery: false,
           maxSessionSeconds: 120,
+          filmSeconds: totalDurationSeconds(current.jam?.script ?? SCRIPT),
           recordingDurable: current.recordingDurable,
           state: state(),
           beats: beats(),
@@ -179,6 +183,27 @@ export async function openDirector(options: ServerOptions = {}): Promise<FakeSer
   );
   await render(<App />, `/director/${SLUG}`);
   return server;
+}
+
+/**
+ * Makes the live element report that it is playing at `seconds`.
+ *
+ * jsdom has no media pipeline, so a `<video>` there is forever paused with
+ * nothing decoded — which is exactly the state the screen must NOT read a
+ * playhead from. Standing these three properties up is what lets a test say
+ * "a frame is on screen at 7 seconds" at all.
+ */
+export async function playLiveVideo(seconds: number): Promise<void> {
+  const element = document.querySelector<HTMLVideoElement>('[data-testid="director-live"]');
+  assert.ok(element, "the live element is on the screen");
+  Object.defineProperty(element, "paused", { value: false, configurable: true });
+  Object.defineProperty(element, "readyState", { value: 4, configurable: true });
+  Object.defineProperty(element, "currentTime", { value: seconds, configurable: true });
+  // The screen re-reads the element on its own interval rather than waiting to
+  // be told, so this waits one tick of it out.
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  });
 }
 
 export const beatCards = () =>

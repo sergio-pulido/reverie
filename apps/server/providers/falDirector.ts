@@ -37,7 +37,16 @@ export const DIRECTOR_MAX_MEMORY = 50;
 /**
  * fal bills each session at a minimum of 60 seconds of runtime, so an idle
  * open session costs the same as a working one. Every guard in ./director is
- * built around this number.
+ * built around this number, and so is the shortest film a jam may ask for
+ * (`TOTAL_MIN_SECONDS`).
+ *
+ * Verified against the vendor 2026-09-20, because four places in this repo
+ * asserted it and none of them said where it came from:
+ * https://fal.ai/h3-max-director — "$0.08 / second", minimum "60 seconds",
+ * "A session shorter than that still bills $4.80". Removing this floor would
+ * not save anything; it would only make our spend figures understate the
+ * invoice. A promotional $0.02/s rate ended 2026-09-14, and a "$1.20 minimum"
+ * anywhere is that same 60 seconds at the old rate.
  */
 export const DIRECTOR_MIN_BILLED_SECONDS = 60;
 
@@ -89,6 +98,48 @@ export function resolveDirectorConfig(
     aspectRatio: aspectRatioSchema.parse(env.REVERIE_DIRECTOR_ASPECT_RATIO?.trim()),
     record: env.REVERIE_DIRECTOR_RECORD === "true",
   };
+}
+
+/** The pixel dimensions of the stream a config asks fal for. */
+export interface DirectorFrameSize {
+  width: number;
+  height: number;
+}
+
+/** Lines on the short side, which is what the model's resolution names count. */
+const RESOLUTION_SHORT_SIDE: Readonly<Record<DirectorConfig["resolution"], number>> = {
+  "480p": 480,
+  "768p": 768,
+  "1080p": 1080,
+};
+
+const ASPECT_TERMS: Readonly<Record<DirectorConfig["aspectRatio"], [number, number]>> = {
+  "16:9": [16, 9],
+  "9:16": [9, 16],
+  "1:1": [1, 1],
+};
+
+/**
+ * What size frame this configuration asks for.
+ *
+ * These are the REQUESTED dimensions, not measured output: the true geometry of
+ * every frame is carried by the H.264 SPS inside the stream, and nothing here
+ * overrides it. They exist because an fMP4 track header has to declare a size
+ * before the first frame is written, and a video track declared without one
+ * does not merely lose metadata — it hangs the muxer outright. See
+ * `apps/server/directorMuxer.ts`.
+ *
+ * The long side is rounded to an even number of pixels because H.264 codes in
+ * macroblocks and odd dimensions are not representable at this level.
+ */
+export function directorFrameSize(config: {
+  resolution: DirectorConfig["resolution"];
+  aspectRatio: DirectorConfig["aspectRatio"];
+}): DirectorFrameSize {
+  const short = RESOLUTION_SHORT_SIDE[config.resolution];
+  const [across, down] = ASPECT_TERMS[config.aspectRatio];
+  const long = Math.round((short * Math.max(across, down)) / Math.min(across, down) / 2) * 2;
+  return across >= down ? { width: long, height: short } : { width: short, height: long };
 }
 
 /** One direction on the stream's clock, at a whole-second offset. */

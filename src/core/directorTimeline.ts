@@ -92,7 +92,7 @@ export function beatStateOf(
     if (window.currentBeatIndex === null) {
       // Nothing generated yet: the provider starts at the top of the film, so
       // the opening beat is the one being made. NOT `lockedBeatIndex` — that
-      // is the last beat handed over, which is several ahead of where the
+      // is the protected lookahead boundary, several beats ahead of where the
       // provider has actually started.
       if (beat.portionIndex === 0) return "generating";
     } else {

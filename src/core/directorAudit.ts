@@ -21,15 +21,16 @@ export type DirectorAuditKind =
   | "direction_rejected"
   | "chunk_received"
   /**
-   * Beats of the script handed to the provider mid-session.
+   * The story changed while the take was running, so the provider was handed
+   * the whole script again in place of the one it held.
    *
-   * The script is not given all at once: each chunk is followed by the beats
-   * of the chunk after it, read from the story as it stands right then. This
-   * is the entry that says which beats fal was given and when — and therefore
-   * which version of them it was given, since a beat below the boundary can no
-   * longer change.
+   * The entry that says which version of the film fal was working from at a
+   * given moment — the only record of that, since the script itself is not
+   * part of the trail.
    */
-  | "beats_sent"
+  | "script_replaced"
+  | "script_replacement_applied"
+  | "script_replacement_rejected"
   | "provider_error"
   /**
    * The provider has generated the whole film. NOT an ending: generation runs
@@ -48,9 +49,9 @@ export interface DirectorAuditEntry {
   /** Where in the stream it took effect, when fal says. */
   readonly chunkIndex?: number;
   /**
-   * Where that chunk sat on the SCRIPT's clock. Recorded because "which beat
-   * was playing when this was sent" is the question an audit gets asked, and
-   * it cannot be reconstructed from the chunk index alone.
+   * Where that chunk sat on the FILM's clock. fal's script clock restarts when
+   * a tail is replaced, so the raw provider offset cannot answer which beat
+   * was playing without the prompt version's recorded origin.
    */
   readonly scriptOffsetSeconds?: number;
   /** The proposal this direction came from, when it came from one. */

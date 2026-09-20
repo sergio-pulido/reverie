@@ -194,7 +194,7 @@ An outline edit is the one command every way of steering the story produces
 (`docs/specs/story-outline.md`). `POST /api/jams/:id/outline/edits` takes
 `{ requestId, intent: "set", beatIndex, summary }` or `{ requestId, intent: "reroll", beatIndex, reason? }`,
 plus optional `expectedRevision` (the script revision the client read; behind → `409 stale_state_version`
-with the current `revision`), `mechanism` (`direct | vote | poll | chat`, default `direct`) and
+with the current `revision`), `mechanism` (`direct | direction | vote | poll | chat`, default `direct`) and
 `authorId`. Admission checks, in order: the jam exists (`404 not_found`), a provider is configured
 (`503 generation_disabled`), the beat exists (`400 invalid_command`), the beat is editable
 (`409 portion_locked`), the revision is current, the queue has room (`409 queue_full`, at most 10 waiting).
@@ -208,12 +208,14 @@ Edits are processed one at a time per jam. The cascade completion runs outside t
 section; the commit takes it once and lands every rewritten portion as one revision, refusing
 `portion_locked` if the boundary moved meanwhile and `stale_state_version` if the base revision was
 replaced twice. The edit record's `status` is `queued | processing | landed | failed`, with
-`baseRevision`, `revision` and a typed `error`. Nothing is pushed to the open streams after a
-commit: the script is handed to the provider a beat at a time, as each beat closes to editing, so
-an edit — which can only land on a beat that has NOT closed — is read from the store by the stream
-when it hands that beat over (`apps/server/directorStream.ts`). Durations and structure are never
-rewritten, which is what keeps beat offsets stable across a cascade and makes the handover
-addressable.
+`baseRevision`, `revision`, a typed `error`, and `streamsUpdated`: how many takes running on this
+jam were handed the revision. A landed revision REPLACES the script the provider is working from,
+from the cut point onward (`apps/server/directorStream.ts`); fal holds the whole film from
+`configure`, because it wraps to the top of anything shorter. Durations and structure are never
+rewritten, which is what keeps beat offsets stable across a cascade and makes the replacement
+addressable. Delivery names the first changed beat and rechecks the stream's current lock window;
+if that beat became current or imminent after commit, the take refuses the replacement and is not
+included in `streamsUpdated`.
 
 ### Directions
 

@@ -54,6 +54,18 @@ export type CascadeRunner = (script: JamScript, edit: OutlineEditIntent) => Prom
  * about, and what that beat now reads. Injected in tests; the default calls
  * the provider.
  */
+/**
+ * The slice of a live stream the queue needs: which jam it is, and how to put
+ * a new story in the provider's hands.
+ */
+export interface OutlineStream {
+  readonly jamId: string;
+  updateScript(
+    script: JamScript,
+    changedFromBeatIndex: number,
+  ): { accepted: boolean; refusal?: "stream_not_ready" | "beat_locked"; promptVersion?: number };
+}
+
 export type TargetingRunner = (
   script: JamScript,
   direction: string,
@@ -75,6 +87,8 @@ export interface OutlineRouterOptions {
   target?: TargetingRunner | null;
   /** The strictest open stream's window, for the panel. Defaults to nothing locked. */
   window?: (jamId: string) => DirectorBeatWindow;
+  /** The jam's open streams, so a landed revision reaches the take that is running. */
+  streamsFor?: (jamId: string) => OutlineStream[];
   now?: () => Date;
 }
 
@@ -99,6 +113,7 @@ export class OutlineEditQueue {
     private readonly store: JamStore,
     private readonly guard: PlaybackGuard,
     private readonly cascade: CascadeRunner,
+    private readonly streamsFor: (jamId: string) => OutlineStream[] = () => [],
     private readonly now: () => Date = () => new Date(),
   ) {}
 
@@ -262,10 +277,7 @@ export class OutlineEditQueue {
         record.revision = landed.revision;
         record.status = "landed";
         record.finishedAt = this.now().toISOString();
-        // Nothing is pushed to the open streams, deliberately. A beat only
-        // reaches fal when it closes to editing, and this edit landed on a
-        // beat that had not closed — so the stream will read this revision
-        // when it hands that beat over. See apps/server/directorStream.ts.
+        record.streamsUpdated = this.deliver(record.jamId, landed.script, record.beatIndex);
         return;
       } catch (error) {
         if (error instanceof StaleRevisionError && attempt < COMMIT_ATTEMPTS) {
@@ -284,6 +296,37 @@ export class OutlineEditQueue {
         throw error;
       }
     }
+  }
+
+  /**
+   * Puts the landed revision in the provider's hands, for every take running
+   * on this jam.
+   *
+   * The current revision goes with the first changed beat, not that beat by
+   * itself. The stream keeps the immutable prefix, cuts at a safe boundary,
+   * and replaces the remaining script. A beat sent as a steering prompt
+   * changes what fal makes next rather than what it makes at that beat's
+   * offset, while appending to the configured script stops the stream.
+   *
+   * Best-effort on top of a commit that already stands: a stream that cannot
+   * take it is counted out, never thrown, and with no take running there is
+   * nothing to do and nothing wrong.
+   */
+  private deliver(jamId: string, script: JamScript, changedFromBeatIndex: number): number {
+    let updated = 0;
+    for (const stream of this.streamsFor(jamId)) {
+      try {
+        if (stream.updateScript(script, changedFromBeatIndex).accepted) updated += 1;
+      } catch (error) {
+        // Delivery is best-effort after the revision commits, but a transport
+        // fault must remain diagnosable without logging script/provider data.
+        console.warn("outline revision delivery failed", {
+          jamId,
+          error: error instanceof Error ? error.name : "unknown_error",
+        });
+      }
+    }
+    return updated;
   }
 
   private fail(record: OutlineEditRecord, error: OutlineEditError): void {
@@ -336,6 +379,7 @@ export function createOutlineRouter(
 ): Router {
   const router = express.Router();
   const window = options.window ?? (() => NOTHING_LOCKED);
+  const streamsFor = options.streamsFor ?? (() => []);
 
   // Resolved per request so the process picks up configuration changes the
   // way the jams router does; `null` is an explicit "no provider".
@@ -371,6 +415,7 @@ export function createOutlineRouter(
       }
       return cascade(script, edit);
     },
+    streamsFor,
     options.now,
   );
 

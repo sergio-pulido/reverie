@@ -349,37 +349,28 @@ about where a direction came from, so a beat needs no translation to become one.
 naming a closed beat is refused with `beat_locked`, the stream-side counterpart of the
 `portion_locked` a script edit gets.
 
-As built: **the script is handed to the provider a chunk at a time, and a beat goes only once it
-has closed to editing.** `configure` carries the beats of the opening window — what fal will
-generate before it has reported anything — and every chunk after that is followed by a `prompt`
-carrying the beats of the chunk after the one being generated, with `script_mode: "append"` and
-`replan: false`. fal's `prompt` takes a `script` as well as text, which is what makes this
-possible at all; see its API for `script_mode` and the version rule.
+As built: **the provider holds the whole film from `configure`, and a landed revision replaces
+the script it is working from.** The queue sends each open stream the new script as a `prompt`
+carrying `script` with `script_mode: "replace"`; the stream cuts it at the frontier plus one
+chunk and re-bases the remaining beats to zero, because replacing re-anchors fal's own script
+clock to the new script's beginning.
 
-**That is what makes an edit reach the picture, and it is why nothing is pushed when one lands.**
-A beat the provider holds has been planned from and can never be unplanned: if the whole script
-goes at `configure`, an edit afterwards rewrites the outline while the stream goes on rendering
-the version fal was given — the room sees its change on the timeline and never on screen. Handing
-beats over as they close inverts that. Every beat fal has is one nobody can still change, and
-every beat that can still change is one fal has not seen, so the next handover reads whatever the
-story says by then. The queue therefore delivers nothing after a commit; the stream reads the
-current revision itself.
+**Both halves of that were measured, and both refuted the obvious design.** Handing the script
+over a beat at a time — so that the provider never holds a beat the room could still change —
+makes fal wrap to the top and re-render the opening when it runs out, and beats appended
+mid-flight stop the chunks altogether. See `docs/DECISIONS.md` (2026-09-20) for the session ids
+and offset sequences.
 
-**The lock boundary is now a record rather than a prediction.** `minEditableBeatIndex` is the
-first beat past the seconds actually handed over — `committedThroughSeconds` on the stream — not
-an arithmetic guess about where the provider must have got to. It is wider than the old
-"two beats ahead": one chunk of lead over a ten-second chunk closes about four five-second beats.
-That width is the true cost of the guarantee, and it was always being paid — under the old shape
-every beat in the film was committed from the first second, the window simply did not say so.
+**So a beat can be changed for as long as the provider has not DISPATCHED it**, which is what the
+lock window has always measured: the beat being generated and the one after it are closed, and
+everything past them is replaceable. The window is not a record of what fal was told — it was
+told everything — it is a record of how far it has got.
 
-A beat is still direction text for the live director, and a free-text direction still exists
-beside this: `direct({ body, beatIndex? })` is a *change* of direction, sent with `replan: true`
-so it cuts into what is planned, and a beat naming a closed beat is refused with `beat_locked`.
-The handover is the opposite verb — the next page of the same script, queued behind what is
-already planned.
+The edit record reports `streamsUpdated`: how many running takes took the revision. Zero is the
+ordinary answer between takes and says nothing is wrong.
 
-**What delivery costs.** A direction is a control message on a session that is already billing for
-wall-clock time, so fanning one out to several streams adds no charge per this server's own
+**What delivery costs.** A replacement is a control message on a session that is already billing
+for wall-clock time, so fanning one out to several streams adds no charge per this server's own
 accounting: `DirectorSessionLedger` bills `max(60, seconds) × usdPerSecond` on close, counting
 duration and never prompts, and each of those streams was billing whether or not anyone directed
 it. The paid call in this path is the cascade completion — one per edit, regardless of how many
@@ -443,7 +434,7 @@ provider body or an internal prompt.
 | `queue_full` | ten edits already wait for this jam | yes |
 | `invalid_cascade` | the model's rewrite did not cover the tail exactly, twice; nothing was written | yes, as a new edit |
 | `generation_failed` | the provider did not answer or rejected the call; nothing was written | yes, as a new edit |
-| `beat_locked` | a direction names a beat the stream has already committed to (director route; recorded on the edit as a refused direction) | no |
+| `beat_locked` | a direction or script replacement names a beat that is now current or imminent; nothing is sent to that stream | no |
 
 `portion_locked` at admission is an HTTP `409` on the `POST`; the same code after admission is a
 `failed` ledger entry, because the request that queued the edit has already been answered.
@@ -459,7 +450,7 @@ provider body or an internal prompt.
 
 The edit record: `{ id, requestId, jamId, intent, beatIndex, summary?, reason?, mechanism,
 authorId?, status, queuedAt, startedAt?, finishedAt?, baseRevision?, revision?, error?,
-direction? }`.
+streamsUpdated? }`.
 
 `PATCH /api/jams/:id/script/portions/:portionIndex` is kept as the expert path for prose. It does
 not touch `summary`, so a portion whose action was patched by hand keeps the beat it had; the beat
@@ -499,8 +490,9 @@ and imported scripts (`src/core/outlineSummary.ts`, `apps/server/outlineWriter.t
 intent and command schemas (`src/core/outlineEdit.ts`); the cascade prompt for both intents and
 its provider wiring; `JamStore.commitScript` with the boundary and revision guards; the per-jam
 edit queue, worker and ledger and the four routes (`apps/server/outline.ts`); delivery of the
-edited beat as a direction to every open stream; `DirectorStreamRegistry.beatWindow` and
-`streamsFor`; the outline panel on the script screen and in the Studio.
+landed revision as a tail replacement to every open stream whose live boundary still leaves the
+first changed beat editable; `DirectorStreamRegistry.beatWindow` and `streamsFor`; the outline
+panel on the script screen and in the Studio.
 
 Earlier (RV-17): the `summary` field, `buildOutline` and `beatAt` (`src/core/outline.ts`), and
 the cascade schema and application (`src/core/outlineCascade.ts`).
@@ -516,8 +508,9 @@ refused at the door, that a boundary moving under a running cascade refuses the 
 edit waiting behind it, and that both failures are visible in the ledger; that a competing edit
 makes the worker recompute once and give up the second time rather than overwrite; that an
 unexpected failure still settles the record so the jam's queue keeps moving; that a full queue is
-refused; that the landed beat reaches every open stream of that jam and no other's, and that a
-refused direction does not undo the commit; that no provider means no fabricated cascade; and that
+refused; that the landed revision reaches every eligible open stream of that jam with the first
+changed beat named, a beat that became blocked sends no replacement, and a provider refusal does
+not undo the commit; that no provider means no fabricated cascade; and that
 the panel shows played, generating and editable beats, renders a missing beat as missing, and
 sends `set` and `reroll` with the revision the reader was looking at. What they do not prove is
 anything about a real model's output.

@@ -1,5 +1,58 @@
 # Decisions
 
+## 2026-09-20 — fal gets the whole script, and a change REPLACES its tail from the cut (RV-34)
+
+Four paid takes settled how the provider actually behaves, and each one refuted the design before
+it. Recorded in full because none of it is in fal's documentation.
+
+**1. Given part of the script, it wraps rather than waits.** Session `mu9vnsrb-1`, configured with
+the first 30 seconds of a 60-second film: chunks at offsets 0, 10, 20 — **then 0 again**. It does
+not stall at the end of what it has; it starts the film over. So the room watched its opening
+twice and the beats it had edited, handed over afterwards and accepted, never showed. The
+drip-feed shape from RV-33 — `configure` carrying only the opening window, beats handed over as
+they close — cannot work, whatever the lead.
+
+**2. Beats appended mid-flight stop it altogether.** Session `mu9vzf4n-1`: two `script_mode:
+"append"` messages were accepted (`prompt_applied` v2, v3) and after the second **no chunk ever
+arrived again** — four minutes of silence until the take was ended. Append is not the verb.
+
+**3. `replace` re-anchors the script clock to zero.** Session `mu9wiao4-1`: the whole film was
+sent as a replacement while the stream was at offset 10, and the next chunk reported offset 0 and
+walked the film again from its start. Replacing means "this is the script from here", and *here*
+is the new script's own beginning — not the offsets written in it.
+
+**4. So a replacement carries the TAIL, re-based to zero, cut where the old script stops.**
+Session `mu9wwmve-1`: frontier 10, one chunk of lead, cut at 20. The old script produced 0-30 and
+the replacement produced 20-80, contiguous, to the end of a 90-second film — no wrap, no stall,
+with the edited beat in it. A cut at the next whole BEAT instead (session `mu9wrpaj-1`) left a
+twenty-second hole where a beat should have been, because chunks are shorter than beats.
+
+**The lead is one chunk, deliberately, and the failure mode is an overlap.** How far fal has
+dispatched past its last report is not visible — in one take it had dispatched one more chunk, in
+another it had not. Cutting a chunk early repeats up to ten seconds; cutting a chunk late skips a
+beat. A repeat is a stutter, a skip is a missing scene, so the cut is early by construction.
+
+**The cut follows the prompt version, not the act of sending.** A replacement does not move the
+observed film frontier. Chunks already in flight can still arrive under the previous
+`prompt_version`, and their offsets remain on that version's origin; each sent version records its
+own origin and a chunk selects it by the version it reports. Two revisions sent before another
+chunk therefore reuse the same cut instead of advancing the film twice without evidence. Before
+fal reports its chunk length, the cut uses the five-second minimum rather than the fifteen-second
+maximum: uncertainty is resolved toward overlap, never a hole.
+
+**A blocked beat is checked at the last possible boundary.** The outline queue checks the lock
+window when it admits an edit and again inside the revision commit. Delivery names the first beat
+that revision changed and the stream checks its current window once more immediately before it
+sends `replace`. If a chunk arrived after the commit and made that beat current or imminent, no
+replacement crosses it; the story revision remains landed and that take reports that it did not
+take the update.
+
+**What this costs the room is nothing it did not already pay.** The lock window is back to the
+rule the screen always stated — the beat being generated and the one after it — because a change
+now reaches everything fal has not dispatched, rather than only what it has not been told. At
+Play the opening beat and its successor are closed, which is the same two beats, applied at beat
+zero rather than guessed at.
+
 ## 2026-09-20 — Four create faces without changing room storage
 
 The create door presents Director, Movie Jam, Escape Room and an explicitly unavailable

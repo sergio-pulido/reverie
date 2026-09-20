@@ -33,24 +33,6 @@ export const DIRECTOR_MAX_CHUNK_SECONDS = 15;
 /** `script_max_beats` from /info. */
 export const DIRECTOR_MAX_SCRIPT_BEATS = 64;
 
-/**
- * How far ahead of the reported frontier the script must already be in fal's
- * hands, in seconds.
- *
- * **Measured, not chosen.** Session `mu9vnsrb-1` (2026-09-20) was configured
- * with the first 30 seconds of a 60-second film and reported chunks at script
- * offsets 0, 10, 20 — and then **0 again**. Given no more script, fal does not
- * wait and does not stop: it wraps to the top and re-renders the opening. The
- * beats handed over at offsets 30 and 45 were accepted (`prompt_applied`, v2
- * and v3) but arrived after it had already wrapped, so the room watched its
- * first thirty seconds twice and never saw the beats it had edited.
- *
- * The planner therefore runs ahead of the offset it reports — it had consumed
- * 30s of script while reporting 20 — so a lead of two chunks is too late by
- * about a chunk. Forty seconds is four reported chunks at the ten-second
- * chunk fal chose, which leaves margin without handing over the whole film.
- */
-export const DIRECTOR_HANDOVER_LEAD_SECONDS = 40;
 /** `min_memory` / `max_memory` from /info. */
 export const DIRECTOR_MIN_MEMORY = 1;
 export const DIRECTOR_MAX_MEMORY = 50;
@@ -220,16 +202,15 @@ function describePortion(portion: {
  * the client increments it for every later `prompt` message — fal rejects a
  * stale version, which is what keeps two directors from racing.
  *
- * **It carries only the beats of the opening window, not the whole film.** A
- * beat fal holds is a beat the room can no longer change: it has been planned
- * from, and an edit landing on it afterwards rewrites the script while the
- * picture goes on following the version fal was given. So the script is handed
- * over a chunk at a time, by `prompt`, as each beat closes to editing — and
- * `configure` carries exactly the first chunk's worth, because that is what
- * fal generates before it has told us anything.
+ * **It carries the whole film.** Handing the script over a piece at a time was
+ * tried and measured against the provider: given less than the whole script,
+ * fal wraps to the top and re-renders the opening rather than waiting at the
+ * end of what it has, and beats appended mid-flight stopped the chunks
+ * altogether (docs/DECISIONS.md, 2026-09-20). A change to the story reaches it
+ * by REPLACING this script, which is what `nextScriptMessage` sends.
  *
- * `throughSeconds` defaults to the longest chunk the model will produce, which
- * is the only safe assumption before `configured` reports the real length.
+ * `throughSeconds` exists for tests and for a caller that deliberately wants
+ * less; by default the whole film goes, which is what fal requires.
  */
 export function buildConfigureMessage(
   config: DirectorConfig,
@@ -243,7 +224,7 @@ export function buildConfigureMessage(
     prompt_version: 1,
     prompt: buildPremise(script),
     script: buildDirectorScript(script, {
-      toSeconds: options.throughSeconds ?? DIRECTOR_MAX_CHUNK_SECONDS,
+      toSeconds: options.throughSeconds,
     }),
     resolution: config.resolution,
     aspect_ratio: config.aspectRatio,

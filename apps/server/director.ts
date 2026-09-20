@@ -624,13 +624,6 @@ export function createDirectorRouter(
       sessionId: session.sessionId,
       config: active,
       script: jam.script,
-      // Each handover reads the story again. The script this session opened
-      // with is only the opening: an edit that lands while the take runs is in
-      // the beats that have not gone to fal yet, and those are read from here.
-      readScript: async () => {
-        const current = await store.getCurrentScriptRevision(jam.id).catch(() => null);
-        return current?.script ?? null;
-      },
       startSession: options.startSession,
       createPeer: options.createPeer,
       // The offered preference follows the selected muxer. Both codecs remain

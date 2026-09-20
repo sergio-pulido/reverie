@@ -26,13 +26,12 @@ import {
   beatOffsets,
   beatWindow,
   isBeatLocked,
-  twoBeatsAhead,
   type DirectorBeatWindow,
 } from "../../src/core/directorBeats";
 import {
   buildConfigureMessage,
   buildDirectorScript,
-  DIRECTOR_HANDOVER_LEAD_SECONDS,
+  DIRECTOR_MIN_CHUNK_SECONDS,
   DirectorError,
   startDirectorSession,
   type DirectorConfig,
@@ -60,17 +59,6 @@ export interface DirectorStreamOptions {
   sessionId: string;
   config: DirectorConfig;
   script: JamScript;
-  /**
-   * The jam's script as it stands right now.
-   *
-   * The stream hands fal the beats a chunk at a time, and each handover reads
-   * the story again: an edit that landed since the session opened is in the
-   * beats that have not gone yet, and that is the whole point — the provider
-   * is never holding a beat the room could still change. Absent, the script
-   * this session opened with is used, which is what a test or a jam with no
-   * store behind it wants.
-   */
-  readScript?: () => Promise<JamScript | null>;
   /** Injected in tests; defaults to the real fal handshake. */
   startSession?: typeof startDirectorSession;
   /** Injected in tests; defaults to a real werift peer. */
@@ -220,12 +208,6 @@ function directorIceServers(env: NodeJS.ProcessEnv = process.env) {
   return [DIRECTOR_STUN, turn];
 }
 
-/** Which beat starts at an offset, so a handover can be audited by beat. */
-function beatIndexAt(script: JamScript, offsetSeconds: number): number | undefined {
-  const index = beatOffsets(script).indexOf(offsetSeconds);
-  return index < 0 ? undefined : index;
-}
-
 function createWeriftPeer(preferH264: boolean): DirectorPeer {
   const iceServers = directorIceServers();
   console.info("director ice servers", { count: iceServers.length, turn: iceServers.length > 1 });
@@ -243,13 +225,19 @@ export class DirectorStream {
   private stopped = false;
   /** Reported once: the film is generated in one chunk, not repeatedly. */
   private generated = false;
-  /**
-   * Seconds of script fal has been given. The lock boundary IS this number:
-   * every beat below it is spoken for, every beat above it can still change.
-   */
-  private committedThroughSeconds = 0;
-  /** One handover at a time, so two chunks cannot send the same beat twice. */
-  private releasing: Promise<void> = Promise.resolve();
+  /** Where each prompt version's zero sits on the film's clock. */
+  private readonly scriptOrigins = new Map<number, number>([[1, 0]]);
+  /** The origin inherited by the next prompt sent on the versioned channel. */
+  private sentScriptOriginSeconds = 0;
+  /** The last position fal actually reported, translated onto the film clock. */
+  private lastFilmOffsetSeconds: number | null = null;
+  /** Furthest observed end of a chunk on the film clock. */
+  private generatedThroughFilmSeconds = 0;
+  /** Once a replacement can overlap old footage, elapsed generation is not unique film length. */
+  private scriptWasReplaced = false;
+  /** Prompt lifecycle events must not report a script replacement as a direction. */
+  private readonly directionPromptVersions = new Set<number>();
+  private readonly scriptPromptVersions = new Set<number>();
   /** Inbound tracks, kept so viewers can be forwarded a copy. */
   private readonly inbound: MediaStreamTrack[] = [];
   private readonly trackListeners: ((track: MediaStreamTrack) => void)[] = [];
@@ -388,16 +376,16 @@ export class DirectorStream {
    */
   /** The beat being generated, the one locked behind it, and what is editable. */
   get beats(): DirectorBeatWindow {
-    return beatWindow(
-      beatOffsets(this.options.script),
-      this.state.scriptOffsetSeconds,
-      this.committedThroughSeconds,
-    );
+    return beatWindow(beatOffsets(this.options.script), this.filmOffsetSeconds);
   }
 
-  /** How much of the script fal holds. The lock boundary, in seconds. */
-  get committedSeconds(): number {
-    return this.committedThroughSeconds;
+  /**
+   * The frontier on the FILM's clock, which is what every other surface means
+   * by a position. fal reports on its own script clock, and that clock is
+   * re-anchored every time the script is replaced.
+   */
+  private get filmOffsetSeconds(): number | null {
+    return this.lastFilmOffsetSeconds;
   }
 
   direct(request: DirectionRequest): {
@@ -417,6 +405,8 @@ export class DirectorStream {
     this.control.send(JSON.stringify(next.message));
     this.state = next.state;
     const promptVersion = (next.message as { prompt_version: number }).prompt_version;
+    this.scriptOrigins.set(promptVersion, this.sentScriptOriginSeconds);
+    this.directionPromptVersions.add(promptVersion);
     this.audit.record({
       kind: "direction_sent",
       promptVersion,
@@ -424,7 +414,9 @@ export class DirectorStream {
       authorId: request.authorId,
       proposalId: request.proposalId,
       beatIndex: request.beatIndex,
-      scriptOffsetSeconds: this.state.scriptOffsetSeconds ?? undefined,
+      // The film's clock, not fal's: the trail is asked "which beat was this
+      // about", and fal's own offsets re-anchor on every script replacement.
+      scriptOffsetSeconds: this.filmOffsetSeconds ?? undefined,
     });
     return { accepted: true, promptVersion, beats };
   }
@@ -447,95 +439,89 @@ export class DirectorStream {
   }
 
   /**
-   * Opens the session with the premise and the first chunk's worth of beats.
+   * Opens the session with the premise and the WHOLE film.
    *
-   * Not the whole film. Whatever goes in here is planned from immediately and
-   * can never be changed again, so it is kept to what fal will generate before
-   * it has told us anything — one chunk at the longest length the model makes.
-   * Everything after it is handed over as it closes, in `releaseBeats`.
+   * Handing it over a piece at a time was tried and measured, and fal will not
+   * have it: given part of the script it wraps to the top rather than waiting
+   * at the end of what it has, and beats appended mid-flight stopped the
+   * chunks altogether. See docs/DECISIONS.md, 2026-09-20. A change to the
+   * story reaches it afterwards by replacing this script, not by extending it.
    */
   private sendConfigure(): void {
     if (!this.control || this.control.readyState !== "open") return;
-    // The same lead as every later hand-over: whatever fal generates before it
-    // has reported anything, it must already have the script for.
-    const throughSeconds = this.handoverThrough(null);
     this.control.send(
-      JSON.stringify(
-        buildConfigureMessage(this.options.config, this.options.script, {
-          throughSeconds,
-        }),
-      ),
-    );
-    this.committedThroughSeconds = throughSeconds;
-  }
-
-  /**
-   * How far the script must have been handed over, from a given frontier.
-   *
-   * Two rules, and the longer of them wins. The provider needs a real lead —
-   * `DIRECTOR_HANDOVER_LEAD_SECONDS`, which is measured rather than chosen,
-   * because running dry makes fal wrap to the top of the script and re-render
-   * the opening. The ROOM needs the beat being generated and the one after it
-   * to be closed, the rule the screen has always stated, which a short film
-   * would not otherwise reach. Capped at the film: past the last beat there is
-   * nothing further to protect and nothing further to send.
-   */
-  private handoverThrough(frontierSeconds: number | null): number {
-    const offsets = beatOffsets(this.options.script);
-    return Math.min(
-      totalDurationSeconds(this.options.script),
-      Math.max(
-        (frontierSeconds ?? 0) + DIRECTOR_HANDOVER_LEAD_SECONDS,
-        twoBeatsAhead(offsets, frontierSeconds),
-      ),
+      JSON.stringify(buildConfigureMessage(this.options.config, this.options.script)),
     );
   }
 
   /**
-   * Hands fal the beats it is about to need, reading the story as it stands.
+   * Puts the current story in fal's hands, replacing the script it holds.
    *
-   * Called on every chunk. fal is generating the chunk that starts at the
-   * frontier, so the beats of the chunk AFTER that are the ones it has not
-   * planned yet and the ones it needs next — and the moment they are sent is
-   * the moment they stop being editable, which is what `beats` reports.
+   * Called when an edit lands, by whoever committed it. The replacement is the
+   * current script's tail, cut early enough that an overlap is possible but a
+   * missing scene is not.
    *
-   * Best-effort by design: a handover that fails leaves the boundary where it
-   * was, so the same beats are offered again on the next chunk rather than
-   * being silently skipped. What cannot be recovered is a beat the frontier
-   * has already passed; that is recorded, not papered over.
+   * Best-effort on top of a commit that already stands: a stream that is not
+   * ready is reported, never thrown at the caller.
    */
-  private async releaseBeats(): Promise<void> {
-    if (this.stopped || !this.control || this.control.readyState !== "open") return;
-    const frontier = this.state.scriptOffsetSeconds;
-    if (frontier === null) return;
-    const through = this.handoverThrough(frontier);
-    if (through <= this.committedThroughSeconds) return;
-    const script =
-      (this.options.readScript ? await this.options.readScript() : null)
-      ?? this.options.script;
-    if (this.stopped || !this.control || this.control.readyState !== "open") return;
-    const beats = buildDirectorScript(script, {
-      fromSeconds: this.committedThroughSeconds,
-      toSeconds: through,
-    });
-    if (beats.length === 0) {
-      // Past the last beat, or a window that spans none: nothing to send, but
-      // the boundary still moves so the room is not told a beat is editable
-      // when the stream has already run past it.
-      this.committedThroughSeconds = through;
-      return;
+  updateScript(
+    script: JamScript,
+    changedFromBeatIndex: number,
+  ): { accepted: boolean; refusal?: DirectionRefusal; promptVersion?: number } {
+    if (this.stopped || !this.control || this.control.readyState !== "open") {
+      return { accepted: false, refusal: "stream_not_ready" };
     }
-    const next = nextScriptMessage(this.state, beats);
+    const offsets = beatOffsets(script);
+    if (offsets.length === 0) return { accepted: false };
+    // The queue checks this before the cascade and again inside the commit,
+    // but the stream is the last authority before fal. A chunk can arrive
+    // after the commit and move the boundary before delivery; never replace a
+    // script whose first changed beat has become current or imminent.
+    if (
+      !Number.isInteger(changedFromBeatIndex)
+      || changedFromBeatIndex < 0
+      || changedFromBeatIndex >= offsets.length
+      || isBeatLocked(this.beats, changedFromBeatIndex)
+    ) {
+      return { accepted: false, refusal: "beat_locked" };
+    }
+    // Replacing cuts to the new script AT ITS BEGINNING and at the next chunk,
+    // so its beginning must be exactly where the old one stops: the end of the
+    // chunk in flight. A beat boundary is the wrong unit — chunks are shorter
+    // than beats, so cutting at the next whole beat leaves a hole where the
+    // rest of this one should be, which a paid take showed as a skipped beat.
+    // Before `configured`, choose the shortest chunk fal can make. Choosing
+    // the longest would cut up to ten seconds too late when the real chunk is
+    // shorter, creating the hole this design explicitly rejects. An early cut
+    // can only repeat footage.
+    const chunkSeconds = this.state.chunkSeconds ?? DIRECTOR_MIN_CHUNK_SECONDS;
+    const origin = (this.filmOffsetSeconds ?? 0) + chunkSeconds;
+    const runtime = totalDurationSeconds(script);
+    if (origin >= runtime) return { accepted: false };
+    const whole = buildDirectorScript(script);
+    const tail = whole
+      // The beat straddling the cut is kept, at offset zero: it is what plays
+      // at the cut, and dropping it is the hole. Beats already finished go.
+      .filter((beat, index) => (whole[index + 1]?.offset ?? runtime) > origin)
+      .map((beat) => ({ ...beat, offset: Math.max(0, beat.offset - origin) }));
+    const next = nextScriptMessage(this.state, tail);
     this.control.send(JSON.stringify(next.message));
     this.state = next.state;
-    this.committedThroughSeconds = through;
+    const promptVersion = (next.message as { prompt_version: number }).prompt_version;
+    // Do not move the observed film clock here. fal may still report a chunk
+    // from the old prompt before this version takes effect. The chunk's own
+    // prompt_version selects its origin when it arrives.
+    this.sentScriptOriginSeconds = origin;
+    this.scriptOrigins.set(promptVersion, origin);
+    this.scriptPromptVersions.add(promptVersion);
+    this.scriptWasReplaced = true;
     this.audit.record({
-      kind: "beats_sent",
-      promptVersion: (next.message as { prompt_version: number }).prompt_version,
-      beatIndex: beatIndexAt(this.options.script, beats[0].offset),
-      scriptOffsetSeconds: frontier,
-      detail: `beats ${beats.map((beat) => beat.offset).join(", ")}s`,
+      kind: "script_replaced",
+      promptVersion,
+      scriptOffsetSeconds: origin,
+      detail: `${tail.length} beats from ${origin}s`,
     });
+    return { accepted: true, promptVersion };
   }
 
   private onControlMessage(raw: unknown): void {
@@ -546,40 +532,52 @@ export class DirectorStream {
     this.state = reduceDirectorState(this.state, message);
 
     switch (message.type) {
-      case "prompt_applied":
-        this.audit.record({
-          kind: "direction_applied",
-          promptVersion: (message as { prompt_version: number }).prompt_version,
-        });
+      case "prompt_applied": {
+        const promptVersion = (message as { prompt_version: number }).prompt_version;
+        if (this.scriptPromptVersions.has(promptVersion)) {
+          this.audit.record({ kind: "script_replacement_applied", promptVersion });
+        } else if (this.directionPromptVersions.has(promptVersion)) {
+          this.audit.record({ kind: "direction_applied", promptVersion });
+        }
         break;
-      case "prompt_rejected":
-        // Per the transactional-scene-contract rule, a refused direction does
-        // not undo the room's decision: it is recorded and surfaced, and the
-        // accepted proposal stays accepted.
-        this.audit.record({
-          kind: "direction_rejected",
-          promptVersion:
-            (message as { prompt_version?: number | null }).prompt_version ?? undefined,
-        });
+      }
+      case "prompt_rejected": {
+        // A provider refusal does not undo the room's committed decision. Keep
+        // the rejection attributable to the kind of prompt that was sent.
+        const promptVersion =
+          (message as { prompt_version?: number | null }).prompt_version ?? undefined;
+        if (promptVersion !== undefined && this.scriptPromptVersions.has(promptVersion)) {
+          this.audit.record({ kind: "script_replacement_rejected", promptVersion });
+        } else if (
+          promptVersion !== undefined
+          && this.directionPromptVersions.has(promptVersion)
+        ) {
+          this.audit.record({ kind: "direction_rejected", promptVersion });
+        }
         break;
+      }
       case "chunk": {
         const chunk = message as {
           chunk_index: number;
           prompt_version: number;
+          playback_seconds: number;
           script_offset_seconds?: number | null;
         };
+        const reported = chunk.script_offset_seconds ?? null;
+        const origin = this.scriptOrigins.get(chunk.prompt_version);
+        if (reported !== null && origin !== undefined) {
+          this.lastFilmOffsetSeconds = origin + reported;
+          this.generatedThroughFilmSeconds = Math.max(
+            this.generatedThroughFilmSeconds,
+            this.lastFilmOffsetSeconds + chunk.playback_seconds,
+          );
+        }
         this.audit.record({
           kind: "chunk_received",
           chunkIndex: chunk.chunk_index,
           promptVersion: chunk.prompt_version,
-          scriptOffsetSeconds: chunk.script_offset_seconds ?? undefined,
+          scriptOffsetSeconds: this.filmOffsetSeconds ?? undefined,
         });
-        // The frontier moved, so the next beats are due. Queued behind any
-        // handover still in flight: two chunks arriving together must not both
-        // read the same boundary and send the same beats twice.
-        this.releasing = this.releasing
-          .then(() => this.releaseBeats())
-          .catch(() => undefined);
         break;
       }
       case "error": {
@@ -610,8 +608,13 @@ export class DirectorStream {
     if (this.generated || this.stopped) return;
     const reading = {
       runtimeSeconds: totalDurationSeconds(this.options.script),
-      generatedSeconds: this.state.generatedSeconds,
-      scriptOffsetSeconds: this.state.scriptOffsetSeconds,
+      // Before any replacement, elapsed generated seconds is the film length.
+      // Afterwards chunks may overlap by design, so only observed coverage on
+      // the film clock can say how much unique film exists.
+      generatedSeconds: this.scriptWasReplaced
+        ? this.generatedThroughFilmSeconds
+        : this.state.generatedSeconds,
+      scriptOffsetSeconds: this.filmOffsetSeconds,
     };
     const signal = completionSignal(reading);
     if (!signal) return;
@@ -619,9 +622,9 @@ export class DirectorStream {
     this.audit.record({
       kind: "film_generated",
       detail: completionDetail(signal, reading),
-      ...(this.state.scriptOffsetSeconds === null
+      ...(this.filmOffsetSeconds === null
         ? {}
-        : { scriptOffsetSeconds: this.state.scriptOffsetSeconds }),
+        : { scriptOffsetSeconds: this.filmOffsetSeconds }),
     });
     this.options.onFilmGenerated?.(signal);
   }

@@ -48,10 +48,10 @@ test("with no session every beat is written, numbered from one, at its own offse
   assert.deepEqual(beats.map((beat) => beat.durationSeconds), Array(6).fill(5));
 });
 
-test("before the first chunk the opening beat is already being generated", () => {
+test("before the first chunk the opening beat is being generated and the next is closed", () => {
   assert.deepEqual(states(null), [
     "generating",
-    "written",
+    "locked",
     "written",
     "written",
     "written",
@@ -264,39 +264,4 @@ test("only directions become turns; chunks and provider errors do not", () => {
 test("with no script a turn keeps its named beat and cannot infer one from an offset", () => {
   const turns = directionTurns([sent(2, { scriptOffsetSeconds: 12 }), sent(3, { beatIndex: 1 })], null);
   assert.deepEqual(turns.map((turn) => turn.beatIndex), [null, 1]);
-});
-
-test("at Play the opening beat is being made and the beats handed over with it are closed", () => {
-  // What `configure` carried: 15 seconds, so beats 1-3 are with the provider.
-  // The provider starts at the top of the film, so beat 1 is the one being
-  // made — not the last one handed over, which is three beats ahead of it.
-  const window = beatWindowForScript(SCRIPT, null, 15);
-  assert.deepEqual(window, {
-    currentBeatIndex: null,
-    lockedBeatIndex: 2,
-    minEditableBeatIndex: 3,
-  });
-  const beats = buildTimeline(SCRIPT, {
-    window,
-    producedThrough: null,
-    playheadSeconds: null,
-    spend: RICH,
-  });
-  assert.deepEqual(beats.map((beat) => beat.state), [
-    "generating",
-    "locked",
-    "locked",
-    "written",
-    "written",
-    "written",
-  ]);
-  // And every one of them is closed to direction, the generating one included.
-  assert.deepEqual(beats.map((beat) => isBeatClosed(beat.state)), [
-    true,
-    true,
-    true,
-    false,
-    false,
-    false,
-  ]);
 });

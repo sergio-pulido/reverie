@@ -90,10 +90,13 @@ export interface OutlineEditRecord {
   /** The revision the edit landed as. */
   revision?: number;
   error?: OutlineEditError;
-  // Nothing here says what the open streams were told, because they are told
-  // nothing: a beat reaches the provider when it closes to editing, and an
-  // edit can only land on a beat that has not closed. The stream reads this
-  // revision when it hands that beat over.
+  /**
+   * How many running takes were handed the revision this edit produced.
+   *
+   * Zero is the ordinary answer between takes and says nothing is wrong. It is
+   * the whole script that goes, not this beat — see the queue's `deliver`.
+   */
+  streamsUpdated?: number;
 }
 
 /** At most this many edits wait per jam; the next is refused with `queue_full`. */

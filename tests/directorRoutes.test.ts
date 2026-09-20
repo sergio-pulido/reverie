@@ -5,7 +5,7 @@ import type { Server } from "node:http";
 import express from "express";
 import type { Jam } from "../src/core/jam";
 import { InMemoryJamStore } from "../apps/server/jams";
-import { createDirectorRouter } from "../apps/server/director";
+import { createDirectorRouter, DirectorStreamRegistry } from "../apps/server/director";
 import { InMemoryDirectorRecordingStore } from "../apps/server/directorRecordings";
 import {
   DirectorError,
@@ -45,6 +45,8 @@ let closedViewers = 0;
 let viewerClosers: (() => void)[] = [];
 let server: Server;
 let baseUrl: string;
+/** The router's own registry, so a test can reach the stream it opened. */
+const liveStreams = new DirectorStreamRegistry();
 
 /**
  * A jam whose film is `portionSeconds x 2 x portionsPerScene` long, 20s by default.
@@ -118,6 +120,7 @@ before(async () => {
       config: CONFIG,
       limits: LIMITS,
       recordings,
+      registry: liveStreams,
       attachViewer: async (_stream, offerSdp, onClosed) => {
         viewerOffers.push(offerSdp);
         let announced = false;
@@ -183,20 +186,16 @@ test("codec preference follows the selected container without removing the fallb
   );
 });
 
-test("the configure message carries the opening lead's beats, not the whole film", async () => {
-  // 8 beats of 15s: 120 seconds of film.
+test("the configure message is the whole film, because fal starves on less", async () => {
   const { jam, sessionId } = await openJamSession(buildJam(15, 4));
   peer.channel.open();
 
   const [configure] = peer.channel.parsed();
   assert.equal(configure.type, "configure");
   assert.equal(configure.prompt_version, 1);
-  // A beat fal is given can never change again, so it gets the lead and no
-  // more — forty seconds, which is beats at 0, 15 and 30. The rest is handed
-  // over as the stream advances.
   assert.deepEqual(
     (configure.script as { offset: number }[]).map((beat) => beat.offset),
-    [0, 15, 30],
+    [0, 15, 30, 45, 60, 75, 90, 105],
   );
 
   await endSession(jam.id, sessionId);
@@ -519,11 +518,16 @@ test("the audit records where the stream stood when a direction was sent", async
 });
 
 test("a direction on a locked beat is refused, and says which are still open", async () => {
-  // 8 beats of 15s. What is closed is what fal has been GIVEN: the opening
-  // lead covers beats 0-2, and nothing further has been handed over yet.
-  const { jam, sessionId } = await openJamSession(buildJam(15, 4));
+  const { jam, sessionId } = await openJamSession();
   peer.channel.open();
-  peer.channel.deliver({ type: "configured", prompt_version: 1, chunk_duration: 10 });
+  // Beat 1 is on screen; beat 2 is already committed to generation.
+  peer.channel.deliver({
+    type: "chunk",
+    chunk_index: 0,
+    prompt_version: 1,
+    playback_seconds: 5,
+    script_offset_seconds: 5,
+  });
 
   const direct = (beatIndex: number) =>
     fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/direct`, {
@@ -545,7 +549,7 @@ test("a direction on a locked beat is refused, and says which are still open", a
   const open = await direct(3);
   assert.equal(open.status, 202);
   assert.deepEqual((await open.json()).beats, {
-    currentBeatIndex: null,
+    currentBeatIndex: 1,
     lockedBeatIndex: 2,
     minEditableBeatIndex: 3,
   });
@@ -1194,117 +1198,91 @@ test("opening a session reports the same spend the read route does", async () =>
   await endSession(jam.id, opened.sessionId);
 });
 
-// The script is handed to fal a chunk at a time, not all at once in
-// `configure`. That is what makes an edit reach the picture: a beat fal has
-// been given is planned from and cannot change, so a beat is only given once
-// it has closed — and what is sent is read from the story as it stands then.
+// fal gets the whole opening script. A revision replaces its remaining tail,
+// re-based to the cut where the old plan stops.
 
-/** Drives a stream to a chunk boundary and returns what fal was sent. */
-function scriptsSent(): { prompt_version: number; script_mode?: string; replan?: boolean; script: { offset: number; prompt: string }[] }[] {
+/** What fal was sent that carried a script, parsed. */
+function scriptsSent(): {
+  prompt_version: number;
+  script_mode?: string;
+  replan?: boolean;
+  script: { offset: number; prompt: string }[];
+}[] {
   return peer.channel
     .parsed()
     .filter((message) => message.type === "prompt" && Array.isArray(message.script)) as never;
 }
 
-test("beats are handed over as the stream advances, keeping the lead ahead of it", async () => {
-  // 8 beats of 15s: 120 seconds, so the lead is not the whole film.
-  const { jam, sessionId } = await openJamSession(buildJam(15, 4));
+test("a changed story replaces the script the running take is working from", async () => {
+  const jam = buildJam(15, 2);
+  const { sessionId } = await openJamSession(jam);
   peer.channel.open();
   peer.channel.deliver({ type: "configured", prompt_version: 1, chunk_duration: 10 });
+  peer.channel.deliver({
+    type: "chunk",
+    chunk_index: 0,
+    prompt_version: 1,
+    playback_seconds: 10,
+    script_offset_seconds: 0,
+  });
 
-  // Nothing yet: configure carried the lead, out to 40s.
-  assert.deepEqual(scriptsSent(), []);
+  const stream = liveStreams.get(sessionId);
+  assert.ok(stream, "the router's registry holds the open stream");
 
-  // The lead now has to reach 45s, and the beat at 45s is the only one in it.
-  await deliverChunk(0, 10);
+  const rewritten = structuredClone(jam.script);
+  rewritten.scenes[1].portions[1].action = "The door gives to a flood.";
+  assert.deepEqual(stream.updateScript(rewritten, 3), { accepted: true, promptVersion: 2 });
 
-  const [first] = scriptsSent();
-  assert.ok(first, "the beats the lead now covers were sent");
-  assert.deepEqual(first.script.map((beat) => beat.offset), [45]);
-  // The same versioned channel a direction uses, one higher than the last.
-  assert.equal(first.prompt_version, 2);
-  // Queued after what is planned rather than cutting into it.
-  assert.equal(first.script_mode, "append");
-  assert.equal(first.replan, false);
+  const [sent] = scriptsSent();
+  assert.ok(sent, "the script went to the provider");
+  // The tail, re-based to zero, cut where the old script stops: the chunk in
+  // flight ends at 10s, which is inside beat 0, so beat 0 goes at offset zero
+  // and the rest follow at 5, 20 and 35.
+  assert.deepEqual(sent.script.map((beat) => beat.offset), [0, 5, 20, 35]);
+  assert.match(sent.script[3].prompt, /The door gives to a flood\./);
+  // Replace, not append: appending stopped the chunks outright on a real take.
+  assert.equal(sent.script_mode, "replace");
+  assert.equal(sent.replan, false);
+  assert.equal(sent.prompt_version, 2);
 
-  await endSession(jam.id, sessionId);
-});
+  const replaced = stream.entries.filter((entry) => entry.kind === "script_replaced");
+  assert.equal(replaced.length, 1);
+  assert.equal(replaced[0].detail, "4 beats from 10s");
 
-test("a beat handed over is closed, and a beat still to come is not", async () => {
-  const { jam, sessionId } = await openJamSession(buildJam(15, 4));
-  peer.channel.open();
-  peer.channel.deliver({ type: "configured", prompt_version: 1, chunk_duration: 10 });
-
-  const window = async () => {
-    const response = await fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}`);
-    return (await response.json()).beats;
-  };
-  // Configure carried the lead, [0,40): beats 0, 1 and 2 are with the provider.
-  assert.equal((await window()).minEditableBeatIndex, 3);
-
-  await deliverChunk(0, 10);
-  // Beat 3 has now gone too, so the first beat an edit may touch is 4.
-  assert.equal((await window()).minEditableBeatIndex, 4);
-
-  await endSession(jam.id, sessionId);
-});
-
-test("what is handed over is the story as it stands, not the one the take opened with", async () => {
-  const { jam, sessionId } = await openJamSession(buildJam(15, 4));
-  peer.channel.open();
-  peer.channel.deliver({ type: "configured", prompt_version: 1, chunk_duration: 10 });
-
-  // An edit lands on beat 3 while the take runs — a beat nothing has been told
-  // about yet, which is the only kind an edit can land on.
-  const current = await store.getCurrentScriptRevision(jam.id);
-  assert.ok(current);
-  const rewritten = structuredClone(current.script);
-  // Beat 3 of this film — two scenes of four portions — is the fourth portion
-  // of the first scene, and it starts at 45s.
-  rewritten.scenes[0].portions[3].action = "The door gives to a flood.";
-  await store.commitScript(jam.id, rewritten, 3, { expectedRevision: current.revision });
-
-  await deliverChunk(0, 10);
-
-  const [first] = scriptsSent();
-  assert.deepEqual(first.script.map((beat) => beat.offset), [45]);
-  assert.match(first.script[0].prompt, /The door gives to a flood\./);
-
-  await endSession(jam.id, sessionId);
-});
-
-test("a beat is never handed over twice, and the end of the film is not an error", async () => {
-  // 4 beats of 15s: 60 seconds, so the lead runs off the end almost at once.
-  const { jam, sessionId } = await openJamSession(buildJam(15, 2));
-  peer.channel.open();
-  peer.channel.deliver({ type: "configured", prompt_version: 1, chunk_duration: 10 });
-
-  for (const offset of [0, 10, 20, 30, 40, 50]) {
-    await deliverChunk(offset / 10, offset);
-  }
-
-  const offsets = scriptsSent().flatMap((message) => message.script.map((beat) => beat.offset));
-  assert.deepEqual(offsets, [45], "the last beat once, and nothing past it");
-  assert.deepEqual(
-    scriptsSent().map((message) => message.prompt_version),
-    [2],
+  peer.channel.deliver({ type: "prompt_applied", prompt_version: 2 });
+  assert.equal(
+    stream.entries.some((entry) => entry.kind === "direction_applied"),
+    false,
+    "a script acknowledgement is not a direction acknowledgement",
   );
+  assert.equal(
+    stream.entries.some((entry) => entry.kind === "script_replacement_applied"),
+    true,
+  );
+
+  await endSession(jam.id, sessionId);
+});
+
+test("a stream that is not ready takes no script, and says so rather than throwing", async () => {
+  const jam = buildJam(15, 2);
+  const { sessionId } = await openJamSession(jam);
+  // The control channel never opened.
+  const stream = liveStreams.get(sessionId);
+  assert.ok(stream);
+  assert.deepEqual(stream.updateScript(jam.script, 2), {
+    accepted: false,
+    refusal: "stream_not_ready",
+  });
+  assert.deepEqual(scriptsSent(), []);
 
   await endSession(jam.id, sessionId);
 });
 
 test("at Play the beat being made and the one after it are both closed", async () => {
-  // The room's rule: you cannot change what is being made, nor the thing
-  // straight after it. The provider's lead reaches further still, and the
-  // longer of the two is what goes — but the rule holds whichever wins.
+  // The room's rule, applied at beat zero: fal starts at the top of the film,
+  // so the opening beat is the one being made and the next is spoken for.
   const { jam, sessionId } = await openJamSession(buildJam(15, 2));
   peer.channel.open();
-
-  const [configure] = peer.channel.parsed();
-  assert.deepEqual(
-    (configure.script as { offset: number }[]).map((beat) => beat.offset),
-    [0, 15, 30],
-  );
 
   const direct = (beatIndex: number) =>
     fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/direct`, {
@@ -1313,15 +1291,178 @@ test("at Play the beat being made and the one after it are both closed", async (
       body: JSON.stringify({ body: "Rewrite this beat.", beatIndex }),
     });
 
-  // And the cost of that lead, stated rather than discovered: on a film this
-  // short it is three of the four beats. Only the last one is still the
-  // room's, because fal has been given everything before it.
-  for (const closed of [0, 1, 2]) {
+  for (const closed of [0, 1]) {
     const response = await direct(closed);
     assert.equal(response.status, 409, `beat ${closed}`);
     assert.equal((await response.json()).error.code, "beat_locked");
   }
-  assert.equal((await direct(3)).status, 202, "the last beat can still change");
+  assert.equal((await direct(2)).status, 202, "the third beat can still change");
+
+  await endSession(jam.id, sessionId);
+});
+
+test("after a replacement the film's clock keeps running, though fal's restarts", async () => {
+  // 8 beats of 15s, so there is a tail to replace.
+  const jam = buildJam(15, 4);
+  const { sessionId } = await openJamSession(jam);
+  peer.channel.open();
+  peer.channel.deliver({ type: "configured", prompt_version: 1, chunk_duration: 10 });
+  // The stream is inside beat 2 (30-45s).
+  peer.channel.deliver({
+    type: "chunk",
+    chunk_index: 0,
+    prompt_version: 1,
+    playback_seconds: 30,
+    script_offset_seconds: 30,
+  });
+  const stream = liveStreams.get(sessionId)!;
+  assert.equal(stream.beats.currentBeatIndex, 2);
+
+  stream.updateScript(jam.script, 4);
+  // The cut is at 40s — the frontier plus the chunk in flight — which is still
+  // inside beat 2, so the film has not moved and neither has the window.
+  assert.equal(stream.beats.currentBeatIndex, 2);
+  peer.channel.deliver({
+    type: "chunk",
+    chunk_index: 1,
+    prompt_version: 2,
+    playback_seconds: 10,
+    script_offset_seconds: 10,
+  });
+  assert.equal(stream.beats.currentBeatIndex, 3, "10s on fal's clock is 50s on the film's");
+  assert.equal(
+    stream.entries.filter((entry) => entry.kind === "chunk_received").at(-1)
+      ?.scriptOffsetSeconds,
+    50,
+    "the audit records the film clock, not fal's restarted clock",
+  );
+
+  await endSession(jam.id, sessionId);
+});
+
+test("an old-version chunk after replacement does not jump onto the new clock", async () => {
+  const jam = buildJam(15, 4);
+  const { sessionId } = await openJamSession(jam);
+  peer.channel.open();
+  peer.channel.deliver({ type: "configured", prompt_version: 1, chunk_duration: 10 });
+  peer.channel.deliver({
+    type: "chunk",
+    chunk_index: 0,
+    prompt_version: 1,
+    playback_seconds: 10,
+    script_offset_seconds: 30,
+  });
+  const stream = liveStreams.get(sessionId)!;
+  assert.deepEqual(stream.updateScript(jam.script, 4), { accepted: true, promptVersion: 2 });
+
+  // This was already in flight under the original script. Its 40 means film
+  // 40, not replacement origin 40 + old-script offset 40.
+  peer.channel.deliver({
+    type: "chunk",
+    chunk_index: 1,
+    prompt_version: 1,
+    playback_seconds: 10,
+    script_offset_seconds: 40,
+  });
+  assert.equal(stream.beats.currentBeatIndex, 2);
+  assert.equal(
+    stream.entries.filter((entry) => entry.kind === "chunk_received").at(-1)
+      ?.scriptOffsetSeconds,
+    40,
+  );
+
+  await endSession(jam.id, sessionId);
+});
+
+test("two revisions before another chunk reuse the same cut", async () => {
+  const jam = buildJam(15, 4);
+  const { sessionId } = await openJamSession(jam);
+  peer.channel.open();
+  peer.channel.deliver({ type: "configured", prompt_version: 1, chunk_duration: 10 });
+  peer.channel.deliver({
+    type: "chunk",
+    chunk_index: 0,
+    prompt_version: 1,
+    playback_seconds: 10,
+    script_offset_seconds: 30,
+  });
+  const stream = liveStreams.get(sessionId)!;
+  assert.deepEqual(stream.updateScript(jam.script, 4), { accepted: true, promptVersion: 2 });
+  assert.deepEqual(stream.updateScript(jam.script, 4), { accepted: true, promptVersion: 3 });
+
+  const replacements = stream.entries.filter((entry) => entry.kind === "script_replaced");
+  assert.deepEqual(
+    replacements.map((entry) => entry.scriptOffsetSeconds),
+    [40, 40],
+    "sending a plan does not move the observed frontier",
+  );
+  assert.deepEqual(
+    scriptsSent().map((message) => message.script.map((beat) => beat.offset)),
+    [[0, 5, 20, 35, 50, 65], [0, 5, 20, 35, 50, 65]],
+  );
+
+  await endSession(jam.id, sessionId);
+});
+
+test("before fal reports its chunk length the replacement cuts early, never late", async () => {
+  const jam = buildJam(15, 4);
+  const { sessionId } = await openJamSession(jam);
+  peer.channel.open();
+  const stream = liveStreams.get(sessionId)!;
+  assert.deepEqual(stream.updateScript(jam.script, 2), { accepted: true, promptVersion: 2 });
+
+  const [replacement] = stream.entries.filter((entry) => entry.kind === "script_replaced");
+  assert.equal(replacement.scriptOffsetSeconds, 5);
+  assert.equal(replacement.detail, "8 beats from 5s");
+  assert.deepEqual(scriptsSent()[0].script.map((beat) => beat.offset), [0, 10, 25, 40, 55, 70, 85, 100]);
+
+  await endSession(jam.id, sessionId);
+});
+
+test("with the film already made past the cut there is nothing to replace", async () => {
+  const jam = buildJam(15, 2);
+  const { sessionId } = await openJamSession(jam);
+  peer.channel.open();
+  peer.channel.deliver({ type: "configured", prompt_version: 1, chunk_duration: 10 });
+  // The last chunk of a 60s film is in flight: the cut would land past its end.
+  peer.channel.deliver({
+    type: "chunk",
+    chunk_index: 0,
+    prompt_version: 1,
+    playback_seconds: 50,
+    script_offset_seconds: 50,
+  });
+  const stream = liveStreams.get(sessionId)!;
+  assert.deepEqual(stream.updateScript(jam.script, 3), {
+    accepted: false,
+    refusal: "beat_locked",
+  });
+  assert.deepEqual(scriptsSent(), [], "nothing is sent that could only repeat what is made");
+
+  await endSession(jam.id, sessionId);
+});
+
+test("a changed beat that becomes blocked is refused at the provider boundary", async () => {
+  const jam = buildJam(15, 4);
+  const { sessionId } = await openJamSession(jam);
+  peer.channel.open();
+  peer.channel.deliver({ type: "configured", prompt_version: 1, chunk_duration: 10 });
+  peer.channel.deliver({
+    type: "chunk",
+    chunk_index: 0,
+    prompt_version: 1,
+    playback_seconds: 10,
+    script_offset_seconds: 30,
+  });
+  const stream = liveStreams.get(sessionId)!;
+
+  // Beat 3 was editable earlier, but at film offset 30 the provider is making
+  // beat 2 and beat 3 is the blocked successor. Delivery re-checks now.
+  assert.deepEqual(stream.updateScript(jam.script, 3), {
+    accepted: false,
+    refusal: "beat_locked",
+  });
+  assert.deepEqual(scriptsSent(), [], "no replacement crosses a blocked beat");
 
   await endSession(jam.id, sessionId);
 });

@@ -142,6 +142,43 @@ test("a provider that reports no playable duration still reaches the end", async
   await stream.stop();
 });
 
+test("replacement overlap does not finish the film before its translated frontier", async () => {
+  const script = buildScript(15, 2, 3); // 90s
+  const { stream, peer, signals } = await openStream(script);
+  peer.channel.deliver({ type: "configured", prompt_version: 1, chunk_duration: 10 });
+  peer.channel.deliver(chunk(0, 10, 0));
+  peer.channel.deliver(chunk(1, 10, 10));
+
+  assert.deepEqual(stream.updateScript(script, 2), { accepted: true, promptVersion: 2 });
+
+  // One already-requested v1 chunk arrives after the replacement. The new
+  // provider clock then restarts at zero, so these reports total 90 generated
+  // seconds but cover only the first 80 seconds of the film.
+  peer.channel.deliver(chunk(2, 10, 20));
+  for (const offset of [0, 10, 20, 30, 40, 50]) {
+    peer.channel.deliver({
+      type: "chunk",
+      chunk_index: 3 + offset / 10,
+      prompt_version: 2,
+      playback_seconds: 10,
+      script_offset_seconds: offset,
+    });
+  }
+  assert.deepEqual(signals, []);
+  assert.equal(stream.filmGenerated, false);
+
+  peer.channel.deliver({
+    type: "chunk",
+    chunk_index: 9,
+    prompt_version: 2,
+    playback_seconds: 10,
+    script_offset_seconds: 60,
+  });
+  assert.deepEqual(signals, ["generated"]);
+  assert.equal(stream.filmGenerated, true);
+  await stream.stop();
+});
+
 test("a take already stopping reports nothing generated", async () => {
   const { stream, peer, signals } = await openStream();
   await stream.stop();

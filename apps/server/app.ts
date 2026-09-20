@@ -103,13 +103,13 @@ export function createApiApp(
     stateVersion: 0,
   });
   app.use(createJamsRouter(store, guard));
-  // The outline queue does not push a landed beat anywhere: a beat reaches the
-  // provider when it closes to editing, and the stream reads the story itself
-  // at that moment. The window is here so the panel can show the same boundary
-  // the queue enforces.
+  // A landed revision goes straight to the takes running on that jam: fal is
+  // given the whole script and plans from it, so the only way a change reaches
+  // the picture is to replace what it holds.
   app.use(
     createOutlineRouter(store, guard, {
       window: (jamId: string) => streams.beatWindow(jamId),
+      streamsFor: (jamId: string) => streams.streamsFor(jamId),
     }),
   );
   app.use(createSessionsRouter(store));

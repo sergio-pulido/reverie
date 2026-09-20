@@ -27,13 +27,15 @@ test("the current beat is the last one that has started", () => {
   assert.equal(currentBeatIndex(offsets, 99), 3);
 });
 
-test("before the first chunk the opening beat is already committed", () => {
+test("before the first chunk the opening beat and the one after it are committed", () => {
   // configure carried the whole script to the provider, so beat 0 is gone
   // already — the same shape as the player's priming state.
+  // fal starts at the top of the film, so the rule that closes the beat being
+  // generated and the one after it closes beats 0 and 1 here.
   assert.deepEqual(beatWindow([0, 5, 10, 15], null), {
     currentBeatIndex: null,
-    lockedBeatIndex: 0,
-    minEditableBeatIndex: 1,
+    lockedBeatIndex: 1,
+    minEditableBeatIndex: 2,
   });
 });
 

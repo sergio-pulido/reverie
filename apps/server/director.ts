@@ -31,6 +31,7 @@ import { sessionSettingsSchema } from "../../src/core/session";
 import {
   DIRECTOR_MIN_BILLED_SECONDS,
   DirectorError,
+  directorFrameSize,
   resolveDirectorConfig,
   startDirectorSession,
   type DirectorConfig,
@@ -596,6 +597,9 @@ export function createDirectorRouter(
       ? new DirectorSegmenter({
           sinks: [live, ...archiveSinks],
           targetSegmentSeconds: options.segmentSeconds ?? 2,
+          // The muxer cannot declare a video track without a frame size, and a
+          // track declared without one hangs its thread on the first keyframe.
+          videoSize: directorFrameSize(active),
         })
       : null;
     const stream = new DirectorStream({

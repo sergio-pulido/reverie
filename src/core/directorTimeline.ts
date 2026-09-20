@@ -23,14 +23,22 @@ import type { JamScript } from "./script";
 /**
  * What a beat is doing, in the order the screen resolves them.
  *
- * - `ready` — the stream has produced it, so it is in this session's video.
  * - `generating` — it is with the provider right now.
+ * - `playing` — the viewer is inside it. A different question from
+ *   `generating`, and the two are usually different beats: see below.
+ * - `ready` — the stream has produced it, so it is in this session's video.
  * - `locked` — closed to direction but not yet produced: the beat committed
  *   ahead of playback, which is exactly the gap the closing rule creates.
  * - `blocked` — the budget left cannot pay for its seconds.
  * - `written` — in the script, not generated, still open to direction.
  */
-export type BeatState = "written" | "blocked" | "locked" | "generating" | "ready";
+export type BeatState =
+  | "written"
+  | "blocked"
+  | "locked"
+  | "generating"
+  | "playing"
+  | "ready";
 
 export interface TimelineBeat extends Beat {
   /** What the row numbers it: one-based, the way a person counts shots. */
@@ -46,28 +54,70 @@ export interface TimelineInput {
    * finished film still says which beats exist. Null when none was reached.
    */
   producedThrough: number | null;
+  /**
+   * Where the viewer is, in seconds from the top of the film. Null when
+   * nothing is playing.
+   *
+   * Deliberately NOT the same number as the window's position, and this is
+   * the distinction the screen was missing. The window comes from
+   * `chunk.script_offset_seconds`, which a paid probe (2026-09-20) showed
+   * arrives once per ten-second chunk and reports the GENERATION FRONTIER —
+   * how far ahead of the viewer the provider has run. Driving "what is on
+   * screen" from it named the wrong beat and moved it in ten-second lurches.
+   * The playhead is continuous and is the viewer's own position.
+   */
+  playheadSeconds: number | null;
   spend: DirectorSpend;
 }
 
-/** One beat's state, from the stream's window and what the budget can pay for. */
+/**
+ * One beat's state, from the stream's frontier, the viewer's playhead and
+ * what the budget can pay for.
+ *
+ * `generating` is resolved before `playing` on purpose. At the live edge the
+ * viewer is inside the very beat the provider is making, and both are true;
+ * saying it is being generated is the stronger claim, and the continuous
+ * playhead marker still shows where inside it the viewer is. Behind the edge
+ * the two are different beats and each gets its own treatment.
+ */
 export function beatStateOf(
   beat: Beat,
-  { window, producedThrough, spend }: TimelineInput,
+  { window, producedThrough, playheadSeconds, spend }: TimelineInput,
 ): BeatState {
+  const playing =
+    playheadSeconds !== null &&
+    playheadSeconds >= beat.startSeconds &&
+    playheadSeconds < beat.startSeconds + beat.durationSeconds;
   if (window) {
     if (window.currentBeatIndex === null) {
-      // Nothing on screen yet: the opening beat went to the provider with the
+      // Nothing generated yet: the opening beat went to the provider with the
       // configure message, so it is already being generated.
       if (beat.portionIndex === window.lockedBeatIndex) return "generating";
     } else {
       if (beat.portionIndex === window.currentBeatIndex) return "generating";
+      if (playing) return "playing";
       if (beat.portionIndex < window.currentBeatIndex) return "ready";
     }
+    if (playing) return "playing";
     if (isBeatLocked(window, beat.portionIndex)) return "locked";
   } else if (producedThrough !== null && beat.portionIndex <= producedThrough) {
-    return "ready";
+    return playing ? "playing" : "ready";
   }
   return canAfford(spend, beat.durationSeconds) ? "written" : "blocked";
+}
+
+/**
+ * True when a beat has gone to the provider, so direction aimed at it is
+ * refused.
+ *
+ * One answer to that question, for every part of the screen that asks it. A
+ * beat on screen counts: the viewer is watching it, so it was generated, and
+ * "on screen" being a separate state from "ready" must not quietly reopen it.
+ */
+export function isBeatClosed(state: BeatState): boolean {
+  return (
+    state === "locked" || state === "generating" || state === "playing" || state === "ready"
+  );
 }
 
 /** The film's beats in order, each carrying its state. */

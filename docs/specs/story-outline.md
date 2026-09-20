@@ -163,7 +163,8 @@ rest are sketches, not contracts:
 | Direct rejection | `reroll` on the beat the author rejected | Built: the outline panel's "Not this" — one person's "no", not a tally |
 | Up/down vote | `reroll` on a beat the room rejected | Unspecified: the tally rule that fires it |
 | Poll | `set` carrying the winning phrase | Unspecified: who opens one, over which beats, how candidates are produced |
-| Chat | `set` or `reroll`, resolved from prose | Unspecified: how a described change is pinned to a beat index |
+| Direction | `set` on the beat a model chose for the words | Built: the Director composer — see "A direction chooses its beat" |
+| Chat | `set` or `reroll`, resolved from prose | Unspecified: whose turn becomes an edit and when, though pinning one to a beat is now answered by the direction adapter |
 
 The tally rule for votes is deliberately **not** decided here, and deliberately **server-owned**
 when it is — the same rule `docs/specs/transactional-scene-contract.md` already fixes for scene
@@ -171,6 +172,32 @@ acceptance: the browser renders an outcome and never computes entitlement.
 
 This table is where the vote/accept machinery of the proposal queue meets the outline. A proposal
 is a proposed edit; accepting one is admitting it to the queue below.
+
+## A direction chooses its beat
+
+The Director composer is free text: "make the ending darker", not "beat 6 reads …". Such a
+direction is an edit whose beat is missing, and `POST /api/jams/:id/outline/directions` is the
+adapter that supplies it.
+
+The server reads the lock window, offers a model **only** the beats from the boundary to the end
+of the film, and takes back the beat index and what that beat now reads. Three rules make the
+answer safe to act on:
+
+1. **The list is the whole choice.** An index outside the candidates is corrected once, with the
+   indices it may use, and then refused. It is never clamped into range: a clamped choice lands
+   a rewrite on a beat nobody picked, which is the failure this adapter exists to remove.
+2. **A refusal is a refusal.** A chooser that cannot answer is a typed error and nothing is
+   queued. Falling back to the first open beat would reproduce, silently, the behaviour being
+   replaced — every direction landing on whatever is at the front of the film.
+3. **An aim wins over a choice.** A `beatIndex` in the request pins the beat, and the model is
+   then only asked what that beat should now read — the words are a direction, not a phrase, and
+   writing them into the outline verbatim would put an instruction where a story phrase belongs.
+
+After the choice there is nothing special about a direction: it is a `set` with
+`mechanism: "direction"`, and it takes the same queue, cascade, commit and delivery as every
+other edit. The record keeps `said` (the room's words) and `chosenBecause` (why that beat) so a
+ledger showing only the model's sentence can still be checked against what was asked for. Both
+are audit; nothing downstream reads them.
 
 ## Edits are serialized
 

@@ -2549,6 +2549,51 @@ the code it quotes sit together again.
   20-second default (`buildDefaultFormatScript` is now 3×4×5s), and one DOM test that grabbed
   the first `.form-note` in the create form now asks for the note it means.
 
+## 2026-09-20 — A direction is aimed at the beat it is about (RV-32)
+
+- The Director composer no longer sends what is said to fal as a steering prompt. It posts it
+  to `POST /api/jams/:id/outline/directions`, which chooses the beat the words are about,
+  rewrites that beat, and re-derives every beat after it through the existing outline queue.
+  This is the fix for "I typed a change while the film was running and it landed on beat one":
+  a steering prompt makes the provider re-plan what it is generating now, whatever the words
+  were about.
+- The chooser is one Nebius completion (`runTargeting`, `TARGETING_MAX_TOKENS` 400) and is
+  offered **only** the beats from the lock boundary to the end of the film. A beat outside that
+  list is corrected once with the allowed indices and then refused; it is never clamped. A
+  chooser that cannot answer is a `502` with a typed code and nothing is queued.
+- A `beatIndex` in the request pins the aim, so choosing a beat on the timeline still works —
+  the model is then only asked what that beat should now read, because what is typed is a
+  direction, not a beat phrase.
+- The edit record carries `said` (the room's own words) and `chosenBecause` (why that beat),
+  both audit only, and `mechanism: "direction"` joins the mechanism enum. The Director column
+  now lists the asks — what was said, the beat it landed on, the phrase it now reads, the
+  status and revision — above the narrower "reached the stream" trail.
+- The Director screen re-reads the outline while it is open (`useDirectorStory`, 4s idle / 1s
+  while an edit is in flight), so the timeline follows the revision. Beats a cascade rewrote
+  are marked `Rewritten` for 8 seconds, because only their words change and the row would
+  otherwise read exactly as it did a second earlier.
+- The composer is no longer blocked by a stopped stream. A direction changes the story first
+  and the picture second, so between takes it lands on the beats the next take will play; it is
+  blocked only when this server holds no outline or every beat is closed.
+- **Probed live against Nebius on 2026-09-20** from this branch, film stopped: 8-beat film,
+  "his younger self should refuse to speak to him" → beat 6 chosen in 0.9s, landed as revision 2
+  with beats 7–8 re-derived in ~3s and beats 1–5 untouched; a direction pinned to beat 8 rewrote
+  only that beat. Driven through the real screen in a browser: "the driver should run into the
+  rain instead of fleeing on foot" landed on beat 7 of 8 and beat 8 followed, both marked
+  Rewritten, the ask shown with its reason.
+- **Not verified:** no direction has been sent to a RUNNING take on this branch, so delivery of
+  a landed beat to an open stream is covered by tests only. The behaviour it would show is
+  unchanged: only a stream about to render the edited beat is sent it.
+- Verified: `pnpm test` 1437/1437, `npx tsc --noEmit` clean, `pnpm build` clean. New coverage in
+  `tests/outlineDirection.test.ts` (the candidate window, the prompt, the refusal to clamp, the
+  correction loop), `tests/outlineRoutes.test.ts` (aiming, pinning, the refusals, the replay,
+  delivery), and `tests/directorScreen.dom.test.tsx` (a direction aimed past the opening beat,
+  a pinned aim, the rewritten marks, the ask card, a refusal that changes nothing).
+- **One fal take was opened and billed during this work** (`mu9tfo8p-1`, 76s, ~$6.08 of the
+  $400 ceiling) when the Director screen was open in a browser and Play was pressed. Ruled out
+  by a second probe with `FAL_KEY` empty: loading the screen posts only `attachOnly` sessions,
+  so a page load never opens a paid take.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

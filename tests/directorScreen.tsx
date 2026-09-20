@@ -8,6 +8,9 @@ import type { DirectorBeatWindow } from "../src/core/directorBeats";
 import type { DirectorSpend } from "../src/core/directorSpend";
 import { initialDirectorState, type DirectorState } from "../src/core/directorProtocol";
 import { beatWindowForScript } from "../src/core/directorBeats";
+import { buildOutline } from "../src/core/outline";
+import { applyCascade } from "../src/core/outlineCascade";
+import type { OutlineEditRecord } from "../src/core/outlineEdit";
 import { totalDurationSeconds } from "../src/core/script";
 import { buildScript } from "./helpers";
 
@@ -63,10 +66,24 @@ export type ServerOptions = {
   holdAttach?: boolean;
   /** Refuses to open a session with this code. */
   refuse?: { status: number; code: string; message: string };
+  /** The outline's revision. The outline exists whenever the script does. */
+  revision?: number;
+  /** The queue's ledger, newest first, as the panel and the column read it. */
+  edits?: OutlineEditRecord[];
+  /**
+   * The beat this server aims a direction at, standing in for the model that
+   * chooses one. Null aims at the first beat that can still change, which is
+   * what the real chooser is told to do when nothing matches in particular.
+   */
+  aimAt?: number | null;
+  /** Refuses a posted direction with this code. */
+  refuseDirection?: { status: number; code: string; message: string };
 };
 
 export type FakeServer = {
   requests: string[];
+  /** Every direction this server was asked to aim, in order. */
+  directions: { body: string; beatIndex?: number }[];
   /** Changes what the next answers say, mid-test. */
   set: (next: Partial<ServerOptions>) => void;
   restore: () => void;
@@ -83,6 +100,7 @@ export function fakeServer(options: ServerOptions = {}): FakeServer {
     ...options,
   };
   const requests: string[] = [];
+  const directions: { body: string; beatIndex?: number }[] = [];
   const original = globalThis.fetch;
   let sessions = 0;
 
@@ -103,6 +121,77 @@ export function fakeServer(options: ServerOptions = {}): FakeServer {
 
     if (url === `/api/jams/${JAM_ID}`) {
       return current.jam ? json({ jam: current.jam }) : json({ error: { code: "not_found" } }, 404);
+    }
+    // The outline is the same script under another projection, so a server
+    // that holds no script holds no outline either.
+    if (url.endsWith("/outline")) {
+      if (!current.jam) return json({ error: { code: "not_found" } }, 404);
+      const window = beats();
+      return json({
+        revision: current.revision ?? 1,
+        script: current.jam.script,
+        beats: buildOutline(current.jam.script).map((beat) => ({
+          ...beat,
+          locked: beat.portionIndex < window.minEditableBeatIndex,
+        })),
+        window,
+        pending: 0,
+      });
+    }
+    if (url.endsWith("/outline/edits")) {
+      return json({ edits: current.edits ?? [] });
+    }
+    if (url.endsWith("/outline/directions") && method === "POST") {
+      if (!current.jam) return json({ error: { code: "not_found" } }, 404);
+      if (current.refuseDirection) {
+        return json(
+          {
+            error: {
+              code: current.refuseDirection.code,
+              safeMessage: current.refuseDirection.message,
+              retryable: false,
+            },
+          },
+          current.refuseDirection.status,
+        );
+      }
+      const body = typeof init?.body === "string" ? JSON.parse(init.body) : {};
+      directions.push({ body: body.body, ...(body.beatIndex === undefined ? {} : { beatIndex: body.beatIndex }) });
+      // Where the words land: what the caller aimed at, what this server was
+      // told to choose, or the first beat that can still change.
+      const beatIndex =
+        body.beatIndex ?? current.aimAt ?? beats().minEditableBeatIndex;
+      const summary = `${body.body} (beat ${beatIndex + 1})`;
+      // A landed edit rewrites the tail, which is what the screen has to show.
+      const tail = buildOutline(current.jam.script).slice(beatIndex);
+      current.jam = {
+        ...current.jam,
+        script: applyCascade(
+          current.jam.script,
+          beatIndex,
+          tail.map((beat, offset) => ({
+            summary: offset === 0 ? summary : `after ${beatIndex + 1}, beat ${beat.portionIndex + 1}`,
+            action: `Rewritten portion ${beat.portionIndex}.`,
+          })),
+        ),
+      };
+      current.revision = (current.revision ?? 1) + 1;
+      const edit: OutlineEditRecord = {
+        id: `edit-${directions.length}`,
+        jamId: JAM_ID,
+        requestId: body.requestId,
+        intent: "set",
+        beatIndex,
+        summary,
+        said: body.body,
+        chosenBecause: "It is what this beat is about.",
+        mechanism: "direction",
+        status: "landed",
+        queuedAt: "2026-09-20T10:00:00.000Z",
+        revision: current.revision,
+      };
+      current.edits = [edit, ...(current.edits ?? [])];
+      return json({ edit, target: { beatIndex, summary, reason: edit.chosenBecause } }, 202);
     }
     if (url.endsWith("/director/budget")) {
       return json({ configured: current.configured, spend: current.spend });
@@ -160,6 +249,7 @@ export function fakeServer(options: ServerOptions = {}): FakeServer {
 
   return {
     requests,
+    directions,
     set(next) {
       Object.assign(current, next);
     },

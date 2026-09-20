@@ -212,6 +212,28 @@ replaced twice. The edit record's `status` is `queued | processing | landed | fa
 after the commit to the open streams whose next beat it is — a direction steers what the provider
 generates next, so a beat further ahead is committed without being sent. Durations and structure are never rewritten.
 
+### Directions
+
+`POST /api/jams/:id/outline/directions` takes `{ requestId, body }` plus optional `beatIndex`,
+`expectedRevision` and `authorId`, and is the Director composer's path: free text, no beat number.
+The server reads the lock boundary, offers the model **only** the beats from it to the end of the
+film, and takes back `{ beatIndex, summary, reason? }` — which beat the words are about and what
+that beat now reads. A `beatIndex` in the request pins the choice to that beat, so a room that
+aimed at one keeps its aim and the model is only asked what that beat should now say.
+
+The answer is then an ordinary `set` edit with `mechanism: "direction"`, and everything after it —
+queue, cascade, commit, delivery — is the path above. The record carries `said` (the room's own
+words) and `chosenBecause` (why that beat), both audit only. The response is `202 { edit, target }`,
+or `200 { edit, target }` for a replayed `requestId`.
+
+Admission checks, in order: the jam exists (`404 not_found`), a replay is answered, both providers
+are configured (`503 generation_disabled`), a named beat exists (`400 invalid_command`), at least
+one beat can still change (`409 portion_locked`), the revision is current (`409 stale_state_version`),
+the queue has room (`409 queue_full`). A beat is chosen only after all of them pass, and a chooser
+that cannot answer is a `502` with a typed code — **never** a fallback to the opening beat. A model
+that names a beat outside the candidates is corrected once and then refused; it is never clamped
+into range, because a clamped choice lands a rewrite on a beat nobody picked.
+
 ## The escape room
 
 An escape room is a Movie Jam with a fixed world and a goal (`docs/specs/escape-room-scenario.md`).

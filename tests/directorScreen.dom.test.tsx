@@ -11,7 +11,7 @@ import {
   turnCards,
   type FakeServer,
 } from "./directorScreen";
-import { cleanup, click, fire, focusOn, focused, press, render, settle } from "./render";
+import { cleanup, click, fill, fire, focusOn, focused, press, render, settle } from "./render";
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import type { DirectorAuditEntry } from "../src/core/directorAudit";
@@ -29,6 +29,12 @@ afterEach(async () => {
 const text = (selector: string) => document.querySelector(selector)?.textContent ?? "";
 const all = (selector: string) => Array.from(document.querySelectorAll(selector)).map((node) => node.textContent ?? "");
 const notes = () => all(".director-composer-note").join(" ");
+const field = () => document.querySelector<HTMLTextAreaElement>(".director-field textarea");
+const sendButton = () => document.querySelector<HTMLButtonElement>(".director-send")!;
+/** Each beat's phrase as the row shows it, including "No phrase" where the
+    script never wrote one. */
+const phrases = () =>
+  beatCards().map((card) => card.querySelector(".director-beat-frame")?.textContent ?? "");
 
 /**
  * React derives enter and leave from `mouseover`/`mouseout` at the root, so a
@@ -417,9 +423,12 @@ describe("the direction column", () => {
     assert.equal(text(".director-tag-none"), "No beat");
   });
 
-  it("with nothing sent it says what the next thing said will do", async () => {
+  it("with nothing asked for it says what the next thing said will do", async () => {
     server = await openDirector();
-    assert.match(text(".director-directions .director-empty-line"), /Play the stream/);
+    assert.match(
+      text(".director-directions .director-empty-line"),
+      /changes the story the next take will play/,
+    );
   });
 });
 
@@ -498,11 +507,116 @@ describe("the composer", () => {
     assert.match(notes(), /no reference store/);
   });
 
-  it("says the stream is stopped rather than pretending a direction would land", async () => {
+  it("a stopped stream still takes a direction, and says what it changes", async () => {
     server = await openDirector();
-    assert.match(notes(), /The stream is stopped\. Play it/);
-    const send = document.querySelector<HTMLButtonElement>(".director-send");
-    assert.equal(send?.disabled, true);
+    await settle();
+    assert.match(notes(), /The stream is stopped, so this changes the story/);
+    await fill(field(), "Give her a brother.");
+    assert.equal(sendButton().disabled, false, "the story can be directed between takes");
+  });
+
+  it("with no outline on this server there is nothing to direct", async () => {
+    server = await openDirector({ jam: null });
+    await settle();
+    assert.match(notes(), /holds no outline for the film/);
+    await fill(field(), "Give her a brother.");
+    assert.equal(sendButton().disabled, true);
+  });
+});
+
+/**
+ * The composer's real path: what is said changes the story, at the beat it is
+ * about. Before this, every direction reached the provider as a steering
+ * prompt and so only ever changed whatever was being generated — the opening
+ * beat, in practice, which is what the room saw and reported.
+ */
+describe("directing the story", () => {
+  it("aims what is said at a beat the server chooses, not at the opening one", async () => {
+    server = await openDirector({ offsetSeconds: 12, aimAt: 4 });
+    await click(playButton());
+    await settle();
+    const before = phrases();
+
+    await fill(field(), "Give her a brother.");
+    await click(sendButton());
+    await settle();
+
+    // The screen says what it wants, never where it goes.
+    assert.deepEqual(server.directions, [{ body: "Give her a brother." }]);
+    const after = phrases();
+    assert.match(after[4], /Give her a brother\./, "it landed on the beat the server chose");
+    assert.notEqual(after[5], before[5], "and every beat after it was re-derived");
+    assert.deepEqual(after.slice(0, 4), before.slice(0, 4), "the beats before it are untouched");
+  });
+
+  it("a beat chosen on the timeline pins the aim instead", async () => {
+    server = await openDirector({ offsetSeconds: 12 });
+    await click(playButton());
+    await settle();
+    await click(beatCards()[5]);
+
+    await fill(field(), "End it in the rain.");
+    await click(sendButton());
+    await settle();
+
+    assert.deepEqual(server.directions, [{ body: "End it in the rain.", beatIndex: 5 }]);
+    assert.match(phrases()[5], /End it in the rain\./);
+  });
+
+  it("marks the beats the rewrite moved, since only their words changed", async () => {
+    server = await openDirector({ offsetSeconds: 12, aimAt: 4 });
+    await click(playButton());
+    await settle();
+    await fill(field(), "Give her a brother.");
+    await click(sendButton());
+    await settle();
+
+    assert.deepEqual(
+      beatCards().map((card) => card.hasAttribute("data-changed")),
+      [false, false, false, false, true, true],
+    );
+    assert.equal(
+      beatCards()[4].querySelector(".director-beat-state")?.textContent,
+      "Rewritten",
+    );
+  });
+
+  it("the column says what was asked for, where it landed and what it now reads", async () => {
+    server = await openDirector({ offsetSeconds: 12, aimAt: 4 });
+    await click(playButton());
+    await settle();
+    await fill(field(), "Give her a brother.");
+    await click(sendButton());
+    await settle();
+
+    const ask = document.querySelector<HTMLElement>(".director-turn")!;
+    assert.equal(ask.querySelector(".director-turn-body")?.textContent, "Give her a brother.");
+    assert.match(ask.querySelector(".director-turn-landed")?.textContent ?? "", /Beat 5 now reads/);
+    assert.match(ask.querySelector(".director-tag")?.textContent ?? "", /Beat 5/);
+    assert.match(ask.querySelector(".director-turn-outcome")?.textContent ?? "", /landed · revision 2/);
+    assert.equal(ask.dataset.status, "landed");
+  });
+
+  it("a refused direction is reported in the server's words, and nothing is claimed", async () => {
+    server = await openDirector({
+      offsetSeconds: 12,
+      refuseDirection: {
+        status: 502,
+        code: "invalid_target",
+        message: "That direction could not be aimed at a beat.",
+      },
+    });
+    await click(playButton());
+    await settle();
+    const before = phrases();
+
+    await fill(field(), "Give her a brother.");
+    await click(sendButton());
+    await settle();
+
+    assert.match(all(".notice").join(" "), /could not be aimed at a beat/);
+    assert.deepEqual(phrases(), before, "the story is unchanged");
+    assert.equal(field()?.value, "Give her a brother.", "and what was said is still in the field");
   });
 });
 

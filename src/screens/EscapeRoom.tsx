@@ -66,9 +66,13 @@ export function EscapeRoom({
     return () => document.removeEventListener("visibilitychange", resume);
   }, []);
 
-  // A finished beat cuts in exactly once, the moment its clip exists.
+  // A finished beat cuts in the moment its clip exists, and then stays: the
+  // last thing that happened keeps looping until the next thing happens. The
+  // location's own loop is only for a room where nothing has happened yet, or
+  // whose last clip this server no longer holds. Going back to the untouched
+  // room after every move showed the hatch shut again seconds after it was
+  // opened, which read as the move being undone.
   useEffect(() => {
-    if (showing.kind === "beat") return;
     const fresh = snapshot.beats.find(
       (beat) => beat.media.status === "ready" && beat.media.src && !played.current.has(beat.id),
     );
@@ -107,8 +111,8 @@ export function EscapeRoom({
             autoPlay
             muted
             playsInline
+            loop
             data-testid="escape-beat"
-            onEnded={() => setShowing({ kind: "loop" })}
           />
         : loopSource
           ? <video

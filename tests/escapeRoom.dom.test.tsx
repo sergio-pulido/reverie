@@ -137,22 +137,19 @@ describe("the escape room panel", () => {
     assert.match(document.body.textContent ?? "", /the reading room/);
   });
 
-  it("cuts a finished beat in over the loop, and hands the screen back when it ends", async () => {
+  it("cuts a finished beat in over the loop, and keeps it looping until the next one", async () => {
     await render(show(snapshot({ beats: [beat()] })));
     const clip = document.querySelector<HTMLVideoElement>('[data-testid="escape-beat"]');
     assert.ok(clip, "the beat cut in");
     assert.equal(clip.getAttribute("src"), clips.get("/api/jams/j/escape-room/segments/beat-1"));
     assert.equal(document.querySelector('[data-testid="escape-loop"]'), null);
+    assert.ok(clip.hasAttribute("loop"), "the last thing that happened stays on screen");
     assert.match(document.body.textContent ?? "", /The hatch lifts without complaint/);
 
-    await act(async () => {
-      clip.dispatchEvent(new window.Event("ended", { bubbles: false }));
-    });
-    assert.ok(document.querySelector('[data-testid="escape-loop"]'), "the loop has the screen again");
-
-    // The same beat must not cut in a second time on the next poll.
+    // The same beat stays on the next poll; the untouched room does not come back.
     await rerender(show(snapshot({ beats: [beat()] })));
-    assert.ok(document.querySelector('[data-testid="escape-loop"]'));
+    assert.ok(document.querySelector('[data-testid="escape-beat"]'));
+    assert.equal(document.querySelector('[data-testid="escape-loop"]'), null);
   });
 
   it("a beat still generating leaves the loop running", async () => {

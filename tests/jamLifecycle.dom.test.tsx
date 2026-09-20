@@ -65,6 +65,10 @@ function serve(
   };
 }
 
+function text(selector: string): string {
+  return document.querySelector(selector)?.textContent?.replace(/\s+/g, " ").trim() ?? "";
+}
+
 function badge(): string {
   const node = document.querySelector('[data-testid="jam-lifecycle"]');
   return node?.textContent?.trim() ?? "";
@@ -83,18 +87,166 @@ describe("the room shows where it is in its life", () => {
     }
   });
 
-  it("gives everyone in the room the same two signals and the direction box", async () => {
+  it("gives everyone in the room the same two signals, and no third one", async () => {
     // Nobody owns the take. This screen is handed no role at all, which is the
     // point: the person who joined a jam sees the same controls as the person
-    // who registered it.
+    // who registered it. Two controls, and no free-text direction field —
+    // steering a take belongs to the outline queue, not to a box beside the
+    // player that bypasses it.
     const restore = serve("live");
     try {
       await render(<JamDirector jamId={JAM} configuration={DEFAULT_CONFIGURATION} />);
       assert.ok(document.querySelector('[data-testid="jam-director-play"]'), "anybody can play");
       assert.ok(document.querySelector('[data-testid="jam-director-stop"]'), "anybody can stop");
-      assert.ok(document.querySelector(".field input"), "anybody can direct");
+      assert.equal(document.querySelector(".field input"), null, "and nobody types at the player");
     } finally {
       restore();
+    }
+  });
+
+  it("swaps the emphasis to Stop once a take is running", async () => {
+    // The only thing worth pressing while a take runs is the one that stops
+    // the per-second bill.
+    const restore = serve("live");
+    try {
+      await render(<JamDirector jamId={JAM} configuration={DEFAULT_CONFIGURATION} />);
+      const play = document.querySelector<HTMLButtonElement>('[data-testid="jam-director-play"]');
+      const stop = document.querySelector<HTMLButtonElement>('[data-testid="jam-director-stop"]');
+      assert.ok(play?.className.includes("button-primary"), "idle: Play is the offer");
+      assert.equal(play?.disabled, false);
+      assert.ok(stop?.className.includes("button-quiet"));
+      assert.equal(stop?.disabled, true, "there is nothing to stop yet");
+    } finally {
+      restore();
+    }
+  });
+
+  it("while a take runs: Stop is the offer, Play is disabled, and the cost is current", async () => {
+    const original = globalThis.fetch;
+    const json = (body: unknown, status = 200) =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { "content-type": "application/json" },
+      });
+    const spend = {
+      budgetUsd: 20,
+      usdPerSecond: 0.08,
+      minBilledSeconds: 60,
+      sessionUsd: 4.8,
+      remainingUsd: 10.4,
+    };
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(typeof input === "string" ? input : input.toString());
+      if (url.endsWith(`/api/jams/${JAM}`)) return json({ jam: { lifecycle: "playing" } });
+      if (url.endsWith("/director/budget")) {
+        return json({ configured: true, maxSessionSeconds: 120, spend: { ...spend, sessionUsd: 0, remainingUsd: 20 } });
+      }
+      if (url.endsWith(`/api/jams/${JAM}/director/session`) && init?.method === "POST") {
+        return json({
+          sessionId: "sess-live",
+          viewerId: "viewer-1",
+          attached: true,
+          liveDelivery: true,
+          recordingDurable: true,
+          maxSessionSeconds: 120,
+          lifecycle: "playing",
+          state: {
+            status: "streaming",
+            appliedPromptVersion: 2,
+            sentPromptVersion: 2,
+            chunksReceived: 3,
+            generatedSeconds: 45,
+            scriptOffsetSeconds: null,
+            endedReason: null,
+            error: null,
+          },
+          beats: null,
+          spend,
+        });
+      }
+      if (url.endsWith("/director/session/sess-live")) {
+        return json({
+          state: {
+            status: "streaming",
+            appliedPromptVersion: 2,
+            sentPromptVersion: 2,
+            chunksReceived: 3,
+            generatedSeconds: 45,
+            scriptOffsetSeconds: null,
+            endedReason: null,
+            error: null,
+          },
+          beats: null,
+          audit: [],
+          spend,
+        });
+      }
+      return json({});
+    }) as typeof fetch;
+
+    try {
+      await render(<JamDirector jamId={JAM} configuration={DEFAULT_CONFIGURATION} />);
+      await settle();
+
+      const play = document.querySelector<HTMLButtonElement>('[data-testid="jam-director-play"]');
+      const stop = document.querySelector<HTMLButtonElement>('[data-testid="jam-director-stop"]');
+      assert.equal(play?.disabled, true, "a running take cannot be started again");
+      assert.ok(play?.className.includes("button-quiet"), "Play recedes");
+      assert.ok(stop?.className.includes("button-primary"), "Stop is what the eye lands on");
+      assert.equal(stop?.disabled, false);
+
+      // What it is costing, from the server's own figures, while it runs.
+      const cost = text('[data-testid="jam-director-cost"]');
+      assert.match(cost, /\$4\.80 so far/);
+      assert.match(cost, /\$10\.40 left of \$20\.00/);
+      assert.match(cost, /stops itself after 2:00/);
+      // And what it is doing.
+      assert.match(text('[data-testid="jam-director-status"]'), /Playing · 0:45 generated across 3 chunk/);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("says what a take will commit before anybody presses Play", async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(typeof input === "string" ? input : input.toString());
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+      if (url.endsWith(`/api/jams/${JAM}`)) return json({ jam: { lifecycle: "live" } });
+      if (url.endsWith("/director/budget")) {
+        return json({
+          configured: true,
+          maxSessionSeconds: 120,
+          spend: {
+            budgetUsd: 20,
+            usdPerSecond: 0.08,
+            minBilledSeconds: 60,
+            sessionUsd: 0,
+            remainingUsd: 20,
+          },
+        });
+      }
+      if (url.endsWith(`/api/jams/${JAM}/director/session`)) {
+        return json(
+          { error: { code: "no_stream", safeMessage: "Nobody is streaming.", retryable: true } },
+          404,
+        );
+      }
+      return json({});
+    }) as typeof fetch;
+
+    try {
+      await render(<JamDirector jamId={JAM} configuration={DEFAULT_CONFIGURATION} />);
+      await settle();
+      const cost = text('[data-testid="jam-director-cost"]');
+      assert.match(cost, /\$4\.80 minimum for the first 60s/);
+      // The reservation is the number that surprises: a room with money left
+      // can still be refused a second take.
+      assert.match(cost, /holds \$9\.60 of the budget until the take settles/);
+      assert.match(cost, /\$20\.00 left of \$20\.00/);
+    } finally {
+      globalThis.fetch = original;
     }
   });
 
@@ -157,6 +309,60 @@ describe("the room shows where it is in its life", () => {
       );
     } finally {
       restore();
+    }
+  });
+
+  it("says why a refused Play was refused, next to Play", async () => {
+    // A server with no director configured is the commonest refusal, and it
+    // used to be reported at the foot of the card, under the direction log and
+    // a paragraph of notes — far enough from the button to read as the press
+    // having done nothing at all.
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(typeof input === "string" ? input : input.toString());
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "content-type": "application/json" },
+        });
+      if (url.endsWith(`/api/jams/${JAM}`)) return json({ jam: { lifecycle: "live" } });
+      if (url.endsWith(`/api/jams/${JAM}/director/session`) && init?.method === "POST") {
+        return json(
+          {
+            error: {
+              code: "director_disabled",
+              safeMessage: "The live director is not configured on this server.",
+              retryable: false,
+            },
+          },
+          503,
+        );
+      }
+      return json({});
+    }) as typeof fetch;
+
+    try {
+      await render(<JamDirector jamId={JAM} configuration={DEFAULT_CONFIGURATION} />);
+      const play = document.querySelector<HTMLButtonElement>('[data-testid="jam-director-play"]');
+      await click(play);
+      await settle();
+
+      const notice = document.querySelector<HTMLElement>(".notice");
+      assert.ok(notice, "the refusal is on screen");
+      assert.match(notice.textContent ?? "", /not configured on this server/);
+      // Next to the control that was pressed, not at the foot of the card.
+      assert.ok(
+        play?.compareDocumentPosition(notice) === Node.DOCUMENT_POSITION_FOLLOWING,
+        "the refusal follows the button that was refused",
+      );
+      assert.ok(
+        notice.compareDocumentPosition(
+          document.querySelector('[data-testid="jam-director-cost"]')!,
+        ) === Node.DOCUMENT_POSITION_FOLLOWING,
+        "and sits with the controls rather than at the foot of the card",
+      );
+    } finally {
+      globalThis.fetch = original;
     }
   });
 

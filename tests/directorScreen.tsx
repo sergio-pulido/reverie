@@ -186,8 +186,15 @@ export const beatCards = () =>
 export const beatStates = () => beatCards().map((card) => card.dataset.state);
 export const turnCards = () => Array.from(document.querySelectorAll<HTMLElement>(".director-turn"));
 export const stage = () => document.querySelector<HTMLElement>(".director-stage")!;
+/**
+ * Play is the first control of the stage and Stop the second, whichever of
+ * them is the emphasized one: the emphasis follows the take, so selecting by
+ * `.button-primary` would follow it too and hand back the wrong button.
+ */
 export const playButton = () =>
-  beatOrNull(document.querySelector<HTMLButtonElement>(".director-stage-actions .button-primary") ?? undefined);
+  beatOrNull(document.querySelectorAll<HTMLButtonElement>(".director-stage-actions button")[0]);
+export const stopButton = () =>
+  beatOrNull(document.querySelectorAll<HTMLButtonElement>(".director-stage-actions button")[1]);
 
 function beatOrNull<T>(value: T | undefined): T {
   if (value === undefined) throw new Error("the control is on the screen");

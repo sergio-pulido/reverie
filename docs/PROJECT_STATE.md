@@ -2117,6 +2117,57 @@ the existing `:root:not([data-input="pointer"])` guard.
   there is no policy granting a browser a wider read of `jams`, so a public gallery would need a
   migration that does not exist.
 
+## 2026-09-20 — A refused Play said nothing where Play is (RV-24)
+
+- Pressing Play against a server with `REVERIE_DIRECTOR_ENABLED` unset looked like nothing
+  happening. The server answered `503 director_disabled` correctly and the screen did render
+  the reason — at the foot of the player card, under the direction log and a paragraph of
+  notes. The notice now sits directly under Play and Stop, above the direction field, and a
+  DOM test asserts its position rather than merely its presence (it fails with the old
+  placement).
+- Two comments in `JamDirector` still described the host-owned start RV-23 removed. Corrected.
+- `REVERIE_LIVE_ENABLED=true` does not buy the director: it is gated separately by
+  `REVERIE_DIRECTOR_ENABLED` because it bills per second with a sixty-second minimum
+  (`.env.example` says so). That is the configuration this bug was hiding.
+- Verified: `pnpm typecheck`; `pnpm test` 1210/1210; `pnpm build`. Reproduced against the
+  running local stack before and after: `GET /director/budget` answered `configured: false`,
+  and `POST /director/session` answered `503 director_disabled`.
+
+## 2026-09-20 — The room says what it is doing, and what it costs (RV-24)
+
+- **A refused Play said nothing where Play is.** The server answered `503 director_disabled`
+  correctly and the screen rendered the reason at the foot of the card, under the direction log
+  and a paragraph of notes. It now sits directly under Play and Stop, and a DOM test asserts its
+  position rather than its presence (it fails with the old placement).
+- **The emphasis follows the take.** While one runs, Stop is the primary control and Play is a
+  disabled "Playing" label; idle, it is the other way round. On both the room screen and the
+  solo Director stage.
+- **The cost is stated before the press and while it runs.** The room reads
+  `GET /director/budget` on mount and the session snapshot's `spend` on every poll — both were
+  being thrown away. Idle: the 60-second minimum, where the take stops itself, and that opening
+  one *holds* the whole ceiling against the budget until it settles (the number that surprises).
+  Live: what this take has cost, what is left, and the cap. `GET /director/budget` now also
+  carries `maxSessionSeconds`, so the commitment can be named before a session exists.
+- **Two silences broken.** A relay that cannot attach now says so (an empty frame under a
+  PLAYING badge read as a take that was not running), and a failed Stop says so — it is the one
+  failure on this screen that leaves money being spent.
+- **The direction field is gone.** Steering a take belongs to the outline queue, where the
+  room's mechanisms (vote, poll, chat) queue a beat edit and the server decides what reaches the
+  provider. A free-text box beside the player was a second, unqueued way in. The direction log
+  stays: it shows every direction that reaches the take, whichever mechanism sent it.
+- **`draft` is retired** (`20260920110000_jam_starts_live.sql`). Nothing ever wrote a status
+  other than the default, so every registry card read DRAFT for its whole life — including
+  rooms that were playing. A jam is live the moment it exists: the default is now `live`,
+  existing rows are moved, `draft` leaves the check constraint, and the registry reads the
+  server's `live | playing | ended` lifecycle instead of the column. `jamStatusSchema` still
+  *accepts* `draft`, deliberately: a database without this migration must not have its rows
+  dropped by a stricter parser.
+- Verified: `pnpm typecheck`; `pnpm test` 1215/1215; `pnpm build`. The migration was applied to
+  the local stack and checked: both existing rooms read `live`, and the column default is
+  `'live'`.
+- **Not verified:** no fal session was opened, so the live cost line has been exercised against
+  a fake spend payload rather than a real take.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

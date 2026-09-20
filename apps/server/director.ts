@@ -436,7 +436,13 @@ export function createDirectorRouter(
    * all, which is a different fact from having money left.
    */
   router.get("/api/jams/:id/director/budget", (_request, response) => {
-    response.json({ configured: requireConfig() !== null, spend: spendOf(null) });
+    response.json({
+      configured: requireConfig() !== null,
+      // The ceiling a take stops itself at, so a screen can say what pressing
+      // play commits to before it is pressed rather than only afterwards.
+      maxSessionSeconds: limits.maxSessionSeconds,
+      spend: spendOf(null),
+    });
   });
 
   router.post("/api/jams/:id/director/session", async (request, response) => {

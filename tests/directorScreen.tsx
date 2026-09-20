@@ -51,6 +51,8 @@ export type ServerOptions = {
   state?: Partial<DirectorState>;
   audit?: DirectorAuditEntry[];
   recordingDurable?: boolean;
+  /** An attach-only poll finds a stream another screen already opened. */
+  attachExisting?: boolean;
   /** Refuses to open a session with this code. */
   refuse?: { status: number; code: string; message: string };
 };
@@ -98,6 +100,19 @@ export function fakeServer(options: ServerOptions = {}): FakeServer {
       return json({ configured: current.configured, spend: current.spend });
     }
     if (url.endsWith("/director/session") && method === "POST") {
+      const body = typeof init?.body === "string" ? JSON.parse(init.body) : {};
+      if (body.attachOnly && !current.attachExisting) {
+        return json(
+          {
+            error: {
+              code: "no_stream",
+              safeMessage: "Nobody is streaming this configuration yet.",
+              retryable: true,
+            },
+          },
+          404,
+        );
+      }
       if (current.refuse) {
         return json(
           { error: { code: current.refuse.code, safeMessage: current.refuse.message, retryable: false } },
@@ -108,7 +123,9 @@ export function fakeServer(options: ServerOptions = {}): FakeServer {
       return json(
         {
           sessionId: `session-${sessions}`,
-          attached: false,
+          viewerId: `viewer-${sessions}`,
+          attached: Boolean(body.attachOnly),
+          liveDelivery: false,
           maxSessionSeconds: 120,
           recordingDurable: current.recordingDurable,
           state: state(),

@@ -104,7 +104,8 @@ test("an abandoned session is reclaimed but keeps its reservation spent", () => 
 
 test("renew keeps a live session from being reclaimed", () => {
   const now = { value: 0 };
-  const ledger = ledgerAt(now, { maxSessionSeconds: 60 });
+  // Keep the hard session ceiling beyond this test's idle-renewal window.
+  const ledger = ledgerAt(now, { maxSessionSeconds: 180 });
   const session = ledger.open("jam") as { sessionId: string };
   now.value = SESSION_IDLE_TIMEOUT_MS - 1;
   assert.ok(ledger.renew(session.sessionId));
@@ -161,4 +162,149 @@ test("an open stream is found by its configuration so viewers can attach", () =>
   // An abandoned stream is not offered to a new viewer to attach to.
   now.value = SESSION_IDLE_TIMEOUT_MS + 1;
   assert.equal(ledger.findByStreamKey("jam:en|"), undefined);
+});
+
+test("a shared stream outlives one viewer leaving, and ends with the last", () => {
+  const now = { value: 1_000 };
+  const closed: string[] = [];
+  const ledger = new DirectorSessionLedger(
+    { budgetUsd: 20, usdPerSecond: 0.08, maxConcurrentSessions: 1, maxSessionSeconds: 60 },
+    () => now.value,
+  );
+  ledger.onClosed((sessionId) => closed.push(sessionId));
+  const session = ledger.open("jam:en|");
+  assert.notEqual(typeof session, "string");
+  const { sessionId } = session as { sessionId: string };
+
+  const first = ledger.attach(sessionId) as string;
+  const second = ledger.attach(sessionId) as string;
+  assert.equal(ledger.viewerCount(sessionId), 2);
+
+  // One person closing their tab must not end the film for the other.
+  assert.deepEqual(ledger.detach(sessionId, first), { remaining: 1 });
+  assert.equal(ledger.viewerCount(sessionId), 1);
+  assert.deepEqual(closed, []);
+
+  assert.deepEqual(ledger.detach(sessionId, second), { remaining: 0 });
+  // Reaching zero is the caller's signal to settle; the ledger does not guess.
+  ledger.close(sessionId);
+  assert.deepEqual(closed, [sessionId]);
+});
+
+test("one viewer still checking in keeps the stream for everyone", () => {
+  const now = { value: 1_000 };
+  // This test isolates idle renewal; the hard duration cap is covered below.
+  const ledger = ledgerAt(now, { maxSessionSeconds: 180 });
+  const session = ledger.open("jam:en|") as { sessionId: string };
+  const staying = ledger.attach(session.sessionId) as string;
+  ledger.attach(session.sessionId);
+
+  now.value += SESSION_IDLE_TIMEOUT_MS - 1;
+  assert.equal(ledger.renew(session.sessionId, staying), true);
+  now.value += SESSION_IDLE_TIMEOUT_MS - 1;
+  ledger.expireIdle();
+
+  // The silent viewer is dropped; the stream survives because someone is
+  // demonstrably still watching it.
+  assert.equal(ledger.openCount, 1);
+  assert.equal(ledger.viewerCount(session.sessionId), 1);
+});
+
+test("an active viewer cannot extend a session past its paid ceiling", () => {
+  const now = { value: 1_000 };
+  const closed: string[] = [];
+  const ledger = new DirectorSessionLedger(
+    { budgetUsd: 20, usdPerSecond: 0.08, maxConcurrentSessions: 1, maxSessionSeconds: 60 },
+    () => now.value,
+  );
+  ledger.onClosed((sessionId) => closed.push(sessionId));
+  const session = ledger.open("jam:en|") as { sessionId: string };
+  const viewer = ledger.attach(session.sessionId) as string;
+
+  now.value += 59_999;
+  assert.equal(ledger.renew(session.sessionId, viewer), true);
+  ledger.expireIdle();
+  assert.equal(ledger.openCount, 1);
+
+  now.value += 1;
+  ledger.expireIdle();
+  assert.equal(ledger.openCount, 0);
+  assert.deepEqual(closed, [session.sessionId]);
+});
+
+test("a stream every viewer abandoned is reclaimed, and the caller is told", () => {
+  const now = { value: 1_000 };
+  const closed: string[] = [];
+  const ledger = new DirectorSessionLedger(
+    { budgetUsd: 20, usdPerSecond: 0.08, maxConcurrentSessions: 1, maxSessionSeconds: 60 },
+    () => now.value,
+  );
+  ledger.onClosed((sessionId) => closed.push(sessionId));
+  const session = ledger.open("jam:en|") as { sessionId: string };
+  ledger.attach(session.sessionId);
+
+  now.value += SESSION_IDLE_TIMEOUT_MS + 1;
+  ledger.expireIdle();
+
+  assert.equal(ledger.openCount, 0);
+  // Without this the stream keeps running, and keeps billing, with nobody left.
+  assert.deepEqual(closed, [session.sessionId]);
+});
+
+test("renewing as a viewer who was already dropped does not resurrect them", () => {
+  const now = { value: 1_000 };
+  const ledger = ledgerAt(now, { maxSessionSeconds: 60 });
+  const session = ledger.open("jam:en|") as { sessionId: string };
+  const viewer = ledger.attach(session.sessionId) as string;
+
+  assert.equal(ledger.detach(session.sessionId, viewer)?.remaining, 0);
+  // Attaching is what admits a viewer. A renew that recreated one would let a
+  // stale client keep a stream alive after it had been counted out.
+  assert.equal(ledger.renew(session.sessionId, viewer), false);
+  assert.equal(ledger.viewerCount(session.sessionId), 0);
+  // The server's own renew, with no viewer of its own, still works.
+  assert.equal(ledger.renew(session.sessionId), true);
+});
+
+test("viewer ids are issued by the server and never collide", () => {
+  const now = { value: 1_000 };
+  const ledger = ledgerAt(now, { maxSessionSeconds: 60 });
+  const session = ledger.open("jam:en|") as { sessionId: string };
+  const ids = new Set<string>();
+  for (let index = 0; index < 50; index += 1) {
+    ids.add(ledger.attach(session.sessionId) as string);
+  }
+  // Two viewers looking like one would end a stream somebody was watching.
+  assert.equal(ids.size, 50);
+  assert.equal(ledger.viewerCount(session.sessionId), 50);
+});
+
+test("a dropped viewer's renewal does not keep the session's own clock alive", () => {
+  const now = { value: 1_000 };
+  const closed: string[] = [];
+  const ledger = new DirectorSessionLedger(
+    { budgetUsd: 20, usdPerSecond: 0.08, maxConcurrentSessions: 1, maxSessionSeconds: 60 },
+    () => now.value,
+  );
+  ledger.onClosed((sessionId) => closed.push(sessionId));
+  const session = ledger.open("jam:en|") as { sessionId: string };
+  const viewer = ledger.attach(session.sessionId) as string;
+
+  // The viewer goes silent long enough to be dropped — a backgrounded mobile
+  // tab whose renew timer was throttled past the cutoff.
+  now.value += SESSION_IDLE_TIMEOUT_MS + 1;
+  ledger.expireIdle();
+  assert.deepEqual(closed, [session.sessionId]);
+
+  // It wakes and keeps renewing with the id it still holds. The route answers
+  // 404 and the client ignores it — but if that call refreshed the session
+  // clock, a viewerless stream would never be reclaimed and would bill on.
+  const revived = ledger.open("jam:en|") as { sessionId: string };
+  const stale = ledger.attach(revived.sessionId) as string;
+  ledger.detach(revived.sessionId, stale);
+  now.value += 10_000;
+  assert.equal(ledger.renew(revived.sessionId, stale), false);
+  now.value += SESSION_IDLE_TIMEOUT_MS - 9_000;
+  ledger.expireIdle();
+  assert.equal(ledger.openCount, 0, "a stale renewal must not postpone reclaim");
 });

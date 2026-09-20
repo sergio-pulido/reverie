@@ -221,7 +221,7 @@ export function DirectorScreen({ slug }: { slug: string | null }) {
               remainingUsd: session.spend.remainingUsd,
               budgetUsd: session.spend.budgetUsd,
             })}
-            blocked={!session.live}
+            blocked={!session.live || !canDrive}
             cellProps={cellProps}
           />
           <DeliverablesDrawer

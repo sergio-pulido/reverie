@@ -55,7 +55,11 @@ export function DirectorComposer({
   const send = useCallback(
     async (body: string) => {
       const said = body.trim();
-      if (!said || sending.current) return;
+      // The disabled button is not the authority boundary: Enter and a Direct
+      // voice transcript call this same function without clicking it. Keep the
+      // guard here so a viewer who joined the room cannot direct the host's
+      // stream through either alternate input path.
+      if (blocked || !said || sending.current) return;
       sending.current = true;
       const sent = await onDirect(said, targetBeat ?? undefined);
       sending.current = false;
@@ -64,7 +68,7 @@ export function DirectorComposer({
         setNote(null);
       }
     },
-    [onDirect, targetBeat],
+    [blocked, onDirect, targetBeat],
   );
 
   const voice = useVoiceInput({

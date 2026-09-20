@@ -26,8 +26,18 @@ export class DirectorSessionError extends Error {
 
 export interface OpenedDirectorSession {
   sessionId: string;
+  /**
+   * This viewer's own id on the shared stream, issued by the server.
+   *
+   * A shared stream needs to know how many people are watching, not merely that
+   * someone is: without it, one viewer's keepalive holds the stream open for a
+   * room that has emptied, and the last viewer leaving does not end it.
+   */
+  viewerId: string;
   /** True when this joined a stream that was already running for this configuration. */
   attached: boolean;
+  /** False when this server is not delivering the stream live. */
+  liveDelivery: boolean;
   maxSessionSeconds: number;
   /** False when the server has no object storage: the recording is lost on restart. */
   recordingDurable: boolean;
@@ -84,6 +94,26 @@ export function startDirectorSession(
 }
 
 /**
+ * Joins the stream running for a configuration, and never starts one.
+ *
+ * This is how everyone but the host arrives. Opening a stream bills a
+ * sixty-second minimum, so walking into a room must not be able to start one:
+ * a participant attaches to what the host is already paying for, or is told
+ * `no_stream` and waits. The same call serves the host reopening the jam, which
+ * is why it is not gated on who is asking.
+ */
+export function attachDirectorSession(
+  jamId: string,
+  configuration?: SessionSettings | null,
+): Promise<OpenedDirectorSession> {
+  return call<OpenedDirectorSession>(`/api/jams/${jamId}/director/session`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ attachOnly: true, ...(configuration ? { configuration } : {}) }),
+  });
+}
+
+/**
  * The server's director budget, read before a paid session exists.
  *
  * Its own route rather than a field on the jam: the ceiling belongs to this
@@ -121,7 +151,12 @@ export function sendDirection(
 }
 
 /**
- * Stops the stream and reports where the room ended up.
+ * Stops watching, and reports where the room ended up.
+ *
+ * With a viewer id this leaves the shared stream, which ends it only if nobody
+ * else is watching — one person closing a tab must not stop the film for the
+ * room. Without one it ends the session outright, which is what a host's own
+ * stop means.
  *
  * The lifecycle comes back in the response rather than being inferred: the
  * stop is the moment the room ends, and a caller that had to re-fetch the jam
@@ -130,16 +165,37 @@ export function sendDirection(
 export function endDirectorSession(
   jamId: string,
   sessionId: string,
+  viewerId?: string,
 ): Promise<{ lifecycle: JamLifecycle }> {
   return call(`/api/jams/${jamId}/director/session/${sessionId}/end`, {
     method: "POST",
+    headers: { "content-type": "application/json" },
+    // Detach is commonly sent while navigating away. Keepalive gives the small
+    // request a chance to finish after the document begins unloading, so the
+    // last viewer does not leave the paid stream to the idle fallback.
+    keepalive: true,
+    body: JSON.stringify(viewerId ? { viewerId } : {}),
   });
 }
 
-/** Best-effort keepalive; a missed renewal only risks the session being reclaimed. */
-export function renewDirectorSession(jamId: string, sessionId: string): void {
-  void fetch(`/api/jams/${jamId}/director/session/${sessionId}/renew`, {
+/**
+ * Best-effort keepalive; a missed renewal only risks the session being
+ * reclaimed.
+ *
+ * Goes through `call` like every other request here, so anything that is ever
+ * added to it — headers, a base URL, error normalization — reaches the
+ * keepalive too. The failure is swallowed rather than surfaced: this is the
+ * one request whose job is to be repeated.
+ */
+export function renewDirectorSession(
+  jamId: string,
+  sessionId: string,
+  viewerId?: string,
+): void {
+  void call<void>(`/api/jams/${jamId}/director/session/${sessionId}/renew`, {
     method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(viewerId ? { viewerId } : {}),
   }).catch(() => undefined);
 }
 
@@ -257,4 +313,15 @@ function waitForIceGathering(connection: RTCPeerConnection): Promise<void> {
     const timer = setTimeout(finish, 5_000);
     connection.addEventListener("icegatheringstatechange", onChange);
   });
+}
+
+/**
+ * The live playlist for a session.
+ *
+ * Everyone watching the same configuration reads this same address, which is
+ * the point: the stream is generated once and delivered to the room over plain
+ * HTTP, so another viewer costs a cache hit rather than a second paid session.
+ */
+export function directorPlaylistSrc(jamId: string, sessionId: string): string {
+  return `/api/jams/${jamId}/director/session/${sessionId}/playlist.m3u8`;
 }

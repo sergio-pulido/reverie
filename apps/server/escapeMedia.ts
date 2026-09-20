@@ -38,6 +38,15 @@ export interface EscapeMediaStore {
   readonly durable: boolean;
   save(jamId: string, mediaId: string, bytes: Buffer, contentType: string): Promise<void>;
   get(jamId: string, mediaId: string): Promise<StoredSegment | null>;
+  /**
+   * Called when a stored segment is dropped to make room for another.
+   *
+   * A store that forgets without saying so leaves the session reporting a
+   * shot as `ready` behind a URL that answers 404, and the screen quietly
+   * falls back to the loop with nothing said. Only the bounded in-memory
+   * store ever calls this; a durable one never forgets.
+   */
+  onEvicted?: (jamId: string, mediaId: string) => void;
 }
 
 function assertWithinCaps(bytes: Buffer): void {
@@ -48,6 +57,7 @@ function assertWithinCaps(bytes: Buffer): void {
 
 export class InMemoryEscapeMediaStore implements EscapeMediaStore {
   readonly durable = false;
+  onEvicted?: (jamId: string, mediaId: string) => void;
   private readonly segments = new Map<string, StoredSegment>();
 
   constructor(private readonly clock: () => Date = () => new Date()) {}
@@ -56,7 +66,11 @@ export class InMemoryEscapeMediaStore implements EscapeMediaStore {
     assertWithinCaps(bytes);
     if (this.segments.size >= MAX_IN_MEMORY_SEGMENTS) {
       const oldest = this.segments.keys().next().value;
-      if (oldest) this.segments.delete(oldest);
+      if (oldest) {
+        this.segments.delete(oldest);
+        const [evictedJam, evictedMedia] = splitKey(oldest);
+        this.onEvicted?.(evictedJam, evictedMedia);
+      }
     }
     this.segments.set(`${jamId}/${mediaId}`, {
       bytes,
@@ -68,6 +82,12 @@ export class InMemoryEscapeMediaStore implements EscapeMediaStore {
   async get(jamId: string, mediaId: string): Promise<StoredSegment | null> {
     return this.segments.get(`${jamId}/${mediaId}`) ?? null;
   }
+}
+
+/** `<jamId>/<mediaId>`; both are UUIDs, so the first slash is the only one. */
+function splitKey(key: string): [string, string] {
+  const at = key.indexOf("/");
+  return [key.slice(0, at), key.slice(at + 1)];
 }
 
 export class SupabaseEscapeMediaStore implements EscapeMediaStore {

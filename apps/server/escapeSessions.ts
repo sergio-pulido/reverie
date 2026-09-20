@@ -169,6 +169,24 @@ export class EscapeRooms {
     this.nebius = options.nebius !== undefined ? options.nebius : safely(() => resolveNebiusConfig(process.env));
     this.now = options.now ?? (() => Date.now());
     this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    // A store with no room left drops its oldest segment. Without this the
+    // session would go on reporting that shot as ready behind a URL that
+    // answers 404, and the screen would fall back to the loop saying nothing.
+    options.media.onEvicted = (jamId, mediaId) => this.forget(jamId, mediaId);
+  }
+
+  /** Marks a segment this server no longer holds, wherever it is referenced. */
+  private forget(jamId: string, mediaId: string): void {
+    const room = this.rooms.get(jamId);
+    if (!room) return;
+    const segments = [...room.loops.values(), ...room.beats.map((beat) => beat.segment)];
+    for (const segment of segments) {
+      if (segment.mediaId !== mediaId) continue;
+      segment.status = "forgotten";
+      segment.mediaId = null;
+      segment.message =
+        "This server keeps only its most recent shots, and this one has been dropped.";
+    }
   }
 
   /** Resolves once nothing is generating. Used by tests and by teardown. */
@@ -335,6 +353,9 @@ export class EscapeRooms {
 
   /** Starts this location's loop if it has never been asked for. */
   private ensureLoop(room: Room): void {
+    // A session that has ended does not buy anything else, including the
+    // scenery of a room it will never play.
+    if (room.ended) return;
     const locationId = room.state.at;
     if (room.loops.has(locationId)) return;
     const location = room.scenario.locations.find((candidate) => candidate.id === locationId);
@@ -400,6 +421,13 @@ export class EscapeRooms {
     }
     const wanted = clampDuration(this.fal.model, seconds);
     const reservedUsd = wanted * this.limits.usdPerSecond;
+    // Checked again here, not just at the call: generation is asynchronous,
+    // so a session can end between deciding to film something and filming it.
+    if (room.ended) {
+      segment.status = "ceiling_reached";
+      segment.message = "The session ended before this could be generated.";
+      return;
+    }
     if (!this.options.account.commit(reservedUsd)) {
       segment.status = "ceiling_reached";
       segment.message = "The spend ceiling for this server is reached, so nothing was generated.";

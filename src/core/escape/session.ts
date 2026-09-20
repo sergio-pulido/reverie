@@ -14,6 +14,12 @@ export type SegmentStatus =
   | "generating"
   | "ready"
   | "failed"
+  /**
+   * It was generated, and this server does not have it any more. A server
+   * with no object storage keeps only the most recent segments, so a long
+   * session loses its oldest shots; saying so beats a `ready` that 404s.
+   */
+  | "forgotten"
   /** No fal key or the live flag is off: this server cannot generate at all. */
   | "not_configured"
   /** The process spend ceiling refused it. Nothing was sent to the provider. */

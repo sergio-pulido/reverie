@@ -275,6 +275,7 @@ function mediaLabel(media: SegmentView): string {
   }
   if (media.status === "generating") return "filming";
   if (media.status === "failed") return "not filmed";
+  if (media.status === "forgotten") return "filmed, no longer held";
   if (media.status === "ceiling_reached") return "past the spend ceiling";
   if (media.status === "not_configured") return "no video on this server";
   return "not filmed";

@@ -1440,11 +1440,18 @@ key included. And rooms were never reclaimed: nothing closes one, so a server wo
 twenty-four slots and refuse the twenty-fifth host forever. A room nobody has read in half an
 hour is dropped when a new one is opened.
 
-**Verified:** `npx tsc --noEmit` clean; `pnpm test` 885/885 (766 before this work began);
+**Two more from a code review.** A server with no object storage keeps only its most recent
+segments, and it was dropping them silently — leaving the session reporting a shot as `ready`
+behind a URL that answers 404, with the screen falling back to the loop saying nothing. A dropped
+segment is now its own status and says so. And a session that had ended on the spend ceiling could
+still buy the next location's idle loop, because only the beat checked; nothing is bought after a
+session ends now, and generation checks again when it runs rather than only when it is decided.
+
+**Verified:** `npx tsc --noEmit` clean; `pnpm test` 887/887 (766 before this work began);
 `pnpm build` succeeds. The tests cover the rules' three outcomes and their invariants, exhaustive
 solvability of all three scenarios, the turn and the spend ceiling, the fal adapter's allowlist
-and error shapes, the routes' authorization and id checks, idle room reclamation, the mp4
-duration reader, and the panel and create screen in a document.
+and error shapes, the routes' authorization and id checks, idle room reclamation, a dropped
+segment, the mp4 duration reader, and the panel and create screen in a document.
 
 **Not implemented / not verified:** two browsers in one escape room; any of this on Vercel (these
 routes are local-Node only and their state is in that process's memory, like the script, session

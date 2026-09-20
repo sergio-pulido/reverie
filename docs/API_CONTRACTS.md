@@ -203,8 +203,10 @@ started:
 
 - `location` — where the character is, with the author's description.
 - `loop` and each beat's `media` — a `SegmentView`: `status` is `absent`, `generating`, `ready`,
-  `failed`, `not_configured` (no fal key or the live flag is off) or `ceiling_reached` (the spend
-  ceiling refused it; nothing was sent to the provider). `seconds` is the clip's **measured**
+  `failed`, `forgotten` (it was generated and this server no longer holds it — a server with no
+  object storage keeps only its most recent segments), `not_configured` (no fal key or the live
+  flag is off) or `ceiling_reached` (the spend ceiling refused it, or the session ended before it
+  ran; nothing was sent to the provider). `seconds` is the clip's **measured**
   length, read from the file, not the length that was asked for.
 - `progress` — what has been found, what is still shut, what is carried, how many things have
   happened, and whether the goal is reached. Counted from scenario state.

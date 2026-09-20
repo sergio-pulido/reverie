@@ -256,6 +256,65 @@ test("a provider failure leaves the loop running and tells the room plainly", as
   }
 });
 
+test("a segment the server has dropped says so instead of reading as ready", async () => {
+  const fal = fakeFal();
+  try {
+    const media = new InMemoryEscapeMediaStore();
+    const rooms = new EscapeRooms({
+      media,
+      account: new SpendAccount(100),
+      fal: FAL,
+      nebius: null,
+      limits: { usdPerSecond: 0.08, loopSeconds: 5, maxConcurrentGenerations: 2 },
+      sleep: async () => {},
+    });
+    rooms.open("jam-forget", "night-audit");
+    await rooms.idle();
+    const ready = rooms.snapshot("jam-forget", "a")!.loop;
+    assert.equal(ready.status, "ready");
+
+    // The store is bounded and shared by every room; the oldest segment goes
+    // when a newer one needs the space. The session must hear about it.
+    const mediaId = ready.src!.split("/").at(-1)!;
+    media.onEvicted?.("jam-forget", mediaId);
+
+    const after = rooms.snapshot("jam-forget", "a")!.loop;
+    assert.equal(after.status, "forgotten");
+    assert.equal(after.src, null, "and stops offering a URL that would 404");
+    assert.match(after.message ?? "", /most recent shots/);
+  } finally {
+    fal.restore();
+  }
+});
+
+test("a session that has ended buys nothing else", async () => {
+  const fal = fakeFal();
+  try {
+    // Enough for the opening loop ($0.40) and a second one, but not a beat.
+    const { rooms, account } = build({ account: new SpendAccount(0.9) });
+    rooms.open("jam-stop", "night-audit");
+    await rooms.idle();
+    assert.equal(account.committedUsd, 0.4);
+
+    // This action moves to a new location, so a naive implementation would
+    // buy that location's loop after the beat had already ended the session.
+    for (const body of [
+      "open the counter hatch", "take the torch", "open the fuse box",
+      "throw the breakers", "switch on the torch", "go through the stack door",
+    ]) {
+      rooms.propose("jam-stop", { authorId: "a", authorName: "Ada", body });
+      rooms.settle("jam-stop");
+      await rooms.idle();
+    }
+    const snapshot = rooms.snapshot("jam-stop", "a")!;
+    assert.equal(snapshot.ended?.reason, "spend_ceiling");
+    assert.equal(account.committedUsd, 0.4, "nothing was bought after it ended");
+    assert.equal(fal.submitted.length, 1, "only the opening loop reached the provider");
+  } finally {
+    fal.restore();
+  }
+});
+
 test("most votes wins, and a tie goes to whoever said it first", () => {
   const proposals: Proposal[] = [
     { id: "p1", authorId: "a", authorName: "Ada", body: "first", at: 1 },

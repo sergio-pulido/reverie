@@ -91,6 +91,48 @@ export function resolveDirectorConfig(
   };
 }
 
+/** The pixel dimensions of the stream a config asks fal for. */
+export interface DirectorFrameSize {
+  width: number;
+  height: number;
+}
+
+/** Lines on the short side, which is what the model's resolution names count. */
+const RESOLUTION_SHORT_SIDE: Readonly<Record<DirectorConfig["resolution"], number>> = {
+  "480p": 480,
+  "768p": 768,
+  "1080p": 1080,
+};
+
+const ASPECT_TERMS: Readonly<Record<DirectorConfig["aspectRatio"], [number, number]>> = {
+  "16:9": [16, 9],
+  "9:16": [9, 16],
+  "1:1": [1, 1],
+};
+
+/**
+ * What size frame this configuration asks for.
+ *
+ * These are the REQUESTED dimensions, not measured output: the true geometry of
+ * every frame is carried by the H.264 SPS inside the stream, and nothing here
+ * overrides it. They exist because an fMP4 track header has to declare a size
+ * before the first frame is written, and a video track declared without one
+ * does not merely lose metadata — it hangs the muxer outright. See
+ * `apps/server/directorMuxer.ts`.
+ *
+ * The long side is rounded to an even number of pixels because H.264 codes in
+ * macroblocks and odd dimensions are not representable at this level.
+ */
+export function directorFrameSize(config: {
+  resolution: DirectorConfig["resolution"];
+  aspectRatio: DirectorConfig["aspectRatio"];
+}): DirectorFrameSize {
+  const short = RESOLUTION_SHORT_SIDE[config.resolution];
+  const [across, down] = ASPECT_TERMS[config.aspectRatio];
+  const long = Math.round((short * Math.max(across, down)) / Math.min(across, down) / 2) * 2;
+  return across >= down ? { width: long, height: short } : { width: short, height: long };
+}
+
 /** One direction on the stream's clock, at a whole-second offset. */
 export interface DirectorScriptBeat {
   offset: number;

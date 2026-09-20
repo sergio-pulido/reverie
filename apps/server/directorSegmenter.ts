@@ -63,6 +63,13 @@ export interface DirectorSegmenterOptions {
    * HTTP should ever set it.
    */
   inline?: boolean;
+  /**
+   * The frame size the provider was asked for, declared on the video track.
+   *
+   * Not optional in practice: a video track muxed without one hangs the muxer
+   * thread on its first keyframe. See `MuxTrack.width` in ./directorMuxer.
+   */
+  videoSize?: { width: number; height: number };
 }
 
 export class DirectorSegmenter implements DirectorTrackConsumer {
@@ -70,6 +77,7 @@ export class DirectorSegmenter implements DirectorTrackConsumer {
   private readonly targetSegmentSeconds: number;
   private readonly trackGraceMs: number;
   private readonly inline: boolean;
+  private readonly videoSize: { width: number; height: number } | null;
 
   private readonly tracks: MediaStreamTrack[] = [];
   private startTimer: NodeJS.Timeout | null = null;
@@ -90,6 +98,7 @@ export class DirectorSegmenter implements DirectorTrackConsumer {
     this.targetSegmentSeconds = options.targetSegmentSeconds ?? 2;
     this.trackGraceMs = options.trackGraceMs ?? 500;
     this.inline = options.inline ?? false;
+    this.videoSize = options.videoSize ?? null;
   }
 
   /** The video codec fal actually answered, once a track has arrived. */
@@ -126,8 +135,13 @@ export class DirectorSegmenter implements DirectorTrackConsumer {
 
     const specs: MuxTrack[] = this.tracks.map((track) => {
       const codec = track.codec?.name?.toLowerCase() ?? "unknown";
-      if (track.kind === "video") this.negotiated = codec;
-      return { kind: track.kind === "video" ? "video" : "audio", codec };
+      const video = track.kind === "video";
+      if (video) this.negotiated = codec;
+      return {
+        kind: video ? ("video" as const) : ("audio" as const),
+        codec,
+        ...(video && this.videoSize ? this.videoSize : {}),
+      };
     });
 
     if (this.inline) {

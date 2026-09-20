@@ -27,6 +27,33 @@ export interface MuxTrack {
   kind: "audio" | "video";
   /** The negotiated codec name, lowercased: `h264` or `opus`. */
   codec: string;
+  /**
+   * Frame size for a video track. Required, and not merely for metadata.
+   *
+   * werift derives the fMP4 display aspect ratio with a Euclidean `gcd` loop
+   * (`while (y !== 0)`) over these two numbers, on the first keyframe. Its own
+   * type marks them optional, but `undefined % undefined` is `NaN`, `NaN !== 0`
+   * is forever true, and the loop never terminates — so a video track declared
+   * without a size does not lose metadata, it hangs the muxer thread on the
+   * first keyframe and takes live delivery and the durable archive with it.
+   * That is exactly the failure this field exists to make impossible.
+   */
+  width?: number;
+  height?: number;
+}
+
+/**
+ * A dimension werift's ratio loop can actually terminate on.
+ *
+ * The type above asks every caller for a real size, so reaching the fallback is
+ * a programming error rather than a provider quirk. It degrades the track
+ * header's declared size instead of wedging the thread, because a film with
+ * imperfect metadata is worth incomparably more than a muxer that never returns.
+ */
+export function usableDimension(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 1
+    ? Math.round(value)
+    : 1;
 }
 
 export interface SegmentMuxerHandlers {
@@ -110,6 +137,13 @@ export class SegmentMuxer {
           codec: video ? MP4_VIDEO_CODEC : MP4_AUDIO_CODEC,
           clockRate: video ? 90_000 : 48_000,
           trackNumber: index + 1,
+          // Only the video track's size is read; audio carries none.
+          ...(video
+            ? {
+                width: usableDimension(track.width),
+                height: usableDimension(track.height),
+              }
+            : {}),
         },
       });
     }

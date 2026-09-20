@@ -116,8 +116,20 @@
 .director-tick[data-state="ready"] { background: #7fb894; }
 .director-tick[data-state="generating"] { background: #bbc9ff; }
 .director-tick[data-state="blocked"] { background: #c98189; }
+.director-tick[data-state="playing"] { background: #f6f4ee; }
+/* How far ahead of the viewer the provider has generated: a boundary, not a
+   position, so it is drawn as an edge rather than a second playhead. */
+.director-frontier {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--at) * 100%);
+  width: 1px;
+  background: repeating-linear-gradient(180deg, #bbc9ff 0 3px, transparent 3px 6px);
+}
 .director-playhead { position: absolute; top: -3px; bottom: -3px; left: calc(var(--playhead) * 100%); width: 2px; background: #f6f4ee; box-shadow: 0 0 10px rgba(246, 244, 238, .7); }
 .director-transport-clock { margin: 0; font: 500 14px "DM Mono", monospace; color: #eef2ff; font-variant-numeric: tabular-nums; }
+.director-transport-note { margin: 0; color: #949bad; font-size: 12px; line-height: 1.5; }
 .director-transport-state { color: #8e94a8; letter-spacing: .1em; text-transform: uppercase; font-size: 11px; }
 
 /* The mode switch: the most prominent control after the stage. */
@@ -150,6 +162,7 @@
 }
 .director-beats > li { flex: 0 0 auto; scroll-snap-align: start; }
 .director-beat {
+  position: relative;
   display: grid;
   gap: 8px;
   width: 148px;
@@ -183,6 +196,26 @@
 .director-beat[data-state="ready"] { border-style: solid; border-color: #7fb894; }
 .director-beat[data-state="locked"] { border-style: solid; border-color: #3a4159; background: #262b3a; color: #98a0b5; }
 .director-beat[data-state="blocked"] { border-style: dotted; border-width: 2px; border-color: #c98189; background: repeating-linear-gradient(135deg, rgba(201, 129, 137, .12) 0 6px, transparent 6px 12px); color: #e4bfc3; }
+/* On screen now: the warm white of the transport's playhead, so the two read
+   as the same idea in two places. */
+.director-beat[data-state="playing"] {
+  border-style: solid;
+  border-color: #f6f4ee;
+  background: #343a4d;
+  color: #fbfaf6;
+  box-shadow: 0 0 0 1px rgba(246, 244, 238, .35);
+}
+/* Where inside the beat the viewer is, ticking across as it plays. */
+.director-beat-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--through) * 100%);
+  width: 2px;
+  background: #f6f4ee;
+  box-shadow: 0 0 8px rgba(246, 244, 238, .65);
+  transition: left .25s linear;
+}
 
 .director-beat[data-linked], .director-beat:hover, .director-beat:focus-visible { outline: 2px solid #f6f4ee; outline-offset: 2px; }
 .director-beat[aria-pressed="true"] { box-shadow: inset 0 0 0 2px rgba(246, 244, 238, .5); }
@@ -195,6 +228,7 @@
 .director-legend li[data-state="ready"] .director-legend-swatch { border-style: solid; border-color: #7fb894; }
 .director-legend li[data-state="locked"] .director-legend-swatch { border-style: solid; border-color: #3a4159; background: #262b3a; }
 .director-legend li[data-state="blocked"] .director-legend-swatch { border-style: dotted; border-width: 2px; border-color: #c98189; }
+.director-legend li[data-state="playing"] .director-legend-swatch { border-style: solid; border-color: #f6f4ee; background: #343a4d; }
 
 /* The direction column. */
 .director-turns { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; max-height: 44vh; overflow-y: auto; }
@@ -330,4 +364,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .director-beats { scroll-behavior: auto; }
+  /* The playhead still moves, it just stops sliding. */
+  .director-beat-playhead { transition: none; }
 }

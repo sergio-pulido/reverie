@@ -180,7 +180,7 @@
   border: 0;
   background: transparent;
   color: inherit;
-  scroll-margin: 120px 0 calc(var(--attribution-height) + 40px);
+  scroll-margin: 120px 0 88px;
   transition: transform .16s ease;
 }
 
@@ -323,7 +323,7 @@
 /* On a phone the spotlight has nowhere to go and the backdrop only darkens the type, so both
    step aside: the head becomes the search alone, above a two-poster grid. */
 @media (max-width: 720px) {
-  .catalog-shell { --attribution-height: 116px; --poster-min: 132px; --grid-gap-y: 24px; --grid-gap-x: 14px; }
+  .catalog-shell { --poster-min: 132px; --grid-gap-y: 24px; --grid-gap-x: 14px; }
   .catalog-head { grid-template-columns: minmax(0, 1fr); gap: 0; padding-bottom: 20px; }
   .catalog-backdrop { display: none; }
   .catalog-head::before { background: linear-gradient(0deg, #0a0e18 0%, transparent 70%); }

@@ -8,9 +8,8 @@
   --ink: #f7f4ec;
   --muted: #c3c6d4;
   --focus: #ffffff;
-  --attribution-height: 64px;
   min-height: 100vh;
-  padding: 0 0 calc(var(--attribution-height) + 40px);
+  padding: 0 0 40px;
   background: radial-gradient(circle at 78% 4%, #2a2e4d 0, transparent 30rem), linear-gradient(160deg, #070a11 0%, #0a0f1a 60%, #131228 100%);
   color: var(--ink);
 }
@@ -122,32 +121,36 @@
   .discover-retry, .film-action, .film-external a { transition: none; transform: none !important; }
 }
 
-/* Always on screen while TMDB records are shown, as the TMDB terms require. */
+/* The TMDB credit: required wherever TMDB records are shown, drawn as the page's own footer
+   rather than a bar over it. It is in the flow at the end of the content, so it scrolls with
+   what it credits and covers nothing at all. Sized as a credit — the smallest type on the
+   page — rather than as the banner it was. */
 .discover-attribution {
-  position: fixed;
-  z-index: 10;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  margin: 0;
-  min-height: var(--attribution-height);
   display: flex;
+  /* `styles.css` styles every `footer` element for the Movie Jam screens' own chrome, which
+     would otherwise reach this one and set it in mono, stack it and letter-space it. Every
+     property that rule touches is stated here rather than left to win by accident. */
+  flex-direction: row;
+  justify-content: flex-start;
   align-items: center;
-  gap: 16px;
-  padding: 12px var(--safe-x);
-  background: rgba(7, 10, 17, .94);
-  border-top: 1px solid rgba(213, 218, 255, .14);
+  gap: 12px;
+  margin: 0;
+  padding: 36px var(--safe-x) calc(28px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid rgba(213, 218, 255, .12);
   color: var(--muted);
-  font-size: 18px;
-  line-height: 1.35;
+  font-family: inherit;
+  font-size: 15px;
+  letter-spacing: normal;
+  line-height: 1.45;
 }
 
 .discover-attribution-mark {
   flex: none;
-  padding: 4px 10px;
-  border-radius: 6px;
+  padding: 3px 8px;
+  border-radius: 5px;
   background: #0d253f;
   color: #90cea1;
+  font-size: .85em;
   font-weight: 800;
   letter-spacing: .08em;
 }
@@ -293,8 +296,7 @@ html.film-page-open { overflow: hidden; }
 .film-inline-error { padding: 0 var(--safe-x); color: #ffd6cf; font-size: 20px; }
 
 @media (max-width: 720px) {
-  .discover-shell { --attribution-height: 88px; }
-  .discover-attribution { font-size: 15px; }
+  .discover-attribution { padding-top: 28px; font-size: 13px; }
   .film-hero { grid-template-columns: minmax(0, 1fr); }
   .film-poster { width: 180px; }
   .film-summary h1 { font-size: 40px; }

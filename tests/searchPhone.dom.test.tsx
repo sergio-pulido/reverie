@@ -55,7 +55,8 @@ describe("the resting state on a phone", () => {
     assert.equal(declared(styles, page(), "min-height"), "100dvh", "the page is as tall as the screen, not as tall as a hidden viewport");
 
     // A keyboard does not shrink the page, so what it covers is subtracted where the field docks.
-    assert.equal(declared(styles, document.querySelector(".search-dock"), "bottom"), "calc(var(--attribution-space) + var(--keyboard))");
+    // Nothing else is subtracted: the TMDB credit is the page's own footer, below the stage.
+    assert.equal(declared(styles, document.querySelector(".search-dock"), "bottom"), "var(--keyboard)");
     assert.equal(declared(styles, page(), "--keyboard"), "var(--search-keyboard,0px)", "nothing moves until the screen has read the visual viewport");
 
     assert.deepEqual(widerThanScreen(page(), styles, PHONE), [], "nothing on the resting screen is wider than the screen");

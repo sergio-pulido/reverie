@@ -6,7 +6,6 @@
   --ink: #f7f4ec;
   --muted: #c3c6d4;
   --focus: #ffffff;
-  --attribution-height: 64px;
   --shelf-gap: 24px;
   /* Cards across the screen, counting the one cut by the edge. */
   --shelf-visible: 7.3;
@@ -21,7 +20,6 @@
   --shelf-body: calc(var(--card-width) * 1.5 + var(--card-text) + var(--track-pad-top) + var(--track-pad-bottom));
   --hero-title-size: clamp(48px, 4.6vw, 92px);
   min-height: 100vh;
-  padding-bottom: calc(var(--attribution-height) + 40px);
   overflow-x: clip;
   background: radial-gradient(circle at 78% 4%, #2a2e4d 0, transparent 30rem), linear-gradient(160deg, #070a11 0%, #0a0f1a 60%, #131228 100%);
   color: var(--ink);
@@ -97,8 +95,8 @@
 }
 .home-actions { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 28px; }
 
-/* A row brought on screen by focus clears the space above it and the attribution bar below. */
-.home-rows > section { scroll-margin: 24px 0 calc(var(--attribution-height) + 24px); }
+/* A row brought on screen by focus clears the space above and below it. */
+.home-rows > section { scroll-margin: 24px 0 88px; }
 
 /* Shelves. Left and Right walk a shelf; Up and Down change shelf. */
 .home-shelf { padding-top: 10px; }
@@ -236,7 +234,6 @@
 }
 @media (max-width: 720px) {
   .home-shell {
-    --attribution-height: 88px;
     --shelf-visible: 2.4;
     --shelf-gap: 14px;
     --card-title-size: 16px;

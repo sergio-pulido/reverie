@@ -10,7 +10,6 @@
   --focus: #ffffff;
   --accent: #cfd7ff;
   --listening: #e5484d;
-  --attribution-height: 64px;
   --control-height: 92px;
   --card-width: 200px;
   /* What is on screen, and how much of the bottom a phone's keyboard has taken. `useViewport`
@@ -19,7 +18,6 @@
   --keyboard: var(--search-keyboard, 0px);
 }
 .search-shell {
-  --attribution-space: 0px;
   min-height: 100vh;
   min-height: 100dvh;
   display: flex;
@@ -27,9 +25,8 @@
   background: radial-gradient(circle at 78% 4%, #2a2e4d 0, transparent 30rem), linear-gradient(160deg, #070a11 0%, #0a0f1a 60%, #131228 100%);
   color: var(--ink);
 }
-/* Films on screen bring the TMDB attribution, fixed to the bottom. Its height is kept free under
-   the page, so the dock's own place already clears it and never has to ride up over a line. */
-.search-shell-films { --attribution-space: var(--attribution-height); padding-bottom: var(--attribution-space); }
+/* Films on screen bring the TMDB credit, which is the page's own footer below the stage. It
+   is in the flow, so nothing has to be kept free for it. */
 .search-stage { flex: 1; display: flex; flex-direction: column; width: 100%; }
 
 /* At rest: one line, the field and the microphone, in the middle of the screen, and nothing else. */
@@ -55,7 +52,7 @@
 .search-turn {
   display: grid;
   gap: 14px;
-  scroll-margin: 140px 0 calc(var(--attribution-space) + 280px);
+  scroll-margin: 140px 0 280px;
 }
 .search-line { max-width: min(1200px, 80%); margin: 0; font-size: 27px; line-height: 1.4; overflow-wrap: anywhere; }
 .search-line-viewer {
@@ -213,7 +210,7 @@ button.search-card:hover .search-card-poster { box-shadow: 0 0 0 3px rgba(207, 2
 /* The dock: the strip of what is narrowing, and the field. It stays on screen as the talk grows. */
 .search-dock {
   position: sticky;
-  bottom: calc(var(--attribution-space) + var(--keyboard));
+  bottom: var(--keyboard);
   z-index: 4;
   display: grid;
   gap: 12px;
@@ -507,8 +504,6 @@ button.search-card:hover .search-card-poster { box-shadow: 0 0 0 3px rgba(207, 2
     --safe-x: 16px;
     --card-width: 132px;
     --control-height: 56px;
-    /* The attribution wraps to four lines on a phone; its reserved height follows. */
-    --attribution-height: 116px;
   }
 
   /* At rest, high: the heading and the field stand near the top of the screen, so a keyboard

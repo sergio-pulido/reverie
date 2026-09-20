@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_SEGMENT_BYTES } from "../objectStorage";
 import {
   clampDuration,
   FAL_SEGMENT_MODEL_ALLOWLIST,
@@ -25,8 +26,6 @@ import {
 const FAL_QUEUE_BASE_URL = "https://queue.fal.run";
 const REQUEST_TIMEOUT_MS = 30_000;
 const DOWNLOAD_TIMEOUT_MS = 180_000;
-/** A 15-second 768p clip is a few megabytes; this is generous, not tight. */
-export const MAX_SEGMENT_BYTES = 64 * 1024 * 1024;
 
 export class FalSegmentError extends Error {
   constructor(

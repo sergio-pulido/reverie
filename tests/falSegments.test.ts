@@ -5,7 +5,6 @@ import {
   FalSegmentError,
   getSegmentStatus,
   getSegmentUrl,
-  MAX_SEGMENT_BYTES,
   resolveFalSegmentConfig,
   submitSegment,
   type FalSegmentConfig,
@@ -15,6 +14,7 @@ import {
   FAL_SEGMENT_MODEL_ALLOWLIST,
   findSegmentModel,
 } from "../apps/server/providers/falSegmentModels";
+import { MAX_SEGMENT_BYTES } from "../apps/server/objectStorage";
 
 const config: FalSegmentConfig = {
   apiKey: "test-key",

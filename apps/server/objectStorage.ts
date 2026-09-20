@@ -7,6 +7,14 @@
  */
 
 const DEFAULT_BUCKET = "jam-portions";
+
+/**
+ * The largest generated segment this server will accept, at the download and
+ * again at the store. One number, because they are one bound: a clip too big
+ * to keep is one we must not pull down either. Measured, a 15-second 768p
+ * MiniMax H3 clip is under 10 MB, so this is headroom rather than a squeeze.
+ */
+export const MAX_SEGMENT_BYTES = 64 * 1024 * 1024;
 const SAFE_BUCKET = /^[a-z0-9][a-z0-9-]{1,62}$/;
 
 export class MediaStorageError extends Error {

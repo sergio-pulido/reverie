@@ -1,4 +1,5 @@
 import {
+  MAX_SEGMENT_BYTES,
   MediaStorageError,
   resolveObjectStorageConfig,
   type ObjectStorageConfig,
@@ -19,8 +20,6 @@ import {
  */
 
 const UPLOAD_TIMEOUT_MS = 120_000;
-/** A 15-second 768p clip measured just under 10 MB; this is headroom. */
-export const MAX_SEGMENT_BYTES = 64 * 1024 * 1024;
 /**
  * Three locations' loops plus a full run of beats, for a couple of rooms. A
  * server without storage is a demo server, and this bounds what it holds.

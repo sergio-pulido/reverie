@@ -71,6 +71,11 @@ export interface DirectorSession {
   recording: string | null;
   /** True when this joined a stream this jam already had open. */
   attached: boolean;
+  /**
+   * True once the take this screen was watching ended because the film reached
+   * its selected length, rather than because somebody pressed Stop.
+   */
+  endedAtFilmLength: boolean;
   failure: string | null;
   start: () => Promise<void>;
   stop: () => Promise<void>;
@@ -180,6 +185,29 @@ export function useDirectorSession(
     };
   }, [jamId]);
 
+  /**
+   * Lets go of a take that has already ended on the server.
+   *
+   * Two things end one without this screen asking: somebody else in the room
+   * pressing Stop, and the film reaching its selected length. Both leave this
+   * hook polling a session that no longer answers, and a screen that went on
+   * reading `live` would keep offering a Stop for a stream that is over — and
+   * keep an empty frame where the finished take belongs. There is nothing left
+   * to end, so this never calls the end route.
+   *
+   * `producedThrough` is deliberately kept: how far the take got is what the
+   * timeline still has to say about it once it has stopped.
+   */
+  const letGo = useCallback((ended: string) => {
+    if (!jamId) return;
+    setRecording(directorRecordingSrc(jamId, ended));
+    setSessionId(null);
+    setViewerId(null);
+    setLiveDelivery(false);
+    setAttached(false);
+    setBeats(null);
+  }, [jamId]);
+
   // Polling is the surface until Realtime events land, matching the player.
   useEffect(() => {
     if (!jamId || !sessionId) return;
@@ -192,8 +220,19 @@ export function useDirectorSession(
         setAudit(snapshot.audit);
         setSpend(snapshot.spend);
         remember(snapshot.beats);
-      } catch {
-        // A closed session stops answering; the stop path owns that state.
+        // The film reached its selected length and the server ended the take.
+        // The trail carries that a poll before the session stops answering, so
+        // it is the earlier and the more specific of the two signals.
+        if (snapshot.audit.some((entry) => entry.kind === "session_complete")) {
+          letGo(sessionId);
+        }
+      } catch (error) {
+        if (cancelled) return;
+        // Somebody else stopped it, or the server reclaimed it. Either way this
+        // is polling a session that no longer exists.
+        if (error instanceof DirectorSessionError && error.code === "not_found") {
+          letGo(sessionId);
+        }
       }
     };
     void tick();
@@ -207,7 +246,7 @@ export function useDirectorSession(
       clearInterval(poll);
       clearInterval(renew);
     };
-  }, [jamId, sessionId, viewerId, remember]);
+  }, [jamId, sessionId, viewerId, remember, letGo]);
 
   // HLS is the room-wide delivery path where the server has enabled it.
   useEffect(() => {
@@ -365,6 +404,10 @@ export function useDirectorSession(
   return {
     sessionId,
     live,
+    // Derived rather than stored: the trail outlives the session it describes,
+    // and a running take has not ended either way.
+    endedAtFilmLength:
+      !live && audit.some((entry) => entry.kind === "session_complete"),
     busy,
     state,
     beats,

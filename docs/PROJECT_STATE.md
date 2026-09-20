@@ -2491,11 +2491,12 @@ the code it quotes sit together again.
 - The room says why a take it did not stop has stopped. `session_complete` is recorded ahead of
   `session_closed`, and `src/screens/JamDirector.tsx` lets go of the session as soon as the
   trail carries it rather than waiting for the next read to 404.
-- Verified: `pnpm test` 1396/1396, `npx tsc --noEmit` clean, `pnpm build` clean. New coverage in
+- Verified: `pnpm test` 1406/1406, `npx tsc --noEmit` clean, `pnpm build` clean. New coverage in
   `tests/directorCompletion.test.ts` (the rule, and the stream over a fake peer), three route
   tests in `tests/directorRoutes.test.ts` (a take that ends itself and settles at the minimum,
   a take short of the end that keeps running, `filmSeconds` on the budget) and two DOM tests in
-  `tests/jamLifecycle.dom.test.tsx`.
+  `tests/jamLifecycle.dom.test.tsx`, and one in `tests/directorScreen.dom.test.tsx` for the
+  Director screen letting go of a finished take.
 - One existing test was changed on purpose, not dropped: "spend follows the seconds the stream
   actually generated" drove 90 seconds through a 20-second film, which this feature now makes
   impossible. It runs against a two-minute film and still asserts exactly what it did — the bill
@@ -2504,10 +2505,12 @@ the code it quotes sit together again.
   never been observed on a real stream. The measurement it is built on — the provider overrunning
   a 20s script to 1:20, and `script_offset_seconds` being the chunk's START offset — comes from
   the RV-27 session's probe on 2026-09-20, not from here.
-- **Known, and not fixed here:** the Director screen (`src/director/useDirectorSession.ts`)
-  swallows the 404 from a session that has ended, so that screen still reads live after an
-  auto-stop. It does the same today when somebody else presses Stop. That file belongs to the
-  open RV-27 branch (PR #22), so it was left alone rather than edited underneath it.
+- Both screens let go of a take that ended without them. `useDirectorSession` used to swallow
+  the error from a session that had stopped answering — "the stop path owns that state" — so the
+  Director screen kept reading live and kept offering a Stop for a stream that was over, after an
+  auto-stop and equally after somebody else's Stop. It now drops the session on either signal and
+  holds the finished take as a frame, saying which of the two ended it. Nothing is ended from
+  there: the take is already over on the server, so no end call is sent.
 
 ## Next milestones
 

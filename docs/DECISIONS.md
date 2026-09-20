@@ -36,7 +36,9 @@ endless film.
 
 **A take that ends itself says so.** `session_complete` is recorded before the `session_closed`
 that follows it, because otherwise a room cannot tell the film ending from the stream failing:
-both look like a player that swapped to a recording on its own.
+both look like a player that swapped to a recording on its own. It is also the signal both
+screens key on: it arrives a poll before the session stops answering, and it is the only one that
+distinguishes this ending from a Stop somebody else pressed.
 
 ## 2026-09-20 — A finished film is read from the deployment, and the archive says why it is empty (RV-25)
 

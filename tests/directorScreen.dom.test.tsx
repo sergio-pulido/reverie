@@ -7,6 +7,7 @@ import {
   SLUG,
   playButton,
   playLiveVideo,
+  stopButton,
   turnCards,
   type FakeServer,
 } from "./directorScreen";
@@ -185,6 +186,39 @@ describe("the stage, in its three states", () => {
     assert.match(text(".director-transport-note"), /cannot be scrubbed/);
     // A running take is not the room's clock, so it offers no controls to drive.
     assert.equal(document.querySelectorAll(".director-transport-button").length, 0);
+  });
+
+  it("lets go of a take that reached the end of the film, and says so", async () => {
+    // Nobody presses anything here: the server ends a take when the film
+    // reaches its selected length, and this screen learns about it the way it
+    // learns about somebody else's Stop — from the trail, a poll before the
+    // session stops answering. Reading `live` after that would go on offering
+    // a Stop for a stream that is over.
+    server = await openDirector({
+      offsetSeconds: 24,
+      state: { status: "streaming", generatedSeconds: 30, chunksReceived: 3 },
+      audit: [
+        { at: "2026-09-20T10:00:00.000Z", kind: "session_opened" },
+        {
+          at: "2026-09-20T10:00:30.000Z",
+          kind: "session_complete",
+          detail: "30s generated of a 30s film",
+        },
+      ],
+    });
+    await click(playButton());
+    await settle();
+
+    assert.equal(document.querySelector(".director-stage")?.getAttribute("data-phase"), "still");
+    assert.match(text(".director-stage-line"), /reached the end of the film and stopped itself/);
+    assert.equal(stopButton().disabled, true, "there is nothing left to stop");
+    assert.equal(playButton().disabled, false, "and the next take is one press away");
+    // Letting go is not ending: the take is already over on the server, so no
+    // end call is sent for it.
+    assert.equal(
+      server.requests.filter((request) => request.includes("/end")).length,
+      0,
+    );
   });
 
   it("still holds the finished session as a frame, with the room's clock under it", async () => {

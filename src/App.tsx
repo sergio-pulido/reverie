@@ -1,3 +1,4 @@
+import { randomPremise } from "./create/premises";
 import { FormEvent, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { AboutScreen } from "./about/AboutScreen";
 import { CatalogScreen } from "./catalog/CatalogScreen";
@@ -114,7 +115,7 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
   /** The home's copy of the film it opened, shown while the full record loads, and only for that film. */
   const [filmSeed, setFilmSeed] = useState<{ providerId: string; title: CatalogueTitle } | null>(null);
   const [roomTitle, setRoomTitle] = useState("Untitled Movie Jam");
-  const [premise, setPremise] = useState("A signal changes what the room thinks is possible.");
+  const [premise, setPremise] = useState(() => randomPremise());
   const [visibility, setVisibility] = useState<JamVisibility>("invite_only");
   const [persistence, setPersistence] = useState<JamPersistence>(hasSupabaseConfiguration() ? "remote" : "preview");
   const [sourceKind, setSourceKind] = useState<SourceKind>("from-scratch");
@@ -222,6 +223,8 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
       ? chosen === "director" ? "Untitled Film" : chosen === "escape" ? "Untitled Escape Room" : "Untitled Movie Jam"
       : current);
     setSourceKind(chosen === "escape" ? "escape-room" : "from-scratch");
+    // A fresh premise each time the door is used, so nobody has to type one to start.
+    setPremise((current) => randomPremise(current));
     setRegisteredRoom(null);
     setGeneratedJam(null);
     navigate("newJam", NEW_JAM_PATH);

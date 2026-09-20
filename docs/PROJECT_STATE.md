@@ -1752,6 +1752,95 @@ and the consent rules were then exercised as two real participants:
   needs `SUPABASE_SERVICE_ROLE_KEY`; without it both stay in memory and the routes report
   `durable: false`.
 
+## 2026-09-20 — One door to the three experiences, and a shell that reads on a phone
+
+The app's navigation now says what Reverie actually offers, and the whole of it was driven in a
+real browser at 390×844.
+
+**The landing's front door opens the app.** All three "Open Reverie" calls to action pointed at
+`/discover`, a screen inside the app, so the home was skipped entirely. They open `/home`. "Ask it
+what to watch" keeps Discover, through a constant of its own; "Start a Movie Jam" now opens the
+door below.
+
+**The TMDB credit is the page's footer, not a bar over it.** It was fixed across the bottom of the
+viewport, which at 390px was a four-line banner covering the shelf it was crediting. It is in the
+page's flow at the foot of the content, scrolling with it and sized as a credit. It is still on
+every screen that shows a TMDB record, and still not behind a link — that is the licence
+obligation. Every screen that reserved a band for it (`--attribution-height` /
+`--attribution-space` on the home, Discover, Catalog and search) no longer has to.
+
+**`/about`** carries what Reverie is, every provider with what this repository actually calls it
+for (Supabase, Nebius, SLNG, Vonage, fal with MiniMax H3, TMDB — each line written from its
+adapter), who built it and what each person worked on, and that it was made at HackBarna 2026. It
+is reached from the page's footer, from the account menu and from the landing's footer, and is
+deliberately not a destination: `destinationOf` now answers `null` for a screen that belongs to
+none, and the bar marks nothing while it is open.
+
+**`/create` is one door to three experiences**, each described by what it is: Director (alone),
+Movie Jam (with people), Escape Room (a room solves a place). Each opens the flow it already had.
+The registration form (still `/jams/new`, screen renamed `newJam`) knows which of the three it is
+registering. A finished Director film opens in its own session at `/director/:slug`. Where the
+escape room's routes are absent — they are the local Node server's — the door says so in the
+server's own words, offers nothing, and states that the other two are unaffected.
+
+**`/jams` is Yours**, the same path, listing Movie Jams, Director sessions and escape rooms, each
+card saying which it is and opening where it belongs. A jam row does not record which of the three
+it was started as and the routes that would say are the local server's, so `src/lib/startedKinds.ts`
+records what was chosen at the door, in this browser, on the same terms `jamConfiguration.ts`
+already takes; a room with nothing recorded is shown as a Movie Jam, which is what a jam row is.
+
+**The bar's five are Home, Discover, Catalog, Create, Yours.** Community is gone as a destination:
+films made in Reverie are a "Made in Reverie" shelf on the home and a source filter in Catalog,
+both reading the public rooms this viewer can read. `/community` redirects to the home so a shared
+link still lands.
+
+**On a phone the destinations move to a fixed bottom bar** — one icon and one short label each,
+clearing the safe-area inset, Create drawn as a filled action. It is the same list moved by CSS,
+so nothing is rendered twice and the remote's focus order is untouched; above 720px the bar is
+exactly what it was. The bar slides down by what the visual viewport says the keyboard covers, and
+the Discover dock stands on whichever of the two is taller, so neither is ever in the other's
+space.
+
+**The Discover composer** drops its heavy permanent ring for a hairline and a soft ground, puts
+half a thumb between the field and the microphone, and makes both a comfortable thumb tall on a
+phone. The focused state is the loud one, and still appears for a keyboard and a remote through
+the existing `:root:not([data-input="pointer"])` guard.
+
+### Verified
+
+- `npx tsc --noEmit` clean. `pnpm test` 1132 tests, 1125 pass; the only failures are the six
+  pre-existing `directorPieces`/`directorPieceMuxer` worker tests and `directorRoutes`' "a second
+  viewer on the same configuration attaches to the one stream", which fail identically on
+  untouched `main` on this machine (baseline before this work: 1094 tests, 1087 pass, 3 fail,
+  4 cancelled).
+- New tests: `tests/about.dom.test.tsx` (4), `tests/create.dom.test.tsx` (4),
+  `tests/yours.dom.test.tsx` (5), `tests/madeInReverie.dom.test.tsx` (9) and
+  `tests/bottomBar.test.ts` (11, replacing `topBarNarrow.test.ts`).
+- In a browser at 390×844, against the hosted Supabase project and the local Node server: all
+  three "Open Reverie" links resolve to `/home`; the credit sits at the foot of the home, the
+  catalogue and a film page rather than over them; `/about` reads top to bottom; the door renders
+  the three, and with `/api/escape-room/scenarios` answering 404 the escape card states it while
+  the other two stay choosable; choosing Director wrote a real 20-second script through Nebius and
+  landed in `/director/untitled-movie-jam-03541218`; opening a public escape room recorded
+  `reverie.started-kind.<id>=escape` and Yours then listed it as ESCAPE ROOM with one way in;
+  the Made in Reverie shelf and Catalog's filter both showed that room, and both said nothing had
+  been made yet before it existed; `/community` replaced itself with `/home`.
+- The bottom bar was measured rather than eyeballed: with the keyboard reading at `0px` it sits at
+  781–844 in an 844-tall viewport, and at `330px` it sits at 1111, off the screen. At 1280×800 the
+  destinations are back in the top bar in its flow, only Discover carries a mark, and Right still
+  walks Home, Discover, Catalog, Create, Yours, then the account.
+
+### Not verified
+
+- A real software keyboard. The visual-viewport reading was driven by setting `--search-keyboard`
+  by hand, which exercises exactly the property the stylesheet consumes but is not a phone.
+- `useViewport` publishes that reading only while the Discover screen is mounted, so the bottom
+  bar does not step aside for a keyboard opened on another screen. Nothing else docks to the
+  bottom of a page, so nothing is covered today; a screen that does would have to publish it too.
+- "Made in Reverie" on a second identity. Everything shown was read as the host of its own rooms;
+  there is no policy granting a browser a wider read of `jams`, so a public gallery would need a
+  migration that does not exist.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

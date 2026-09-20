@@ -107,6 +107,37 @@ describe("a turn's row on a phone", () => {
   });
 });
 
+describe("the critic's note at both widths", () => {
+  const noted = () => document.querySelector(".search-card-slot-noted .search-card-noted");
+
+  it("stands beside its poster on a television, with the reservation showing", async () => {
+    const styles = screenOf(TELEVISION);
+    await openSearch();
+    await say("something funny");
+    assert.ok(noted(), "a pick's card is drawn as a noted one");
+    assert.equal(declared(styles, page(), "--pick-width"), "560px", "a pick's slot is wider than a poster's");
+    assert.equal(declared(styles, noted(), "flex-direction"), "row", "poster on the left, prose on the right");
+    assert.notEqual(declared(styles, document.querySelector(".search-card-against"), "display"), "none", "what is against it is on screen");
+  });
+
+  it("becomes the note's opening under the poster on a phone, and the rest opens with the film", async () => {
+    const styles = screenOf(PHONE);
+    await openSearch();
+    await say("something funny");
+    assert.equal(declared(styles, page(), "--pick-width"), "168px", "two picks on a 360-pixel screen");
+    assert.equal(declared(styles, noted(), "flex-direction"), "column", "a paragraph will not stand beside a poster this narrow");
+    assert.equal(declared(styles, document.querySelector(".search-card-why"), "-webkit-line-clamp"), "4", "the note is cut to its opening");
+    assert.equal(declared(styles, document.querySelector(".search-card-against"), "display"), "none", "and what is against it is not in the row");
+    assert.deepEqual(widerThanScreen(page(), styles, PHONE), [], "nothing outside the row is wider than the screen");
+
+    await click(cards(0)[0]);
+    const sheet = dialog()!;
+    assert.ok(sheet.querySelector(".search-preview-against"), "the reservation is in the note that opens");
+    assert.ok(sheet.querySelector(".search-preview-watching"), "with what watching it is like");
+    assert.deepEqual(widerThanScreen(sheet, styles, PHONE), []);
+  });
+});
+
 describe("the preview on a phone", () => {
   async function openPreview(width: number) {
     const styles = screenOf(width);

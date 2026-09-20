@@ -1,4 +1,5 @@
 import type { CatalogueTitle } from "../catalogue/contract";
+import type { Critique } from "../conversation/contract";
 import type { ResultSet } from "../conversation/transcript";
 import { ResultCard, type CardHover } from "./ResultCard";
 import { captionOf } from "./results";
@@ -9,7 +10,7 @@ type ResultRowProps = {
   /** What the row is, for a screen reader: "Films for “a thriller”". */
   label: string;
   cellProps: (row: string, index: number) => { "data-row": string; "data-index": number; tabIndex: number };
-  onOpen: (title: CatalogueTitle, card: HTMLElement) => void;
+  onOpen: (title: CatalogueTitle, card: HTMLElement, critique: Critique | null) => void;
   hover: CardHover;
 };
 
@@ -35,6 +36,7 @@ export function ResultRow({ rowKey, results, label, cellProps, onOpen, hover }: 
             title={title}
             pick={picks.has(title.id)}
             reason={results.reasons[title.id] ?? null}
+            critique={results.critiques[title.id] ?? null}
             navigation={cellProps(rowKey, index)}
             onOpen={onOpen}
             hover={hover}

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CatalogueTitle } from "../catalogue/contract";
+import type { Critique } from "../conversation/contract";
 import { createDwell } from "./dwell";
 import type { CardHover } from "./ResultCard";
 
@@ -8,14 +9,14 @@ import type { CardHover } from "./ResultCard";
  * on. Any key press or scroll cancels a pending open, because either means the viewer is doing
  * something else than hovering.
  */
-export function useHoverPreview(open: (title: CatalogueTitle, card: HTMLElement) => void) {
-  const titles = useRef(new WeakMap<HTMLElement, CatalogueTitle>());
+export function useHoverPreview(open: (title: CatalogueTitle, card: HTMLElement, critique: Critique | null) => void) {
+  const shown = useRef(new WeakMap<HTMLElement, { title: CatalogueTitle; critique: Critique | null }>());
   const openRef = useRef(open);
   openRef.current = open;
   const [dwell] = useState(() =>
     createDwell<HTMLElement>((card) => {
-      const title = titles.current.get(card);
-      if (title && card.isConnected && !card.closest("[inert]")) openRef.current(title, card);
+      const on = shown.current.get(card);
+      if (on && card.isConnected && !card.closest("[inert]")) openRef.current(on.title, card, on.critique);
     }),
   );
 
@@ -32,9 +33,9 @@ export function useHoverPreview(open: (title: CatalogueTitle, card: HTMLElement)
 
   const hover = useMemo<CardHover>(
     () => ({
-      onPointerMove(title, event) {
+      onPointerMove(title, critique, event) {
         const card = event.currentTarget;
-        titles.current.set(card, title);
+        shown.current.set(card, { title, critique });
         dwell.rest(card, { pointerType: event.pointerType, moved: event.movementX !== 0 || event.movementY !== 0 });
       },
       onPointerLeave(event) {

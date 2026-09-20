@@ -1,11 +1,14 @@
 import { useEffect, useRef } from "react";
 import { providerIdOf, type CatalogueTitle } from "../catalogue/contract";
+import type { Critique } from "../conversation/contract";
 import { filmHeadline, type FilmRecord } from "../discover/filmFacts";
 import { useFilm } from "../discover/useFilm";
 import { dialogKey, focusables } from "./dialog";
 
 type FilmPreviewProps = {
   title: CatalogueTitle;
+  /** What the critic wrote about it, when this film was one of a turn's picks. */
+  critique: Critique | null;
   attribution: string;
   /** Drawn as a sheet filling a phone's screen, with a control to close it by thumb. */
   sheet: boolean;
@@ -22,6 +25,10 @@ const MOVES = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
  * arrives, and if it never does the preview simply goes without. Accessibility details (subtitles,
  * audio description) would show here, but no record in the catalogue carries them.
  *
+ * When the film is one the critic wrote about, the whole note is here, above the synopsis: the
+ * row can only hold so much of it, and on a phone it holds the opening line alone. The synopsis
+ * says what the film is; the note says what it is like and what is wrong with it.
+ *
  * Two things can be done from it: open the film's own page, or start a Jam inspired by it. The
  * catalogue is for finding films, not a licence to show them, so nothing here plays or implies
  * that it can. It opens on its first action and keeps focus inside; Back or Escape closes it.
@@ -30,7 +37,7 @@ const MOVES = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
  * is taller than the window and loses both its ends. Filling the screen leaves no backdrop to
  * press, so there it also carries a close control; a remote has Back and never sees one.
  */
-export function FilmPreview({ title, attribution, sheet, onClose, onOpenFilm, onStartJam }: FilmPreviewProps) {
+export function FilmPreview({ title, critique, attribution, sheet, onClose, onOpenFilm, onStartJam }: FilmPreviewProps) {
   const { state } = useFilm(providerIdOf(title.id));
   const film: FilmRecord = state.phase === "ready" ? { ...title, ...state.film } : title;
   const headline = filmHeadline(film);
@@ -86,6 +93,16 @@ export function FilmPreview({ title, attribution, sheet, onClose, onOpenFilm, on
                   <li key={genre}>{genre}</li>
                 ))}
               </ul>
+            )}
+            {critique && (
+              <div className="search-preview-note">
+                <p className="search-preview-note-label">The critic’s note</p>
+                <p className="search-preview-why">{critique.why}</p>
+                <p className="search-preview-watching">{critique.watching}</p>
+                <p className="search-preview-against">
+                  <span className="search-card-against-label">But</span> {critique.reservation}
+                </p>
+              </div>
             )}
             {film.synopsis && <p className="search-preview-synopsis">{film.synopsis}</p>}
             <div className="search-preview-actions" role="group" aria-label="What to do with this film">

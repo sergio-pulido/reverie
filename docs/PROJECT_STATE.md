@@ -1431,11 +1431,20 @@ an object URL, and the loop is held while a beat's bytes arrive rather than swap
 appears and again when it says it can. And a hidden tab pauses its video with nothing to resume
 it, so playback restarts when the tab is visible.
 
-**Verified:** `npx tsc --noEmit` clean; `pnpm test` 882/882 (was 862 before this work's last
-slice, 766 before it began), including the rules' three outcomes and their invariants, exhaustive
+**Two more found by re-reading the seams.** A jam id out of the path was interpolated into the
+PostgREST query that reads the caller's membership, and Express decodes `%26` — so an id carrying
+`&` would have added filters to a query this server has to trust. RLS scopes every row to the
+caller either way, so this narrowed that read rather than widening it, but every id these routes
+mint or accept is a v4 UUID and is now required to be one, the media id on its way to an object
+key included. And rooms were never reclaimed: nothing closes one, so a server would fill its
+twenty-four slots and refuse the twenty-fifth host forever. A room nobody has read in half an
+hour is dropped when a new one is opened.
+
+**Verified:** `npx tsc --noEmit` clean; `pnpm test` 885/885 (766 before this work began);
+`pnpm build` succeeds. The tests cover the rules' three outcomes and their invariants, exhaustive
 solvability of all three scenarios, the turn and the spend ceiling, the fal adapter's allowlist
-and error shapes, the routes' authorization, the mp4 duration reader, and the panel and create
-screen in a document.
+and error shapes, the routes' authorization and id checks, idle room reclamation, the mp4
+duration reader, and the panel and create screen in a document.
 
 **Not implemented / not verified:** two browsers in one escape room; any of this on Vercel (these
 routes are local-Node only and their state is in that process's memory, like the script, session

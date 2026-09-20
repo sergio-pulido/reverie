@@ -1308,3 +1308,34 @@ test("a beat is never handed over twice, and the end of the film is not an error
 
   await endSession(jam.id, sessionId);
 });
+
+test("at Play the beat being made and the one after it are both closed, whatever a chunk is", async () => {
+  // Beats as long as the longest chunk: the chunk rule alone would hand over
+  // exactly one beat and leave the second editable. The room's rule is what
+  // decides here — you cannot change what is being made, nor the thing
+  // straight after it.
+  const { jam, sessionId } = await openJamSession(buildJam(15, 2));
+  peer.channel.open();
+
+  const [configure] = peer.channel.parsed();
+  assert.deepEqual(
+    (configure.script as { offset: number }[]).map((beat) => beat.offset),
+    [0, 15],
+  );
+
+  const direct = (beatIndex: number) =>
+    fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}/direct`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ body: "Rewrite this beat.", beatIndex }),
+    });
+
+  for (const closed of [0, 1]) {
+    const response = await direct(closed);
+    assert.equal(response.status, 409, `beat ${closed}`);
+    assert.equal((await response.json()).error.code, "beat_locked");
+  }
+  assert.equal((await direct(2)).status, 202, "the third beat can still change");
+
+  await endSession(jam.id, sessionId);
+});

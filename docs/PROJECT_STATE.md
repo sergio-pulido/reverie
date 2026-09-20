@@ -2612,15 +2612,27 @@ the code it quotes sit together again.
 - **The window is wider than before**: one chunk of lead over a ten-second chunk closes about four
   five-second beats, against the two the old rule claimed. The cost was always being paid; the
   window just did not say so.
+- **Never narrower than two beats, either.** The hand-over is the longer of "the chunk being
+  generated plus the next" and "the beat being generated plus the next" (`twoBeatsAhead`), so the
+  room's own rule holds whatever a chunk turns out to be: at Play, beats 1 and 2 are both closed
+  even on a film whose beats are as long as a chunk. Capped at the film's runtime.
+- **A beat being generated is no longer offerable to the composer.** It stays selectable — Review
+  reads a beat back whatever its state — but the Direct button is disabled and the note names the
+  beat and its state, instead of sending something the screen already knows the server refuses.
+- Fixed a rendering bug this change introduced: before the first chunk the screen marked the LAST
+  beat handed over as `generating`. The provider starts at the top of the film, so the opening
+  beat is the one being made; `lockedBeatIndex` is now several ahead of it and is not that answer.
 - The outline queue no longer pushes a landed beat to open streams, and `OutlineEditRecord`
   loses `direction: { sent, refused, skipped }`. With the hand-over, a push would send the same
   beat twice — the second time as a steering prompt that busts fal's planned queue. The free-text
   direction route (`/direct`, `replan: true`) is unchanged: a change of direction is a different
   act from handing over the next page of the same script.
-- Verified: `pnpm test` 1443/1443, `npx tsc --noEmit` clean, `pnpm build` clean. New coverage in
+- Verified: `pnpm test` 1447/1447, `npx tsc --noEmit` clean, `pnpm build` clean. New coverage in
   `tests/directorRoutes.test.ts` (hand-over timing against the frontier, the window following what
-  was sent, a mid-take edit reaching the next hand-over, nothing sent twice, past the last beat)
-  and `tests/director.test.ts` (the configure window, script slicing).
+  was sent, a mid-take edit reaching the next hand-over, nothing sent twice, past the last beat,
+  both opening beats closed on a film of chunk-length beats), `tests/director.test.ts` (the
+  configure window, script slicing), `tests/directorTimeline.test.ts` (what Play looks like) and
+  `tests/directorScreen.dom.test.tsx` (neither a generating nor a locked beat can be aimed at).
 - **Not verified, and it needs one paid take:** whether fal accepts an opening script of one chunk
   rather than the whole film, and whether an appended beat arrives in time for the chunk it
   belongs to. A refusal would be the fatal `invalid_initial_script`, so it would be visible

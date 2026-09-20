@@ -90,9 +90,11 @@ export function beatStateOf(
     playheadSeconds < beat.startSeconds + beat.durationSeconds;
   if (window) {
     if (window.currentBeatIndex === null) {
-      // Nothing generated yet: the opening beat went to the provider with the
-      // configure message, so it is already being generated.
-      if (beat.portionIndex === window.lockedBeatIndex) return "generating";
+      // Nothing generated yet: the provider starts at the top of the film, so
+      // the opening beat is the one being made. NOT `lockedBeatIndex` — that
+      // is the last beat handed over, which is several ahead of where the
+      // provider has actually started.
+      if (beat.portionIndex === 0) return "generating";
     } else {
       if (beat.portionIndex === window.currentBeatIndex) return "generating";
       if (playing) return "playing";

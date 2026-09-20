@@ -597,6 +597,36 @@ describe("directing the story", () => {
     assert.equal(ask.dataset.status, "landed");
   });
 
+  it("a beat being generated cannot be aimed at, and the screen says so rather than the server", async () => {
+    server = await openDirector({ offsetSeconds: 12 });
+    await click(playButton());
+    await settle();
+    assert.equal(beatStates()[2], "generating");
+
+    await click(beatCards()[2]);
+    await fill(field(), "Make this one darker.");
+
+    assert.equal(sendButton().disabled, true);
+    assert.match(notes(), /Beat 3 is being generated right now.*nothing can be aimed at it/);
+    assert.deepEqual(server.directions, [], "nothing was sent for the server to refuse");
+  });
+
+  it("a beat already with the provider cannot be aimed at either", async () => {
+    server = await openDirector({ offsetSeconds: 12 });
+    await click(playButton());
+    await settle();
+    assert.equal(beatStates()[3], "locked");
+
+    await click(beatCards()[3]);
+    await fill(field(), "Make this one darker.");
+    assert.equal(sendButton().disabled, true);
+    assert.match(notes(), /Beat 4 is already with the provider/);
+
+    // The first beat that can still change is offered instead.
+    await click(beatCards()[4]);
+    assert.equal(sendButton().disabled, false);
+  });
+
   it("a refused direction is reported in the server's words, and nothing is claimed", async () => {
     server = await openDirector({
       offsetSeconds: 12,

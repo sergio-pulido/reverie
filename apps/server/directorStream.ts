@@ -26,6 +26,7 @@ import {
   beatOffsets,
   beatWindow,
   isBeatLocked,
+  twoBeatsAhead,
   type DirectorBeatWindow,
 } from "../../src/core/directorBeats";
 import {
@@ -383,7 +384,7 @@ export class DirectorStream {
    */
   private sendConfigure(): void {
     if (!this.control || this.control.readyState !== "open") return;
-    const throughSeconds = DIRECTOR_MAX_CHUNK_SECONDS;
+    const throughSeconds = this.handoverThrough(null);
     this.control.send(
       JSON.stringify(
         buildConfigureMessage(this.options.config, this.options.script, {
@@ -392,6 +393,26 @@ export class DirectorStream {
       ),
     );
     this.committedThroughSeconds = throughSeconds;
+  }
+
+  /**
+   * How far the script must have been handed over, from a given frontier.
+   *
+   * Two rules, and the longer of them wins. The provider needs the chunk it is
+   * generating plus the one after it, or it runs dry and improvises. The ROOM
+   * needs the beat being generated and the one after that to be closed — the
+   * rule the screen has always stated — and a chunk shorter than a beat would
+   * not reach it. Capped at the film: past the last beat there is nothing
+   * further to protect and nothing further to send.
+   */
+  private handoverThrough(frontierSeconds: number | null): number {
+    const offsets = beatOffsets(this.options.script);
+    const chunk = this.state.chunkSeconds ?? DIRECTOR_MAX_CHUNK_SECONDS;
+    const chunks = (frontierSeconds ?? 0) + chunk * (frontierSeconds === null ? 1 : 2);
+    return Math.min(
+      totalDurationSeconds(this.options.script),
+      Math.max(chunks, twoBeatsAhead(offsets, frontierSeconds)),
+    );
   }
 
   /**
@@ -411,10 +432,7 @@ export class DirectorStream {
     if (this.stopped || !this.control || this.control.readyState !== "open") return;
     const frontier = this.state.scriptOffsetSeconds;
     if (frontier === null) return;
-    const chunk = this.state.chunkSeconds ?? DIRECTOR_MAX_CHUNK_SECONDS;
-    // The chunk being generated, plus the one after it: that is what fal needs
-    // in hand to keep going without ever holding a beat that could change.
-    const through = frontier + chunk * 2;
+    const through = this.handoverThrough(frontier);
     if (through <= this.committedThroughSeconds) return;
     const script =
       (this.options.readScript ? await this.options.readScript() : null)

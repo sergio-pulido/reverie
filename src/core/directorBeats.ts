@@ -112,6 +112,29 @@ export function beatWindow(
   };
 }
 
+/**
+ * Seconds of script that must be in the provider's hands for the beat being
+ * generated AND the one after it to be closed.
+ *
+ * The room's own rule, and the one the screen states: you cannot change what
+ * is being made, nor the thing straight after it, because by the time you saw
+ * the one you are watching the next was already being planned. Under the
+ * hand-over that rule has to be *made* true rather than asserted — a beat is
+ * closed only because it was sent — so this is what the stream hands over at
+ * a minimum, whatever the chunk length happens to be.
+ *
+ * `Infinity` when the film has no such beat left: within two beats of the end
+ * there is nothing further to protect, and the caller caps it at the runtime.
+ */
+export function twoBeatsAhead(
+  offsets: readonly number[],
+  scriptOffsetSeconds: number | null,
+): number {
+  // Before the first chunk the provider is on the opening beat.
+  const next = (currentBeatIndex(offsets, scriptOffsetSeconds) ?? 0) + 2;
+  return next < offsets.length ? offsets[next] : Number.POSITIVE_INFINITY;
+}
+
 /** True when an edit to `beatIndex` would land on a closed beat. */
 export function isBeatLocked(
   window: DirectorBeatWindow,

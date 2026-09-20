@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { turnRequestSchema, type TurnOk } from "../../src/conversation/contract.js";
 import { MAX_TURNS_PER_SESSION } from "../../src/preferences/schema.js";
-import { interpretMessage } from "../_lib/discover-assistant.js";
+import { interpretStep } from "../_lib/discover-funnel.js";
 import {
   abortOnDisconnect,
   admit,
@@ -13,7 +13,6 @@ import {
   readAccessToken,
   readJsonBody,
   resolveProvider,
-  withSlot,
   type DiscoverEndpointOptions,
 } from "../_lib/discover-http.js";
 import { sendJson } from "../_lib/http.js";
@@ -67,7 +66,7 @@ export default async function discoverTurn(request: IncomingMessage, response: S
 
   const { message, previousQuestion } = parsed.data;
   const signal = abortOnDisconnect(response);
-  const result = await withSlot(() => interpretMessage(provider.complete, state, message, previousQuestion, options.now, signal));
+  const result = await interpretStep(provider, state, message, previousQuestion, { now: options.now, signal });
   if (isUnavailable(result)) {
     sendJson(response, 200, result);
     return;

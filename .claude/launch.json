@@ -63,6 +63,19 @@
         "apps/server/index.ts"
       ],
       "port": 4367
+    },
+    {
+      "name": "reverie-galtea-eval",
+      "runtimeExecutable": "/usr/bin/env",
+      "runtimeArgs": [
+        "PORT=4387",
+        "node",
+        "--env-file-if-exists=.env.local",
+        "--import",
+        "tsx",
+        "apps/server/index.ts"
+      ],
+      "port": 4387
     }
   ]
 }

@@ -2168,6 +2168,78 @@ the existing `:root:not([data-input="pointer"])` guard.
 - **Not verified:** no fal session was opened, so the live cost line has been exercised against
   a fake spend payload rather than a real take.
 
+## 2026-09-20 — One endpoint Galtea can call: `POST /api/evaluate`
+
+Galtea evaluates a deployed agent by calling one HTTP endpoint. Discover's three conversational
+endpoints are no use to it: each needs a viewer's Supabase session, and an anonymous one expires
+inside an hour, so a token pasted into an evaluation suite would die partway through the run.
+
+**`POST /api/evaluate` runs the whole funnel for one viewer message** — interpret, apply the turn
+the engine accepted, read the catalogue for the state that produced, rank, critique — and answers
+with what the viewer would have seen. The body is `{ "input", "history"? }`; the history is
+earlier viewer messages replayed through the same engine in order, so a multi-turn case is a real
+conversation rather than a state handed in. Each request runs in a fresh throwaway session.
+
+**It is authenticated by one static token**, `Authorization: Bearer <GALTEA_EVAL_TOKEN>`, held in
+the environment and compared over SHA-256 digests so neither the value nor its length leaks
+through how long the check takes. A viewer's Supabase token is never accepted here, and the eval
+token is never logged, echoed or returned. With no `GALTEA_EVAL_TOKEN` configured the endpoint is
+`503 EVAL_NOT_CONFIGURED` rather than open. `.env.example` carries the placeholder; the real value
+lives only in the ignored `.env.local` and in the Vercel project.
+
+**It is not a second funnel.** The three model steps moved out of the handlers into
+`api/_lib/discover-funnel.ts` — `interpretStep`, `rankStep`, `critiqueStep`, each behind the same
+in-process concurrency cap — and `/api/discover/turn`, `/api/discover/rank` and
+`/api/discover/critique` now call them too, so there is one implementation with two callers. The
+shortlist is `toShortlistRead` plus the same `fetchCatalogue` adapter `/api/catalogue` uses, the
+order is `orderByAssistant`, and `toRankCandidate` moved from the browser's `assistantClient` into
+`src/conversation/contract.ts` so both paths map a title the same way. The browser's fallbacks
+hold as well: a ranking that does not arrive leaves the deterministic scorer's order, and a
+critique that does not arrive leaves the ranking's reasons. Only a failure to interpret ends the
+call, because then there is no turn to read the catalogue for.
+
+**The catalogue is read as the server, never as the caller.** The harness has no Supabase session
+and must not be given one. `search_catalogue_titles` is granted to `authenticated` and revoked
+from `anon`, so the anon key alone cannot read it; `api/_lib/supabase-server-session.ts` resolves
+`SUPABASE_SERVICE_ROLE_KEY` when it is set, and otherwise signs the server in anonymously with the
+anon key and caches that session per process. Without either there is no catalogue, and the
+endpoint says so rather than answering with nothing.
+
+### Verified
+
+- `npx tsc --noEmit` clean. `pnpm build` clean.
+- `pnpm test`: 1336 tests, 1325 pass, 3 fail, 8 cancelled. The failures are the pre-existing
+  `directorPieces` / `directorPieceMuxer` worker-thread tests, which fail the same way on this
+  machine without this change.
+- New: `tests/evaluateEndpoint.test.ts` (10) over a fake provider and a fake catalogue — the four
+  ways a token can be wrong, a missing configuration, four malformed bodies, the single-turn case,
+  the multi-turn case (the history's genre and the message's length are both in the catalogue
+  read, and the film the constraint rules out appears nowhere in the answer), the titles and the
+  critic's reasons in `output`, and both fallbacks.
+- Against the local Node server on port 4387, the real Nebius provider and the hosted Supabase
+  project, with no `SUPABASE_SERVICE_ROLE_KEY` set — so the anonymous server session is the path
+  that ran:
+  - no header, a wrong token and a token in the wrong scheme each answered `401 UNAUTHENTICATED`;
+    a body of `{"nope":1}` answered `400 INVALID_REQUEST`.
+  - `{"input":"a scary film under two hours"}` answered 200 with
+    `filters {maxRuntime: 119, includeGenres: ["horror"]}`, 3,902 matching titles, picks
+    *The Nun II* (2023), *Talk to Me* (2023) and *No One Will Save You* (2023), and a critique on
+    each — three parts apiece, in `output`.
+  - `{"input":"actually nothing scary, a comedy about a heist that goes wrong","history":["something for a Friday night","nothing over two hours"]}`
+    answered 200 with `subject "heist goes wrong"` and
+    `filters {maxRuntime: 119, includeGenres: ["comedy","thriller"], excludeGenres: ["horror"]}`:
+    the length came from the history's second message, the horror exclusion and the subject from
+    the message being evaluated. Both turns of the history were really replayed.
+
+### Not verified
+
+- No call against the deployed Vercel function. Everything above ran through the local Express
+  server, which mounts the same handler.
+- The `SUPABASE_SERVICE_ROLE_KEY` branch of the server session. No such key is configured here, so
+  only the anonymous path has a receipt.
+- No Galtea run. The response shape is what the brief asked for; whether an evaluator grades
+  `output` well is not something a unit test can answer.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

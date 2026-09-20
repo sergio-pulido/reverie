@@ -1,7 +1,7 @@
-import { isEligible } from "../preferences/eligibility";
-import { acceptFullRanking, acceptRanking } from "../preferences/ranking";
-import { SHORTLIST_SIZE, type PreferenceState, type RankingEntry } from "../preferences/schema";
-import type { CatalogueCandidate } from "./candidates";
+import { isEligible } from "../preferences/eligibility.js";
+import { acceptFullRanking, acceptRanking } from "../preferences/ranking.js";
+import { SHORTLIST_SIZE, type PreferenceState, type RankingEntry } from "../preferences/schema.js";
+import type { CatalogueCandidate } from "./candidates.js";
 
 /**
  * How much of a title's utility comes from the viewer's genres versus its place in the

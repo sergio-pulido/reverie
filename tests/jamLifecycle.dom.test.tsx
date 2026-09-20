@@ -17,8 +17,10 @@ const JAM = "11111111-1111-4111-8111-111111111111";
  */
 function serve(
   lifecycle: string,
-  sessions: { id: string }[] = [],
+  sessions: { id: string; startedAt?: string; complete?: boolean }[] = [],
   pieces: { segmentIndex: number; startSeconds: number; durationSeconds: number }[] = [],
+  /** Pieces for one named take, when the room's takes differ. */
+  piecesBySession: Record<string, { segmentIndex: number; startSeconds: number; durationSeconds: number }[]> = {},
 ) {
   const original = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -30,18 +32,28 @@ function serve(
       });
     }
     if (url.endsWith("/director/archive")) {
-      return new Response(JSON.stringify({ durable: true, sessions }), {
+      return new Response(JSON.stringify({
+        durable: true,
+        sessions: sessions.map((session) => ({
+          startedAt: "2026-09-20T09:00:00.000Z",
+          complete: true,
+          container: "mp4",
+          ...session,
+        })),
+      }), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
     }
     if (/\/director\/archive\/[^/]+$/.test(url)) {
+      const wanted = url.slice(url.lastIndexOf("/") + 1);
+      const segments = piecesBySession[wanted] ?? pieces;
       return new Response(
         JSON.stringify({
           durable: true,
-          session: { complete: true, container: "webm" },
-          segments: pieces,
-          durationSeconds: pieces.reduce((total, piece) => total + piece.durationSeconds, 0),
+          session: { complete: true, container: "mp4" },
+          segments,
+          durationSeconds: segments.reduce((total, piece) => total + piece.durationSeconds, 0),
         }),
         { status: 200, headers: { "content-type": "application/json" } },
       );
@@ -274,7 +286,12 @@ describe("the room shows where it is in its life", () => {
         1,
         "the finished recording is rendered once",
       );
-      assert.match(player.getAttribute("src") ?? "", /\/director\/archive\/sess-1\/video$/);
+      // The film is one seekable playlist, attached through the player: a
+      // plain src could not carry the viewer's token to a deployed function.
+      assert.match(
+        player.getAttribute("data-film") ?? "",
+        /\/director\/archive\/sess-1\/playlist\.m3u8$/,
+      );
 
       // And the room is not retired: the next take is one press away, because
       // a stop anybody can send must not be able to end the room for good.
@@ -287,10 +304,74 @@ describe("the room shows where it is in its life", () => {
       const jump = document.querySelector<HTMLButtonElement>('[data-testid="jam-piece-1"]');
       assert.ok(jump, "a piece per moment is offered");
       assert.equal(jump.textContent?.trim(), "0:10");
+      // Jumping is a seek inside the one playlist now, not a second request
+      // for a different file: the player already knows which piece holds 0:10.
+      let sought: number | null = null;
+      Object.defineProperty(player, "currentTime", {
+        configurable: true,
+        get: () => sought ?? 0,
+        set: (value: number) => {
+          sought = value;
+        },
+      });
       await click(jump);
+      assert.equal(sought, 10);
       assert.match(
-        player.getAttribute("src") ?? "",
-        /\/director\/archive\/sess-1\/pieces\/1$/,
+        player.getAttribute("data-film") ?? "",
+        /\/director\/archive\/sess-1\/playlist\.m3u8$/,
+        "the film on screen is still the one playlist",
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("shows every take the room has made, not only the last one", async () => {
+    const restore = serve(
+      "ended",
+      [
+        { id: "sess-2", startedAt: "2026-09-20T11:30:00.000Z" },
+        { id: "sess-1", startedAt: "2026-09-20T09:15:00.000Z" },
+      ],
+      [],
+      {
+        "sess-2": [{ segmentIndex: 0, startSeconds: 0, durationSeconds: 8 }],
+        "sess-1": [{ segmentIndex: 0, startSeconds: 0, durationSeconds: 12 }],
+      },
+    );
+    try {
+      await render(<JamDirector jamId={JAM} configuration={DEFAULT_CONFIGURATION} />);
+      await settle();
+      // A room plays more than once, so an earlier take must stay reachable.
+      assert.ok(document.querySelector('[data-testid="jam-film-sess-1"]'), "the earlier take is listed");
+      const latest = document.querySelector<HTMLButtonElement>('[data-testid="jam-film-sess-2"]');
+      assert.ok(latest, "the latest take is listed");
+      assert.equal(latest.getAttribute("aria-current"), "true", "the newest take is the one open");
+
+      const earlier = document.querySelector<HTMLButtonElement>('[data-testid="jam-film-sess-1"]');
+      await click(earlier!);
+      await settle();
+      const player = document.querySelector('[data-testid="jam-director-recording"]');
+      assert.match(
+        player?.getAttribute("data-film") ?? "",
+        /\/director\/archive\/sess-1\/playlist\.m3u8$/,
+        "opening an earlier take plays that take",
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("says that a take recorded nothing, rather than showing an empty frame", async () => {
+    const restore = serve("ended", [{ id: "sess-silent" }], []);
+    try {
+      await render(<JamDirector jamId={JAM} configuration={DEFAULT_CONFIGURATION} />);
+      await settle();
+      // This is the failure that made a whole afternoon of takes look like a
+      // broken screen: the record exists, the film does not, and nothing said so.
+      assert.match(
+        document.querySelector('.player-placeholder')?.textContent ?? "",
+        /recorded no video/,
       );
     } finally {
       restore();

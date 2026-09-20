@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { hasRecording, lifecycleLabel, type JamLifecycle } from "../core/jamLifecycle";
 import {
-  directorArchivePieceSrc,
-  directorArchiveVideoSrc,
+  directorArchivePlaylistSrc,
+  readArchiveToken,
+  type ArchivedFilm,
   listDirectorArchive,
   readDirectorArchive,
   readJamLifecycle,
@@ -18,7 +19,7 @@ import type { DirectorBeatWindow } from "../core/directorBeats";
 import { formatUsd, type DirectorSpend } from "../core/directorSpend";
 import { formatClock } from "../core/clock";
 import type { SessionSettings } from "../core/session";
-import { attachHlsStream } from "../lib/hlsPlayback";
+import { attachHlsStream, type HlsAttachment } from "../lib/hlsPlayback";
 import {
   attachDirectorSession,
   directorPlaylistSrc,
@@ -70,6 +71,10 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
   /** The finished film's pieces, so a viewer can go straight to a minute. */
   const [pieces, setPieces] = useState<ArchivedPiece[]>([]);
   const [archivedSession, setArchivedSession] = useState<string | null>(null);
+  /** Every take this room has archived, newest first. */
+  const [films, setFilms] = useState<ArchivedFilm[]>([]);
+  /** Why the open take has no film, when it has none. */
+  const [filmNotice, setFilmNotice] = useState<string | null>(null);
   const video = useRef<HTMLVideoElement | null>(null);
   const detach = useRef<(() => void) | null>(null);
   const [beats, setBeats] = useState<DirectorBeatWindow | null>(null);
@@ -94,6 +99,8 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
   const active = useRef<{ sessionId: string; viewerId: string | null } | null>(null);
   const starting = useRef(false);
   const screen = useRef<HTMLVideoElement | null>(null);
+  /** The finished film's element; the live take and the archive never share one. */
+  const film = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
     active.current = sessionId ? { sessionId, viewerId } : null;
@@ -116,6 +123,56 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
     setSpend(opened.spend);
     setMaxSeconds(opened.maxSessionSeconds);
   }, []);
+
+  /** Goes to a moment of the finished film, in the film that is already open. */
+  const seekFilm = useCallback((startSeconds: number) => {
+    const video = film.current;
+    if (!video) return;
+    video.currentTime = startSeconds;
+    // A browser that refuses to start playing from a jump is not a failure
+    // worth reporting: the frame is where it was asked to be, and the viewer
+    // has the controls. Guarded rather than awaited for the same reason.
+    try {
+      void video.play()?.catch(() => undefined);
+    } catch {
+      /* nothing to say */
+    }
+  }, []);
+
+  /**
+   * Plays the finished film.
+   *
+   * The same HLS attachment as the live take, in its VOD mode: the archive
+   * playlist lists every piece and its duration, so the player can seek
+   * through the film instead of downloading it to reach a minute.
+   *
+   * It carries the viewer's access token, because in production these routes
+   * are Vercel functions that check membership and read Supabase as the
+   * caller. A plain `<video src>` cannot present one, which is why the film
+   * goes through the player here rather than straight into the element.
+   */
+  useEffect(() => {
+    if (live || !recording) return;
+    let attachment: HlsAttachment | null = null;
+    let cancelled = false;
+    setPlaybackFailure(null);
+    void readArchiveToken()
+      .then((accessToken) => {
+        if (cancelled || !film.current) return;
+        attachment = attachHlsStream(film.current, recording, {
+          ...(accessToken ? { accessToken } : {}),
+          vod: true,
+          onFailure: setPlaybackFailure,
+        });
+      })
+      .catch(() => {
+        setPlaybackFailure("This session could not be verified, so the film stayed closed.");
+      });
+    return () => {
+      cancelled = true;
+      attachment?.detach();
+    };
+  }, [live, recording]);
 
   /**
    * Plays the shared stream.
@@ -187,24 +244,52 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
    * it, so this screen learns about most stops from the server rather than
    * from its own button.
    */
+  /**
+   * Opens one archived take.
+   *
+   * A session row exists from the moment a take starts, so a take that stored
+   * nothing — recording switched off, or no media track ever arrived — has a
+   * record and no film. That is said rather than rendered as an empty frame:
+   * a screen that silently shows nothing is indistinguishable from one that is
+   * broken, and this one was.
+   */
+  const openFilm = useCallback(
+    async (film: ArchivedFilm) => {
+      setArchivedSession(film.id);
+      const detail = await readDirectorArchive(jamId, film.id);
+      const storedPieces = detail.segments ?? [];
+      setPieces(storedPieces);
+      if (storedPieces.length === 0) {
+        setRecording(null);
+        setFilmNotice("This take recorded no video, so there is nothing to play back.");
+        return;
+      }
+      setFilmNotice(null);
+      setRecording(directorArchivePlaylistSrc(jamId, film.id));
+    },
+    [jamId],
+  );
+
   const readRoom = useCallback(async () => {
-    const current = await readJamLifecycle(jamId);
-    setLifecycle(current);
-    if (!hasRecording(current)) return;
-    const archive = await listDirectorArchive(jamId);
-    // Newest first, so the room's last session is the one to play.
-    const latest = archive.sessions[0];
-    if (!latest) return;
-    const detail = await readDirectorArchive(jamId, latest.id);
-    const storedPieces = detail.segments ?? [];
-    setPieces(storedPieces);
-    // A session record can exist even when recording was disabled or no media
-    // track arrived. Do not render a video whose URL can only 404.
-    if (storedPieces.length > 0) {
-      setRecording(directorArchiveVideoSrc(jamId, latest.id));
-      setArchivedSession(latest.id);
+    // Best effort, and deliberately not fatal. The room's life is held by the
+    // container that runs the take; the archive is read from Supabase by a
+    // deployed function. A deployment that has the second and not the first —
+    // which is what production is — must still show the film it made, so a
+    // lifecycle that cannot be read means "unknown", not "nothing to show".
+    const current = await readJamLifecycle(jamId).catch(() => null);
+    if (current) {
+      setLifecycle(current);
+      if (!hasRecording(current)) return;
     }
-  }, [jamId]);
+    const archive = await listDirectorArchive(jamId);
+    // Every take the room has made, not only the last one. A room that has
+    // played three times has three films, and showing one of them was how two
+    // of them became invisible.
+    setFilms(archive.sessions);
+    // Newest first, so the room's last take is the one already open.
+    const latest = archive.sessions[0];
+    if (latest) await openFilm(latest);
+  }, [jamId, openFilm]);
 
   useEffect(() => {
     void readRoom().catch(() => {
@@ -363,17 +448,10 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
       // be played again, and this take keeps its own recording.
       const stopped = await endDirectorSession(jamId, sessionId);
       setLifecycle(stopped.lifecycle);
-      // The pieces land as the muxer finishes them; read what is there now.
-      void readDirectorArchive(jamId, sessionId)
-        .then((detail) => {
-          const storedPieces = detail.segments ?? [];
-          setPieces(storedPieces);
-          if (storedPieces.length > 0) {
-            setRecording(directorArchiveVideoSrc(jamId, sessionId));
-            setArchivedSession(sessionId);
-          }
-        })
-        .catch(() => undefined);
+      // The pieces land as the muxer finishes them, so this reads what is there
+      // now — and re-reads the shelf, because the take that just stopped is a
+      // film the room did not have a moment ago.
+      void readRoom().catch(() => undefined);
     } catch (error) {
       // Ending is idempotent server-side, so this is rarely a real failure —
       // but the one time it is, a paid take is still running and the reader is
@@ -389,7 +467,7 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
       setViewerId(null);
       setBusy(false);
     }
-  }, [jamId, sessionId]);
+  }, [jamId, readRoom, sessionId]);
 
   return <div className="player-card" aria-label="Live director">
     <div className="panel-heading">
@@ -404,7 +482,16 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
 
     <div className="player-frame">
       {!live && recording ? (
-        <video src={recording} controls playsInline data-testid="jam-director-recording" />
+        <video
+          ref={film}
+          controls
+          playsInline
+          data-testid="jam-director-recording"
+          // The film is attached through the player rather than set as a src,
+          // so this is what says which film is on screen — to a reader, and to
+          // a test that cannot run a media pipeline.
+          data-film={recording}
+        />
       ) : null}
       {!recording && live && liveDelivery ? (
         <video
@@ -432,16 +519,28 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
       {!live && recording && archivedSession && pieces.length > 1 && (
         <PieceJump
           pieces={pieces}
-          onJump={(index) =>
-            setRecording(directorArchivePieceSrc(jamId, archivedSession, index))
-          }
-          onWhole={() => setRecording(directorArchiveVideoSrc(jamId, archivedSession))}
+          onJump={(startSeconds) => seekFilm(startSeconds)}
+          onWhole={() => seekFilm(0)}
         />
       )}
       {!live && !recording && (
-        <p className="player-placeholder">{placeholder(state, live, lifecycle)}</p>
+        <p className="player-placeholder">
+          {filmNotice ?? placeholder(state, live, lifecycle)}
+        </p>
       )}
     </div>
+    {/*
+      * Every take this room has made, so the ones before the last one are
+      * reachable. A room plays more than once — that is the point of a room
+      * that is never retired — and each take keeps its own film.
+      */}
+    {!live && films.length > 0 && (
+      <FilmShelf
+        films={films}
+        openId={archivedSession}
+        onOpen={(film) => void openFilm(film).catch(() => undefined)}
+      />
+    )}
     {playbackFailure ? <Notice tone="alert">{playbackFailure}</Notice> : null}
     {relayFailure ? <Notice tone="status">{relayFailure}</Notice> : null}
 
@@ -679,10 +778,57 @@ function costLine({
 }
 
 /**
+ * The room's films, newest first.
+ *
+ * A take is listed whether or not it stored anything: the record exists from
+ * the moment Play is pressed, and a take that recorded nothing is a fact about
+ * the room worth showing rather than a row to hide. Opening one says which it
+ * was.
+ */
+function FilmShelf({
+  films,
+  openId,
+  onOpen,
+}: {
+  films: ArchivedFilm[];
+  openId: string | null;
+  onOpen: (film: ArchivedFilm) => void;
+}) {
+  return (
+    <nav className="hero-actions" aria-label="Films this room has made">
+      {films.map((film) => (
+        <button
+          key={film.id}
+          className={film.id === openId ? "button button-primary" : "button button-quiet"}
+          onClick={() => onOpen(film)}
+          aria-current={film.id === openId ? "true" : undefined}
+          data-testid={`jam-film-${film.id}`}
+        >
+          {taken(film.startedAt)}
+          {/* A take whose process died mid-stream still plays, up to where it
+              got to. Saying so beats presenting a partial film as whole. */}
+          {film.complete ? "" : " · cut short"}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+/** When a take was made, in the reader's own time zone. */
+function taken(startedAt: string): string {
+  const at = new Date(startedAt);
+  return Number.isNaN(at.getTime())
+    ? "A take"
+    : at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+/**
  * Go to a minute of the film by picking the piece that contains it.
  *
- * A piece is playable on its own and begins on a keyframe, so jumping costs
- * one small request rather than downloading everything before the target.
+ * The film is one HLS playlist, so this is a seek rather than a new request:
+ * the player already knows which piece holds that second and fetches only
+ * that one. Each piece begins on a keyframe, which is what makes the jump
+ * land on a frame instead of on a stall.
  */
 function PieceJump({
   pieces,
@@ -690,7 +836,7 @@ function PieceJump({
   onWhole,
 }: {
   pieces: ArchivedPiece[];
-  onJump: (index: number) => void;
+  onJump: (startSeconds: number) => void;
   onWhole: () => void;
 }) {
   return (
@@ -702,7 +848,7 @@ function PieceJump({
         <button
           key={piece.segmentIndex}
           className="button button-quiet"
-          onClick={() => onJump(piece.segmentIndex)}
+          onClick={() => onJump(piece.startSeconds)}
           data-testid={`jam-piece-${piece.segmentIndex}`}
         >
           {clock(piece.startSeconds)}

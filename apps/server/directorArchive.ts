@@ -3,6 +3,12 @@ import {
   type DirectorRecordingStore,
 } from "./directorRecordings";
 import type { DirectorIndexStore } from "./directorIndex";
+import {
+  containerContentType,
+  initObjectName,
+  pieceObjectName,
+  type ArchiveContainer,
+} from "../../src/core/directorArchiveLayout";
 
 /**
  * The durable half of a director stream.
@@ -20,30 +26,16 @@ import type { DirectorIndexStore } from "./directorIndex";
  * stays false and is reported that way.
  */
 
-/**
- * The container the selected muxer produced. Codec selection happens before
- * this sink: WebM and fMP4 bytes arrive with an explicit container, so storage
- * keys and content types never have to guess from the payload.
- */
-export type ArchiveContainer = "webm" | "mp4";
-
-const CONTAINERS: Record<ArchiveContainer, { init: string; piece: string; contentType: string }> = {
-  webm: { init: "init.webm", piece: "webm", contentType: "video/webm" },
-  mp4: { init: "init.mp4", piece: "m4s", contentType: "video/mp4" },
-};
-
-/** The key a piece is stored under, given its container. */
-export function pieceObjectName(container: ArchiveContainer, index: number): string {
-  return `${index}.${CONTAINERS[container].piece}`;
-}
-
-export function initObjectName(container: ArchiveContainer): string {
-  return CONTAINERS[container].init;
-}
-
-export function containerContentType(container: ArchiveContainer): string {
-  return CONTAINERS[container].contentType;
-}
+// The layout itself lives in core: the Vercel archive function reads the same
+// objects this sink writes, and one of the two being wrong about a key is a
+// 404 with nothing to explain it.
+export {
+  asContainer,
+  containerContentType,
+  initObjectName,
+  pieceObjectName,
+  type ArchiveContainer,
+} from "../../src/core/directorArchiveLayout";
 
 export interface DirectorArchiveOptions {
   jamId: string;

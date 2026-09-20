@@ -1,6 +1,6 @@
 /* One row on desktop; one column on phone. The remote uses the same axes. */
 .create-shell { display: flex; min-height: 100vh; flex-direction: column; }
-.create-layout { width: min(1440px, 100%); margin: 0 auto; padding: 40px 48px 72px; }
+.create-layout { flex: 1; width: min(1440px, 100%); margin: 0 auto; padding: 40px 48px 72px; }
 .create-head { max-width: 820px; margin-bottom: 32px; }
 .create-head h1 { font-size: clamp(42px, 5.4vw, 72px); margin: 0 0 18px; }
 .create-ways { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin: 0; padding: 0; list-style: none; }

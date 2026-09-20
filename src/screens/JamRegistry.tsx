@@ -3,6 +3,13 @@ import { Footer, Notice } from "../chrome";
 import type { JamRoom } from "../core/room";
 import { safeMessageOf } from "../lib/errors";
 import { listJams, type JamPersistence } from "../lib/jams";
+import {
+  DEFAULT_STARTED_KIND,
+  readStartedKind,
+  STARTED_KIND_LABEL,
+  STARTED_KIND_MEANING,
+  type StartedKind,
+} from "../lib/startedKinds";
 import { TopBar } from "../shell/TopBar";
 
 type Props = {
@@ -12,18 +19,21 @@ type Props = {
   onDirect: (jam: JamRoom, persistence: JamPersistence) => void;
 };
 
+/** A room, and which of the three ways it was started. */
+type Started = { jam: JamRoom; kind: StartedKind };
+
 /**
- * Your rooms, and the two ways to work on one.
+ * Yours: everything you have started, whichever of the three it is.
  *
- * A jam can be made with people — the Studio, where a room chats, proposes and
- * watches together — or alone, as a Director session at `/director/:slug`,
- * where one person talks the film into being. Both are the same jam and the
- * same script; they differ in who is in the room. The choice belongs here
- * rather than in the top bar, which already carries five destinations that
- * have to fit a 360-pixel screen.
+ * All three are rooms in the same table — that is what they have in common and why one list
+ * holds them — but they are not the same experience, so each card says which it is rather than
+ * leaving three different things looking alike. Where a Movie Jam can still be worked either
+ * way (a room, or alone), it offers both; the other two open the one place they belong.
+ *
+ * Starting something is not here. That is the door at `/create`.
  */
 export function JamRegistry({ onNew, onOpen, onDirect }: Props) {
-  const [jams, setJams] = useState<JamRoom[]>([]);
+  const [started, setStarted] = useState<readonly Started[]>([]);
   const [persistence, setPersistence] = useState<JamPersistence>("preview");
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
@@ -33,13 +43,13 @@ export function JamRegistry({ onNew, onOpen, onDirect }: Props) {
     void listJams()
       .then((registry) => {
         if (!active) return;
-        setJams(registry.jams.filter((jam) => jam.status !== "completed" && jam.status !== "closed"));
+        setStarted(registry.jams.map((jam) => ({ jam, kind: readStartedKind(jam.id) ?? DEFAULT_STARTED_KIND })));
         setPersistence(registry.persistence);
         setPhase("ready");
       })
       .catch((cause) => {
         if (!active) return;
-        setError(safeMessageOf(cause, "Your jams could not be loaded."));
+        setError(safeMessageOf(cause, "What you have started could not be loaded."));
         setPhase("error");
       });
     return () => { active = false; };
@@ -48,22 +58,29 @@ export function JamRegistry({ onNew, onOpen, onDirect }: Props) {
   return <main className="site-shell registry-shell"><TopBar current="jam" />
     <section className="registry-layout">
       <header className="registry-head">
-        <p className="eyebrow">MOVIE JAMS</p>
-        <h1>Your stories, <em>still running.</em></h1>
-        <p className="intro">Open a jam already in progress, or register a new room with its own script. Work on one with people, or alone.</p>
-        <button className="button button-primary" onClick={onNew}>Start a new jam <span>↗</span></button>
+        <p className="eyebrow">YOURS</p>
+        <h1>Everything you have <em>started.</em></h1>
+        <p className="intro">Movie Jams, Director sessions and escape rooms, newest first. Open one to carry on with it.</p>
+        <button className="button button-primary" onClick={onNew}>Make something new <span>↗</span></button>
       </header>
 
       <div className="registry-list" aria-live="polite">
-        {phase === "loading" && <p className="registry-empty">Loading your jams…</p>}
+        {phase === "loading" && <p className="registry-empty">Loading what you have started…</p>}
         {phase === "error" && <Notice>{error}</Notice>}
         {phase === "ready" && persistence === "preview" && <Notice tone="status">Supabase is not configured. These are browser-only preview registrations.</Notice>}
-        {phase === "ready" && jams.length === 0 && <div className="registry-empty"><h2>No running jams yet.</h2><p>Your next room will appear here as soon as it is registered.</p></div>}
-        {jams.map((jam) => <article className="registry-card" key={jam.id}>
-          <div><p className="eyebrow">{jam.status.toUpperCase()} · {jam.visibility === "public" ? "PUBLIC" : "INVITE ONLY"}</p><h2>{jam.title}</h2><p>{jam.premise}</p></div>
+        {phase === "ready" && started.length === 0 && <div className="registry-empty"><h2>You have not started anything yet.</h2><p>A Movie Jam, a Director session or an escape room will appear here as soon as you make one.</p></div>}
+        {started.map(({ jam, kind }) => <article className="registry-card" key={jam.id}>
+          <div>
+            <p className="eyebrow registry-kind">{STARTED_KIND_LABEL[kind]} · {jam.status.toUpperCase()} · {jam.visibility === "public" ? "PUBLIC" : "INVITE ONLY"}</p>
+            <h2>{jam.title}</h2>
+            <p className="registry-meaning">{STARTED_KIND_MEANING[kind]}</p>
+            <p>{jam.premise}</p>
+          </div>
           <div className="registry-ways">
-            <button className="button button-quiet" onClick={() => onOpen(jam, persistence)}>With people <span>→</span></button>
-            <button className="button button-quiet" onClick={() => onDirect(jam, persistence)}>Alone <span>→</span></button>
+            {kind === "jam" ? <>
+              <button className="button button-quiet" onClick={() => onOpen(jam, persistence)}>With people <span>→</span></button>
+              <button className="button button-quiet" onClick={() => onDirect(jam, persistence)}>Alone <span>→</span></button>
+            </> : <button className="button button-quiet" onClick={() => (kind === "director" ? onDirect(jam, persistence) : onOpen(jam, persistence))}>Open <span>→</span></button>}
           </div>
         </article>)}
       </div>

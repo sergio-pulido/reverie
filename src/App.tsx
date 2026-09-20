@@ -16,6 +16,7 @@ import {
 import { openEscapeRoom, readScenarios, type ScenarioCard } from "./lib/escapeRoom";
 import { safeMessageOf } from "./lib/errors";
 import { createJam as createJamRoom, type JamPersistence, type JamRoom, type JamVisibility } from "./lib/jams";
+import { rememberStartedKind } from "./lib/startedKinds";
 import {
   ABOUT_PATH,
   CREATE_PATH,
@@ -302,7 +303,7 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
     const roomPremise = sourceKind === "from-scratch"
       ? premise.trim()
       : sourceKind === "escape-room"
-        ? "A Movie Jam played inside an authored escape room."
+        ? "A room sharing one character inside an authored escape room."
         : "A Movie Jam created from an imported script.";
     setIsCreating(true);
     setNotice(null);
@@ -312,6 +313,9 @@ export function App({ leaveForLanding = replaceWithLanding }: AppProps = {}) {
         : await createJamRoom({ id: crypto.randomUUID(), title: roomTitle.trim(), premise: roomPremise.slice(0, 280), visibility });
       setRegisteredRoom(created.jam);
       applyJam(created.jam, created.persistence);
+      // The jam row does not say which of the three this is, and the routes that would say are
+      // the local server's. What was chosen at the door is recorded here, where it is known.
+      rememberStartedKind(created.jam.id, way);
       // An escape room has no screenplay to write: the world is authored and
       // the film is whatever the room makes the character do. So it opens the
       // room and goes straight into it, with no script screen in between.

@@ -100,6 +100,9 @@ footer { width: 100%; max-width: 1410px; margin: 0 auto; padding: 24px 48px; bor
 .registry-card h2, .registry-empty h2 { margin: 0 0 10px; font: 500 30px Fraunces, Georgia, serif; letter-spacing: -.025em; }
 .registry-card p:not(.eyebrow), .registry-empty p { margin: 0; color: #aeb5c6; line-height: 1.5; }
 .registry-card .button { flex: 0 0 auto; }
+/* Which of the three this is, before its name: three different experiences share this list. */
+.registry-kind { margin-bottom: 12px; color: #bbc6fa; }
+.registry-card .registry-meaning { margin-bottom: 8px; color: #c8ccdb; font-size: 14px; }
 /* Two ways to work on one jam: with people, in the room, or alone, directing it. */
 .registry-ways { flex: 0 0 auto; display: flex; gap: 10px; flex-wrap: wrap; }
 .registry-empty { padding: 34px; border: 1px dashed #465476; color: #aeb5c6; }

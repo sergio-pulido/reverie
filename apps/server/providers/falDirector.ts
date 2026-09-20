@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { DirectorScriptBeat } from "../../../src/core/directorProtocol";
 import type { JamScript } from "../../../src/core/script";
 
 /**
@@ -142,11 +143,9 @@ export function directorFrameSize(config: {
   return across >= down ? { width: long, height: short } : { width: short, height: long };
 }
 
-/** One direction on the stream's clock, at a whole-second offset. */
-export interface DirectorScriptBeat {
-  offset: number;
-  prompt: string;
-}
+// The beat shape is the control channel's, and `src/core/directorProtocol.ts`
+// owns it — a second copy here would be a second answer to what fal takes.
+export type { DirectorScriptBeat };
 
 /**
  * Projects a jam script onto Director's beat timeline.
@@ -160,14 +159,22 @@ export interface DirectorScriptBeat {
  * rather than rejected, because the stream can still be directed live past the
  * last beat.
  */
-export function buildDirectorScript(script: JamScript): DirectorScriptBeat[] {
+export function buildDirectorScript(
+  script: JamScript,
+  window: { fromSeconds?: number; toSeconds?: number } = {},
+): DirectorScriptBeat[] {
+  const from = window.fromSeconds ?? 0;
+  const to = window.toSeconds ?? Number.POSITIVE_INFINITY;
   const beats: DirectorScriptBeat[] = [];
   let offset = 0;
   for (const scene of script.scenes) {
     for (const portion of scene.portions) {
-      if (beats.length >= DIRECTOR_MAX_SCRIPT_BEATS) return beats;
-      beats.push({ offset, prompt: describePortion(portion) });
+      const start = offset;
       offset += portion.durationSeconds;
+      if (start < from) continue;
+      if (start >= to) return beats;
+      if (beats.length >= DIRECTOR_MAX_SCRIPT_BEATS) return beats;
+      beats.push({ offset: start, prompt: describePortion(portion) });
     }
   }
   return beats;
@@ -193,11 +200,22 @@ function describePortion(portion: {
  * script beats direct it moment to moment. `prompt_version` starts at 1 and
  * the client increments it for every later `prompt` message — fal rejects a
  * stale version, which is what keeps two directors from racing.
+ *
+ * **It carries only the beats of the opening window, not the whole film.** A
+ * beat fal holds is a beat the room can no longer change: it has been planned
+ * from, and an edit landing on it afterwards rewrites the script while the
+ * picture goes on following the version fal was given. So the script is handed
+ * over a chunk at a time, by `prompt`, as each beat closes to editing — and
+ * `configure` carries exactly the first chunk's worth, because that is what
+ * fal generates before it has told us anything.
+ *
+ * `throughSeconds` defaults to the longest chunk the model will produce, which
+ * is the only safe assumption before `configured` reports the real length.
  */
 export function buildConfigureMessage(
   config: DirectorConfig,
   script: JamScript,
-  options: { memory?: number } = {},
+  options: { memory?: number; throughSeconds?: number } = {},
 ): Record<string, unknown> {
   const memory = clampMemory(options.memory ?? 12);
   return {
@@ -205,7 +223,9 @@ export function buildConfigureMessage(
     protocol_version: 1,
     prompt_version: 1,
     prompt: buildPremise(script),
-    script: buildDirectorScript(script),
+    script: buildDirectorScript(script, {
+      toSeconds: options.throughSeconds ?? DIRECTOR_MAX_CHUNK_SECONDS,
+    }),
     resolution: config.resolution,
     aspect_ratio: config.aspectRatio,
     memory,

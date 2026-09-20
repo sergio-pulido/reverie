@@ -89,7 +89,33 @@ test("the configure message pins the premise, framing and protocol", () => {
   assert.equal(message.aspect_ratio, "16:9");
   assert.equal(message.memory, 12);
   assert.match(String(message.prompt), /The Salt Door/);
-  assert.equal((message.script as unknown[]).length, 4);
+  // Only the opening chunk's beats: 0s, 5s and 10s of a 20s film. What fal is
+  // given it has planned from, and can never be asked to unplan.
+  assert.deepEqual(
+    (message.script as { offset: number }[]).map((beat) => beat.offset),
+    [0, 5, 10],
+  );
+});
+
+test("the configure window is the caller's, so a shorter chunk hands over less", () => {
+  const config = resolveDirectorConfig(LIVE)!;
+  const script = buildScript(5, 2, 2);
+  assert.deepEqual(
+    (buildConfigureMessage(config, script, { throughSeconds: 5 }).script as { offset: number }[])
+      .map((beat) => beat.offset),
+    [0],
+  );
+});
+
+test("the script can be sliced to a window, which is how later beats are handed over", () => {
+  const script = buildScript(5, 2, 2);
+  assert.deepEqual(
+    buildDirectorScript(script, { fromSeconds: 5, toSeconds: 15 }).map((beat) => beat.offset),
+    [5, 10],
+  );
+  // Past the end is empty rather than an error: a stream runs on past the last
+  // beat, directed live.
+  assert.deepEqual(buildDirectorScript(script, { fromSeconds: 20 }), []);
 });
 
 test("memory is clamped to what Director accepts", () => {

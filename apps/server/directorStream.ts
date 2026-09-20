@@ -7,6 +7,7 @@ import {
   directorServerMessageSchema,
   initialDirectorState,
   nextPromptMessage,
+  nextScriptMessage,
   reduceDirectorState,
   type DirectorState,
 } from "../../src/core/directorProtocol";
@@ -29,6 +30,8 @@ import {
 } from "../../src/core/directorBeats";
 import {
   buildConfigureMessage,
+  buildDirectorScript,
+  DIRECTOR_MAX_CHUNK_SECONDS,
   DirectorError,
   startDirectorSession,
   type DirectorConfig,
@@ -56,6 +59,17 @@ export interface DirectorStreamOptions {
   sessionId: string;
   config: DirectorConfig;
   script: JamScript;
+  /**
+   * The jam's script as it stands right now.
+   *
+   * The stream hands fal the beats a chunk at a time, and each handover reads
+   * the story again: an edit that landed since the session opened is in the
+   * beats that have not gone yet, and that is the whole point — the provider
+   * is never holding a beat the room could still change. Absent, the script
+   * this session opened with is used, which is what a test or a jam with no
+   * store behind it wants.
+   */
+  readScript?: () => Promise<JamScript | null>;
   /** Injected in tests; defaults to the real fal handshake. */
   startSession?: typeof startDirectorSession;
   /** Injected in tests; defaults to a real werift peer. */
@@ -178,6 +192,12 @@ export const DIRECTOR_AUDIO_CODECS = [
   }),
 ];
 
+/** Which beat starts at an offset, so a handover can be audited by beat. */
+function beatIndexAt(script: JamScript, offsetSeconds: number): number | undefined {
+  const index = beatOffsets(script).indexOf(offsetSeconds);
+  return index < 0 ? undefined : index;
+}
+
 function createWeriftPeer(preferH264: boolean): DirectorPeer {
   return new RTCPeerConnection({
     codecs: { video: directorVideoCodecs(preferH264), audio: DIRECTOR_AUDIO_CODECS },
@@ -192,6 +212,13 @@ export class DirectorStream {
   private stopped = false;
   /** Reported once: the film is generated in one chunk, not repeatedly. */
   private generated = false;
+  /**
+   * Seconds of script fal has been given. The lock boundary IS this number:
+   * every beat below it is spoken for, every beat above it can still change.
+   */
+  private committedThroughSeconds = 0;
+  /** One handover at a time, so two chunks cannot send the same beat twice. */
+  private releasing: Promise<void> = Promise.resolve();
   /** Inbound tracks, kept so viewers can be forwarded a copy. */
   private readonly inbound: MediaStreamTrack[] = [];
   private readonly trackListeners: ((track: MediaStreamTrack) => void)[] = [];
@@ -291,7 +318,13 @@ export class DirectorStream {
     return beatWindow(
       beatOffsets(this.options.script),
       this.state.scriptOffsetSeconds,
+      this.committedThroughSeconds,
     );
+  }
+
+  /** How much of the script fal holds. The lock boundary, in seconds. */
+  get committedSeconds(): number {
+    return this.committedThroughSeconds;
   }
 
   direct(request: DirectionRequest): {
@@ -340,13 +373,75 @@ export class DirectorStream {
     await this.teardown();
   }
 
+  /**
+   * Opens the session with the premise and the first chunk's worth of beats.
+   *
+   * Not the whole film. Whatever goes in here is planned from immediately and
+   * can never be changed again, so it is kept to what fal will generate before
+   * it has told us anything — one chunk at the longest length the model makes.
+   * Everything after it is handed over as it closes, in `releaseBeats`.
+   */
   private sendConfigure(): void {
     if (!this.control || this.control.readyState !== "open") return;
+    const throughSeconds = DIRECTOR_MAX_CHUNK_SECONDS;
     this.control.send(
       JSON.stringify(
-        buildConfigureMessage(this.options.config, this.options.script),
+        buildConfigureMessage(this.options.config, this.options.script, {
+          throughSeconds,
+        }),
       ),
     );
+    this.committedThroughSeconds = throughSeconds;
+  }
+
+  /**
+   * Hands fal the beats it is about to need, reading the story as it stands.
+   *
+   * Called on every chunk. fal is generating the chunk that starts at the
+   * frontier, so the beats of the chunk AFTER that are the ones it has not
+   * planned yet and the ones it needs next — and the moment they are sent is
+   * the moment they stop being editable, which is what `beats` reports.
+   *
+   * Best-effort by design: a handover that fails leaves the boundary where it
+   * was, so the same beats are offered again on the next chunk rather than
+   * being silently skipped. What cannot be recovered is a beat the frontier
+   * has already passed; that is recorded, not papered over.
+   */
+  private async releaseBeats(): Promise<void> {
+    if (this.stopped || !this.control || this.control.readyState !== "open") return;
+    const frontier = this.state.scriptOffsetSeconds;
+    if (frontier === null) return;
+    const chunk = this.state.chunkSeconds ?? DIRECTOR_MAX_CHUNK_SECONDS;
+    // The chunk being generated, plus the one after it: that is what fal needs
+    // in hand to keep going without ever holding a beat that could change.
+    const through = frontier + chunk * 2;
+    if (through <= this.committedThroughSeconds) return;
+    const script =
+      (this.options.readScript ? await this.options.readScript() : null)
+      ?? this.options.script;
+    if (this.stopped || !this.control || this.control.readyState !== "open") return;
+    const beats = buildDirectorScript(script, {
+      fromSeconds: this.committedThroughSeconds,
+      toSeconds: through,
+    });
+    if (beats.length === 0) {
+      // Past the last beat, or a window that spans none: nothing to send, but
+      // the boundary still moves so the room is not told a beat is editable
+      // when the stream has already run past it.
+      this.committedThroughSeconds = through;
+      return;
+    }
+    const next = nextScriptMessage(this.state, beats);
+    this.control.send(JSON.stringify(next.message));
+    this.state = next.state;
+    this.committedThroughSeconds = through;
+    this.audit.record({
+      kind: "beats_sent",
+      promptVersion: (next.message as { prompt_version: number }).prompt_version,
+      beatIndex: beatIndexAt(this.options.script, beats[0].offset),
+      scriptOffsetSeconds: frontier,
+      detail: `beats ${beats.map((beat) => beat.offset).join(", ")}s`,
+    });
   }
 
   private onControlMessage(raw: unknown): void {
@@ -384,6 +479,12 @@ export class DirectorStream {
           promptVersion: chunk.prompt_version,
           scriptOffsetSeconds: chunk.script_offset_seconds ?? undefined,
         });
+        // The frontier moved, so the next beats are due. Queued behind any
+        // handover still in flight: two chunks arriving together must not both
+        // read the same boundary and send the same beats twice.
+        this.releasing = this.releasing
+          .then(() => this.releaseBeats())
+          .catch(() => undefined);
         break;
       }
       case "error": {

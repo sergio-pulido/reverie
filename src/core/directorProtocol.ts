@@ -8,10 +8,30 @@ import { z } from "zod";
  * test can open. Server output is parsed, never trusted.
  */
 
-/** Messages the client may send, per the model's `client_message_types`. */
+/** One beat of the script as fal takes it: where it starts, and what happens. */
+export interface DirectorScriptBeat {
+  offset: number;
+  prompt: string;
+}
+
+/**
+ * Messages the client may send, per the model's `client_message_types`.
+ *
+ * `prompt` carries more than text: it may also carry `script` — beats with
+ * their offsets — with `script_mode` saying whether they replace the plan from
+ * the next chunk or queue after it. That is what lets a script be handed over
+ * a beat at a time instead of all at once in `configure`.
+ */
 export type DirectorClientMessage =
   | { type: "configure"; [key: string]: unknown }
-  | { type: "prompt"; prompt_version: number; prompt?: string; replan?: boolean }
+  | {
+      type: "prompt";
+      prompt_version: number;
+      prompt?: string;
+      replan?: boolean;
+      script?: DirectorScriptBeat[];
+      script_mode?: "replace" | "append";
+    }
   | { type: "ping"; client_ts: number }
   | { type: "stop" };
 
@@ -114,6 +134,14 @@ export interface DirectorState {
   /** Seconds of video the session has produced, for the spend readout. */
   generatedSeconds: number;
   /**
+   * How long a chunk is, as fal reports it when it configures the session.
+   *
+   * Null until it says. It matters because beats are handed over one chunk
+   * ahead of the frontier: how far ahead "one chunk" is cannot be guessed from
+   * the script, whose beats are a different length entirely.
+   */
+  chunkSeconds: number | null;
+  /**
    * Where the stream has reached on the SCRIPT's clock, as fal reports it.
    *
    * This is the only signal that says which beat is currently playing, so a
@@ -133,6 +161,7 @@ export function initialDirectorState(): DirectorState {
     sentPromptVersion: 1,
     chunksReceived: 0,
     generatedSeconds: 0,
+    chunkSeconds: null,
     scriptOffsetSeconds: null,
     endedReason: null,
     error: null,
@@ -151,8 +180,17 @@ export function reduceDirectorState(
   message: DirectorServerMessage,
 ): DirectorState {
   switch (message.type) {
-    case "configured":
-      return { ...state, status: "configuring" };
+    case "configured": {
+      const configured = message as Extract<
+        DirectorServerMessage,
+        { type: "configured" }
+      >;
+      return {
+        ...state,
+        status: "configuring",
+        chunkSeconds: configured.chunk_duration ?? state.chunkSeconds,
+      };
+    }
     case "chunk": {
       const chunk = message as Extract<DirectorServerMessage, { type: "chunk" }>;
       return {
@@ -211,6 +249,36 @@ export function nextPromptMessage(
   const version = state.sentPromptVersion + 1;
   return {
     message: { type: "prompt", prompt_version: version, prompt, replan: true },
+    state: { ...state, sentPromptVersion: version },
+  };
+}
+
+/**
+ * The next `prompt` message, handing fal more of the script.
+ *
+ * The same versioned channel a direction uses — fal's `prompt` takes a
+ * `script` as well as text — so beats reach the provider the way every other
+ * update does: a new `prompt_version`, one higher than the last.
+ *
+ * `append` and `replan: false` are the pair that makes this a hand-over rather
+ * than an interruption: the beats queue after what is already planned, and the
+ * chunk being generated is left alone. Replacing would cut to the new script
+ * at the next chunk, which is the right verb for a change of direction and the
+ * wrong one for the next page of the same script.
+ */
+export function nextScriptMessage(
+  state: DirectorState,
+  beats: DirectorScriptBeat[],
+): { message: DirectorClientMessage; state: DirectorState } {
+  const version = state.sentPromptVersion + 1;
+  return {
+    message: {
+      type: "prompt",
+      prompt_version: version,
+      script: beats,
+      script_mode: "append",
+      replan: false,
+    },
     state: { ...state, sentPromptVersion: version },
   };
 }

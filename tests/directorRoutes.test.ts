@@ -68,6 +68,29 @@ function buildJam(portionSeconds = 5, portionsPerScene = 2): Jam {
   };
 }
 
+/**
+ * Lets the handover that a chunk kicks off finish.
+ *
+ * It reads the current script, so it is asynchronous by nature: the control
+ * message returns before the beats have been sent.
+ */
+async function settleHandover(): Promise<void> {
+  for (let turn = 0; turn < 5; turn += 1) await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/** One chunk from fal, at a whole-second offset, handover settled. */
+async function deliverChunk(chunkIndex: number, offsetSeconds: number): Promise<void> {
+  peer.channel.deliver({
+    type: "chunk",
+    chunk_index: chunkIndex,
+    prompt_version: 1,
+    playback_seconds: 5,
+    script_offset_seconds: offsetSeconds,
+  });
+  await settleHandover();
+}
+
 async function openJamSession(jam: Jam = buildJam()): Promise<{
   jam: Jam;
   sessionId: string;
@@ -160,17 +183,19 @@ test("codec preference follows the selected container without removing the fallb
   );
 });
 
-test("the configure message is the jam's script, sent by the server", async () => {
+test("the configure message carries the opening chunk's beats, not the whole film", async () => {
   const { jam, sessionId } = await openJamSession();
   peer.channel.open();
 
   const [configure] = peer.channel.parsed();
   assert.equal(configure.type, "configure");
   assert.equal(configure.prompt_version, 1);
-  assert.equal((configure.script as unknown[]).length, 4);
+  // A beat fal is given can never change again, so it is given only what it
+  // will generate before it has reported anything: one chunk at the longest
+  // length the model makes. Beat 15s is handed over later, as it closes.
   assert.deepEqual(
     (configure.script as { offset: number }[]).map((beat) => beat.offset),
-    [0, 5, 10, 15],
+    [0, 5, 10],
   );
 
   await endSession(jam.id, sessionId);
@@ -495,7 +520,11 @@ test("the audit records where the stream stood when a direction was sent", async
 test("a direction on a locked beat is refused, and says which are still open", async () => {
   const { jam, sessionId } = await openJamSession();
   peer.channel.open();
-  // Beat 1 is on screen; beat 2 is already committed to generation.
+  // What is closed is what fal has been GIVEN, so the chunk length decides how
+  // far ahead that reaches: at five seconds a chunk, the opening configure
+  // covers beats 0-2 and nothing further has been handed over yet.
+  peer.channel.deliver({ type: "configured", prompt_version: 1, chunk_duration: 5 });
+  // Beat 1 is on screen; beat 2 is already with the provider.
   peer.channel.deliver({
     type: "chunk",
     chunk_index: 0,
@@ -1171,4 +1200,111 @@ test("opening a session reports the same spend the read route does", async () =>
   ).json();
   assert.deepEqual(read.spend, opened.spend);
   await endSession(jam.id, opened.sessionId);
+});
+
+// The script is handed to fal a chunk at a time, not all at once in
+// `configure`. That is what makes an edit reach the picture: a beat fal has
+// been given is planned from and cannot change, so a beat is only given once
+// it has closed — and what is sent is read from the story as it stands then.
+
+/** Drives a stream to a chunk boundary and returns what fal was sent. */
+function scriptsSent(): { prompt_version: number; script_mode?: string; replan?: boolean; script: { offset: number; prompt: string }[] }[] {
+  return peer.channel
+    .parsed()
+    .filter((message) => message.type === "prompt" && Array.isArray(message.script)) as never;
+}
+
+test("beats are handed over as the stream advances, one chunk ahead of the frontier", async () => {
+  // 8 beats of 5s: long enough that a handover is not the whole film.
+  const { jam, sessionId } = await openJamSession(buildJam(5, 4));
+  peer.channel.open();
+  peer.channel.deliver({ type: "configured", prompt_version: 1, chunk_duration: 5 });
+
+  // Nothing has been handed over yet: configure covered the opening window.
+  assert.deepEqual(scriptsSent(), []);
+
+  // fal is generating [5,10) and will need [10,15) next — which configure
+  // already covered, so this chunk is due nothing.
+  await deliverChunk(0, 5);
+  assert.deepEqual(scriptsSent(), [], "nothing is sent twice");
+
+  // Now it is generating [10,15) and needs [15,20): beat 3, and only beat 3.
+  await deliverChunk(1, 10);
+
+  const [first] = scriptsSent();
+  assert.ok(first, "the beats of the next chunk were sent");
+  assert.deepEqual(first.script.map((beat) => beat.offset), [15]);
+  // The same versioned channel a direction uses, one higher than the last.
+  assert.equal(first.prompt_version, 2);
+  // Queued after what is planned rather than cutting into it.
+  assert.equal(first.script_mode, "append");
+  assert.equal(first.replan, false);
+
+  await endSession(jam.id, sessionId);
+});
+
+test("a beat handed over is closed, and a beat still to come is not", async () => {
+  const { jam, sessionId } = await openJamSession(buildJam(5, 4));
+  peer.channel.open();
+  peer.channel.deliver({ type: "configured", prompt_version: 1, chunk_duration: 5 });
+
+  const window = async () => {
+    const response = await fetch(`${baseUrl}/api/jams/${jam.id}/director/session/${sessionId}`);
+    return (await response.json()).beats;
+  };
+  // Configure carried [0,15): beats 0, 1 and 2 are with the provider.
+  assert.equal((await window()).minEditableBeatIndex, 3);
+
+  await deliverChunk(0, 5);
+  assert.equal((await window()).minEditableBeatIndex, 3, "still nothing more given");
+
+  await deliverChunk(1, 10);
+  // Beat 3 has now gone too, so the first beat an edit may touch is 4.
+  assert.equal((await window()).minEditableBeatIndex, 4);
+
+  await endSession(jam.id, sessionId);
+});
+
+test("what is handed over is the story as it stands, not the one the take opened with", async () => {
+  const { jam, sessionId } = await openJamSession(buildJam(5, 4));
+  peer.channel.open();
+  peer.channel.deliver({ type: "configured", prompt_version: 1, chunk_duration: 5 });
+
+  // An edit lands on beat 3 while the take runs — a beat nothing has been told
+  // about yet, which is the only kind an edit can land on.
+  const current = await store.getCurrentScriptRevision(jam.id);
+  assert.ok(current);
+  const rewritten = structuredClone(current.script);
+  // Beat 3 of this film — two scenes of four portions — is the fourth portion
+  // of the first scene, and it starts at 15s.
+  rewritten.scenes[0].portions[3].action = "The door gives to a flood.";
+  await store.commitScript(jam.id, rewritten, 3, { expectedRevision: current.revision });
+
+  await deliverChunk(0, 5);
+  await deliverChunk(1, 10);
+
+  const [first] = scriptsSent();
+  assert.deepEqual(first.script.map((beat) => beat.offset), [15]);
+  assert.match(first.script[0].prompt, /The door gives to a flood\./);
+
+  await endSession(jam.id, sessionId);
+});
+
+test("a beat is never handed over twice, and the end of the film is not an error", async () => {
+  const { jam, sessionId } = await openJamSession(buildJam(5, 2));
+  peer.channel.open();
+  peer.channel.deliver({ type: "configured", prompt_version: 1, chunk_duration: 5 });
+
+  for (const offset of [0, 5, 10, 15, 20]) {
+    await deliverChunk(offset / 5, offset);
+  }
+
+  const offsets = scriptsSent().flatMap((message) => message.script.map((beat) => beat.offset));
+  assert.deepEqual(offsets, [15], "beat 3 once, and nothing past the last beat");
+  assert.deepEqual(
+    scriptsSent().map((message) => message.prompt_version),
+    [2],
+  );
+
+  await endSession(jam.id, sessionId);
 });

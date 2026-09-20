@@ -3,6 +3,12 @@ import {
   type DirectorRecordingStore,
 } from "./directorRecordings";
 import type { DirectorIndexStore } from "./directorIndex";
+import {
+  containerContentType,
+  initObjectName,
+  pieceObjectName,
+  type ArchiveContainer,
+} from "../../src/core/directorArchiveLayout";
 
 /**
  * The durable half of a director stream.
@@ -20,30 +26,16 @@ import type { DirectorIndexStore } from "./directorIndex";
  * stays false and is reported that way.
  */
 
-/**
- * The container the selected muxer produced. Codec selection happens before
- * this sink: WebM and fMP4 bytes arrive with an explicit container, so storage
- * keys and content types never have to guess from the payload.
- */
-export type ArchiveContainer = "webm" | "mp4";
-
-const CONTAINERS: Record<ArchiveContainer, { init: string; piece: string; contentType: string }> = {
-  webm: { init: "init.webm", piece: "webm", contentType: "video/webm" },
-  mp4: { init: "init.mp4", piece: "m4s", contentType: "video/mp4" },
-};
-
-/** The key a piece is stored under, given its container. */
-export function pieceObjectName(container: ArchiveContainer, index: number): string {
-  return `${index}.${CONTAINERS[container].piece}`;
-}
-
-export function initObjectName(container: ArchiveContainer): string {
-  return CONTAINERS[container].init;
-}
-
-export function containerContentType(container: ArchiveContainer): string {
-  return CONTAINERS[container].contentType;
-}
+// The layout itself lives in core: the Vercel archive function reads the same
+// objects this sink writes, and one of the two being wrong about a key is a
+// 404 with nothing to explain it.
+export {
+  asContainer,
+  containerContentType,
+  initObjectName,
+  pieceObjectName,
+  type ArchiveContainer,
+} from "../../src/core/directorArchiveLayout";
 
 export interface DirectorArchiveOptions {
   jamId: string;
@@ -72,6 +64,18 @@ export class DirectorArchiveSink {
         segment,
         containerContentType(container),
       );
+      // The one unambiguous "the archive has begun" in the record.
+      //
+      // Without it, a session with no segments has two very different causes
+      // that look identical from outside: no media track ever arrived, or the
+      // track arrived and storage refused it. The first is a provider problem,
+      // the second is ours, and telling them apart used to mean reading the
+      // container's stdout — which nothing keeps.
+      await this.options.index.recordAudit(this.options.sessionId, {
+        at: new Date().toISOString(),
+        kind: "archive_opened",
+        detail: `${codec}/${container}`,
+      });
     }, { truncatedReason: "init_storage_failure" });
   }
 
@@ -144,9 +148,25 @@ export class DirectorArchiveSink {
     task: () => Promise<void>,
     failure: { countLostSegment?: boolean; truncatedReason?: string } = {},
   ): void {
-    this.queue = this.queue.then(task).catch(() => {
+    this.queue = this.queue.then(task).catch((error: unknown) => {
       if (failure.countLostSegment) this.failedSegments += 1;
       this.truncated ??= failure.truncatedReason ?? null;
+      // Say so, in the record a reader can actually reach.
+      //
+      // Every failure here used to be swallowed whole: the archive simply
+      // ended, `truncated_reason` was overwritten by the route's own close,
+      // and a room whose film never reached storage looked exactly like a room
+      // that had not been recorded. Two afternoons went into telling those
+      // apart by hand. The audit trail is already served by the archive routes,
+      // so this is the one place where saying it costs nothing.
+      void this.options.index
+        .recordAudit(this.options.sessionId, {
+          at: new Date().toISOString(),
+          kind: "archive_failed",
+          detail: failure.truncatedReason ?? "unknown",
+        })
+        .catch(() => undefined);
+      void error;
     });
   }
 }

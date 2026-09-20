@@ -4,6 +4,8 @@ import type { DirectorBeatWindow } from "../core/directorBeats";
 import type { DirectorSpend } from "../core/directorSpend";
 import type { SessionSettings } from "../core/session";
 import type { JamLifecycle } from "../core/jamLifecycle";
+import { ensureAccessToken } from "./session";
+import { hasSupabaseConfiguration } from "./supabase";
 
 /**
  * Client for the server-proxied live director.
@@ -201,6 +203,48 @@ export function renewDirectorSession(
   }).catch(() => undefined);
 }
 
+/**
+ * An archive read, carrying the viewer's own access token.
+ *
+ * The live director routes belong to the container and take the browser's word
+ * for who it is; the archive does not. In production these are Vercel
+ * functions that authenticate the caller with Supabase and read the index and
+ * the bucket AS that caller, so a film is only ever served to somebody the
+ * room admitted. That is also why the token is attached here rather than in
+ * `call`: the two halves of the feature have genuinely different answers to
+ * who may read them, and one shared helper would hide that.
+ */
+async function archiveCall<T>(url: string, action: string): Promise<T> {
+  const accessToken = await readArchiveToken(action);
+  return call<T>(url, accessToken ? { headers: { authorization: `Bearer ${accessToken}` } } : {});
+}
+
+/**
+ * The viewer's token, for the player that fetches the playlist and its pieces.
+ *
+ * Null where this browser has no Supabase configuration at all — the preview
+ * mode in which a jam lives in local storage and the archive is served by the
+ * local container, which does not check. It is NOT null for a configured
+ * browser whose session has expired: that raises, because a film the deployed
+ * function will refuse should say so rather than 401 inside a video element.
+ */
+export function readArchiveToken(
+  action = "Watching the film",
+): Promise<string | null> {
+  return hasSupabaseConfiguration() ? ensureAccessToken(action) : Promise.resolve(null);
+}
+
+/**
+ * The finished film as an HLS playlist.
+ *
+ * This is what makes a recording seekable: the playlist lists every piece and
+ * its duration, so jumping to a minute fetches the piece that holds it rather
+ * than everything before it.
+ */
+export function directorArchivePlaylistSrc(jamId: string, sessionId: string): string {
+  return `/api/jams/${jamId}/director/archive/${sessionId}/playlist.m3u8`;
+}
+
 export function directorRecordingSrc(jamId: string, sessionId: string): string {
   return `/api/jams/${jamId}/director/recordings/${sessionId}`;
 }
@@ -236,14 +280,24 @@ export async function readDirectorArchive(
   segments: ArchivedPiece[];
   durationSeconds: number;
 }> {
-  return call(`/api/jams/${jamId}/director/archive/${sessionId}`);
+  return archiveCall(`/api/jams/${jamId}/director/archive/${sessionId}`, "Reading the film");
 }
 
-/** The sessions a finished room archived, newest first. */
+/** One take this room recorded, as the archive holds it. */
+export interface ArchivedFilm {
+  id: string;
+  startedAt: string;
+  /** False for a take whose process died mid-stream; its pieces still play. */
+  complete: boolean;
+  /** What the muxer produced. Only fMP4 can be served as an HLS playlist. */
+  container: string | null;
+}
+
+/** Every take this room archived, newest first. */
 export async function listDirectorArchive(
   jamId: string,
-): Promise<{ durable: boolean; sessions: { id: string }[] }> {
-  return call(`/api/jams/${jamId}/director/archive`);
+): Promise<{ durable: boolean; sessions: ArchivedFilm[] }> {
+  return archiveCall(`/api/jams/${jamId}/director/archive`, "Reading the room's films");
 }
 
 /** The room's life, as the server holds it. */

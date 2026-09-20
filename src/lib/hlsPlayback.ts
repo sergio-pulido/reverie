@@ -21,6 +21,25 @@ export interface HlsAttachment {
 export interface HlsAttachOptions {
   /** Called when the stream cannot be played at all, with a safe message. */
   onFailure?: (message: string) => void;
+  /**
+   * The viewer's access token, when the playlist and its pieces are behind an
+   * authorization check — which the archived film in production is.
+   *
+   * It forces the hls.js path even where the browser plays HLS natively,
+   * because a native `<video src>` cannot carry a header and there is nowhere
+   * else to put a credential that is not a credential in a URL. Safari on the
+   * desktop supports MSE, so this costs nothing there; a browser with neither
+   * is told plainly that it cannot play the film.
+   */
+  accessToken?: string;
+  /**
+   * A finished film rather than a live take.
+   *
+   * A live window starts at the live edge and keeps almost no history. A
+   * recording is the opposite: every piece is listed, none is ever removed,
+   * and the viewer is expected to seek through it.
+   */
+  vod?: boolean;
 }
 
 export function attachHlsStream(
@@ -28,7 +47,9 @@ export function attachHlsStream(
   playlistUrl: string,
   options: HlsAttachOptions = {},
 ): HlsAttachment {
-  if (video.canPlayType("application/vnd.apple.mpegurl")) {
+  // A native `<video src>` sends no Authorization header, so an authorized
+  // playlist has to go through hls.js even where native HLS exists.
+  if (!options.accessToken && video.canPlayType("application/vnd.apple.mpegurl")) {
     video.src = playlistUrl;
     return {
       detach() {
@@ -39,16 +60,30 @@ export function attachHlsStream(
   }
 
   if (!Hls.isSupported()) {
-    options.onFailure?.("This browser cannot play the live stream.");
+    options.onFailure?.(
+      options.vod
+        ? "This browser cannot play the finished film."
+        : "This browser cannot play the live stream.",
+    );
     return { detach() {} };
   }
 
+  const accessToken = options.accessToken;
   const hls = new Hls({
     // The stream is generated live and the window is small, so there is no
     // history to seek back through: start at the live edge rather than at the
-    // oldest segment the window happens to still hold.
-    lowLatencyMode: true,
-    backBufferLength: 30,
+    // oldest segment the window happens to still hold. A finished film is the
+    // opposite case and keeps its whole back buffer, because seeking through
+    // it is the point.
+    lowLatencyMode: !options.vod,
+    ...(options.vod ? {} : { backBufferLength: 30 }),
+    ...(accessToken
+      ? {
+          xhrSetup: (xhr: XMLHttpRequest) => {
+            xhr.setRequestHeader("authorization", `Bearer ${accessToken}`);
+          },
+        }
+      : {}),
   });
   hls.on(Hls.Events.ERROR, (_event, data) => {
     if (!data.fatal) return;
@@ -63,7 +98,9 @@ export function attachHlsStream(
       hls.recoverMediaError();
       return;
     }
-    options.onFailure?.("The live stream stopped unexpectedly.");
+    options.onFailure?.(
+      options.vod ? "The film stopped unexpectedly." : "The live stream stopped unexpectedly.",
+    );
   });
   hls.loadSource(playlistUrl);
   hls.attachMedia(video);

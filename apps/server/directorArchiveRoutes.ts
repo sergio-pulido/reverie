@@ -9,10 +9,12 @@ import {
   type DirectorRecordingStore,
 } from "./directorRecordings";
 import {
+  asContainer,
   containerContentType,
   initObjectName,
-  type ArchiveContainer,
-} from "./directorArchive";
+  pieceObjectName,
+} from "../../src/core/directorArchiveLayout";
+import { buildMediaPlaylist } from "../../src/core/hlsPlaylist";
 
 /**
  * Reading back a director session after it has finished.
@@ -104,6 +106,53 @@ export function createDirectorArchiveRouter(
     } catch {
       sendError(response, 503, "media_unavailable", "The director archive could not be read.", true);
     }
+  });
+
+  /**
+   * The same VOD playlist the deployed function serves, from the same rows.
+   *
+   * Built at read time from `jam_director_segments`, so a session whose process
+   * died mid-stream still plays up to its last durable piece. Parity matters
+   * more than the few lines it costs: one browser reads this contract from
+   * either host, and a playlist that existed on only one of them would make a
+   * film that plays locally unplayable in production, or the reverse.
+   */
+  router.get("/api/jams/:id/director/archive/:sessionId/playlist.m3u8", async (request, response) => {
+    if (!(await requireJam(request.params.id, response))) return;
+    const { id, sessionId } = request.params;
+    let session;
+    let segments;
+    try {
+      session = await index.getSession(sessionId);
+      if (!session || session.jamId !== id) {
+        sendError(response, 404, "not_found", "There is no archive for that session.", false);
+        return;
+      }
+      segments = await index.listSegments(session.id);
+    } catch {
+      sendError(response, 503, "media_unavailable", "The director archive could not be read.", true);
+      return;
+    }
+    if (!segments.length) {
+      sendError(response, 404, "not_found", "That session stored no video.", false);
+      return;
+    }
+    const container = asContainer(session.container);
+    response
+      .type("application/vnd.apple.mpegurl")
+      .send(
+        buildMediaPlaylist({
+          segments: segments.map((piece) => ({
+            sequence: piece.segmentIndex,
+            durationSeconds: piece.durationSeconds,
+          })),
+          initUri: `media/${initObjectName(container)}`,
+          segmentUri: (sequence) => `media/${pieceObjectName(container, sequence)}`,
+          // The session is over; a player that is not told so polls forever.
+          ended: true,
+          playlistType: "VOD",
+        }),
+      );
   });
 
   /**
@@ -262,12 +311,4 @@ export function createDirectorArchiveRouter(
   );
 
   return router;
-}
-
-/**
- * A stored session says which container it used; an archive written before
- * that was recorded is fMP4, the only container the archive produced then.
- */
-function asContainer(value: string | null): ArchiveContainer {
-  return value === "webm" ? "webm" : "mp4";
 }

@@ -1,5 +1,53 @@
 # Decisions
 
+## 2026-09-20 — A direction names no beat: the story chooses one, and the cascade carries it (RV-32)
+
+The Director composer used to send what was said straight to fal as a steering prompt. That is
+why a change typed while the film was running landed on the opening beat: a steering prompt
+carries `replan`, so the provider re-plans **what it is generating now**, whatever the words
+were about. Nothing else in the film changed, because the script had not changed at all.
+
+**So the composer's path is now the outline's, not the stream's.** One free-text direction
+becomes one `set` edit against one beat, and from there it is the queue, the cascade, the commit
+and the delivery that already existed — the same path a rewrite typed into the story panel
+takes. There is one way the story changes, and a direction is not a second one.
+
+**The beat is chosen by a model, from a list it is given.** `POST /outline/directions` reads
+the lock boundary, offers the chooser **only** the beats from it to the end of the film, and
+takes back the beat index and what that beat now reads. A choice outside the list is corrected
+once with the indices it may use, and then refused — never clamped into range, because a clamped
+choice lands a rewrite on a beat nobody picked, which is the failure this route exists to fix.
+A chooser that cannot answer is a typed `502` and nothing is queued: aiming at the opening beat
+by default is precisely what was wrong before.
+
+**A room that aims at a beat keeps its aim.** A `beatIndex` in the request pins the choice, and
+the model is then only asked what that beat should now read — because what was typed is a
+direction ("end it in the rain"), not a beat phrase, and writing it into the outline verbatim
+would put an instruction where a story phrase belongs.
+
+**The choice happens at admission, not in the worker**, so the room is told which beat its words
+were aimed at in the answer to its own request. The worker re-reads the boundary at the front of
+the queue either way, so a beat that closes while the edit waits fails visibly rather than
+rewriting something the provider already holds.
+
+**The consequence for a running take is unchanged and still honest.** Delivery sends a landed
+beat only to a stream that is about to render it, because a direction steers what comes next.
+A beat chosen further ahead is committed to the script and does not reach the open stream at
+all — the script went to the provider once, at `configure`. The room sees the change on the
+timeline immediately and in the picture only when the next take reaches that beat.
+
+**The Director screen therefore re-reads the outline while it is open.** Its script used to be
+read once, at open, which was right while direction never touched it. A cascade changes several
+beats at once and changes only their words, so the timeline marks the beats a revision rewrote
+for a few seconds; without that the row reads exactly as it did a second earlier.
+
+**Measured against Nebius on 2026-09-20**, from this branch, with the film stopped: an 8-beat
+film, "his younger self should refuse to speak to him" → beat 6 chosen in 0.9s ("the younger
+self's behaviour during the encounter"), the rewrite and the two beats after it landed as
+revision 2 in ~3s, beats 1–5 untouched. A second direction pinned to beat 8 rewrote only that
+beat. In the browser, "the driver should run into the rain instead of fleeing on foot" landed on
+beat 7 of 8 — the beat where the driver flees — and beat 8 followed it.
+
 ## 2026-09-20 — Arriving in a room joins the take it is playing (RV-29)
 
 Walking into a room that was already streaming showed a Play button and no film. The cause

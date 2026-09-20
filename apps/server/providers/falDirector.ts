@@ -257,9 +257,22 @@ async function readAnswerFromEventStream(response: Response): Promise<string | n
     }
     return null;
   } finally {
-    // The handshake has what it needs; the rest of the stream is not ours to
-    // hold open.
-    await reader.cancel().catch(() => undefined);
+    // The handshake has what it needs, but the stream is the session's own
+    // heartbeat: closing it tells the provider the caller has gone. It is
+    // drained in the background instead, frame by frame and discarded, until
+    // the provider ends it.
+    void drain(reader);
+  }
+}
+
+async function drain(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
+  try {
+    for (;;) {
+      const { done } = await reader.read();
+      if (done) return;
+    }
+  } catch {
+    // The provider closed it; nothing to do.
   }
 }
 

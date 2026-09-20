@@ -165,8 +165,17 @@ export const DIRECTOR_AUDIO_CODECS = [
   }),
 ];
 
+/**
+ * Public STUN, so the offer carries a server-reflexive candidate. This process
+ * runs behind whatever NAT the machine is on; without STUN werift announces
+ * only host addresses, and a media server on the internet cannot reach a
+ * private one, so ICE never completes and no frame ever arrives.
+ */
+const DIRECTOR_ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }];
+
 function createWeriftPeer(preferH264: boolean): DirectorPeer {
   return new RTCPeerConnection({
+    iceServers: DIRECTOR_ICE_SERVERS,
     codecs: { video: directorVideoCodecs(preferH264), audio: DIRECTOR_AUDIO_CODECS },
   }) as unknown as DirectorPeer;
 }
@@ -234,6 +243,7 @@ export class DirectorStream {
     connection.onTrack.subscribe((track) => void this.onTrack(track));
     control.onMessage.subscribe((raw) => this.onControlMessage(raw));
     control.stateChanged.subscribe((channelState) => {
+      console.info("director control state", { sessionId: this.options.sessionId, state: channelState });
       if (channelState === "open") this.sendConfigure();
     });
 
@@ -325,6 +335,7 @@ export class DirectorStream {
 
   private onControlMessage(raw: unknown): void {
     const parsed = directorServerMessageSchema.safeParse(safeJson(raw));
+    console.info("director control message", { sessionId: this.options.sessionId, type: parsed.success ? parsed.data.type : "invalid" });
     if (!parsed.success) return;
     const message = parsed.data;
     this.state = reduceDirectorState(this.state, message);
@@ -384,6 +395,13 @@ export class DirectorStream {
    * that reason (docs/DECISIONS.md).
    */
   private onTrack(track: MediaStreamTrack): void {
+    console.info("director provider track", { sessionId: this.options.sessionId, kind: track.kind, codec: track.codec?.name });
+    let received = false;
+    track.onReceiveRtp.subscribe((packet) => {
+      if (received || track.kind !== "video" || !packet.header.marker) return;
+      received = true;
+      console.info("director provider frame arrived (RTP frame end)", { sessionId: this.options.sessionId, timestamp: packet.header.timestamp });
+    });
     this.inbound.push(track);
     for (const listener of this.trackListeners) listener(track);
   }

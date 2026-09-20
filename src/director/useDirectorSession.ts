@@ -214,7 +214,11 @@ export function useDirectorSession(
     if (!jamId || !sessionId || liveDelivery) return;
     let cancelled = false;
     void watchDirectorStream(jamId, sessionId, (stream) => {
+      console.info("director browser stream arrived", { sessionId, tracks: stream.getTracks().map((track) => track.kind) });
       if (video.current) video.current.srcObject = stream;
+      video.current?.requestVideoFrameCallback?.((_now, metadata) => {
+        console.info("director browser frame arrived on screen", { sessionId, width: metadata.width, height: metadata.height, presentedFrames: metadata.presentedFrames });
+      });
     })
       .then((close) => {
         if (cancelled) close();

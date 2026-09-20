@@ -60,6 +60,7 @@ export async function attachViewer(
   // and a paid session with nobody watching is the expensive case. The peer
   // state is the only honest signal that a viewer is gone.
   connection.connectionStateChange.subscribe((state) => {
+    console.info("director viewer connection", { jamId: stream.jamId, state });
     if (state === "disconnected" || state === "failed" || state === "closed") {
       announceClosed();
     }
@@ -68,10 +69,15 @@ export async function attachViewer(
   const unsubscribe = stream.onTrackAvailable((inbound) => {
     const outbound = new MediaStreamTrack({ kind: inbound.kind });
     connection.addTrack(outbound);
+    let forwarded = false;
     // Pure relay: the packet that arrived is the packet that leaves.
     const disposer = inbound.onReceiveRtp.subscribe((packet) => {
       try {
         outbound.writeRtp(packet);
+        if (!forwarded && inbound.kind === "video" && packet.header.marker) {
+          forwarded = true;
+          console.info("director relay frame arrived and forwarded (RTP frame end)", { jamId: stream.jamId, timestamp: packet.header.timestamp });
+        }
       } catch {
         // A viewer whose peer has gone must not take the session's other
         // viewers, or the session itself, down with it.

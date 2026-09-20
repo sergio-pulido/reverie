@@ -1,5 +1,44 @@
 # Decisions
 
+## 2026-09-20 — The beat that ends the room is the one the film is for (RV-26)
+
+`EscapeRooms.settle` decided the beat, started filming it, and only then asked whether the
+goal had been reached. Filming is asynchronous, so which of those two finished first
+depended on the providers configured. With no narrator, `generate` ran synchronously as far
+as its first await and passed its `room.ended` check before `settle` could set it. With a
+Nebius narrator, `produceBeat` awaited `narrateBeat` first; by the time it reached
+`generate`, `room.ended` was set, the check fired, and the beat was marked
+`ceiling_reached` with "The session ended before this could be generated."
+
+So the last shot of every escape room — the one the whole session was played for — was
+missing from the film, and missing only on the deployments that have a narrator. The
+debrief screen plays the room's archive, which made an invisible race into a visible hole
+at the end of every finished film.
+
+**The room's ending is now settled before any work starts, and the beat is told it was
+decided while the room was open.** `settle` sets `room.ended` above the block that films,
+and `produceBeat` passes `decidedWhileOpen` into `generate`. The guard there becomes
+`room.ended && !decidedWhileOpen`: what it abandons is work the room had not committed to
+when it stopped, which is what it was always for.
+
+**The spend ceiling is untouched.** The guard was never what bounded the money —
+`SpendAccount.commit` is, and it still refuses this beat exactly as it refuses any other,
+setting `ceiling_reached` and ending the room. The flag is set by the beat alone and never
+by a loop, so the ordering change also makes the scenery of a finished room refuse
+deterministically rather than by luck: `ensureLoop` now always sees the ended room when a
+goal ends it.
+
+The alternative was to hold `room.ended` back until generation had committed, which would
+have left `propose`, `vote` and `settle` accepting turns in a room that had already
+finished. Ending the room is a fact about the state; filming is work that follows from it,
+and it is the work that should carry the exception.
+
+Two tests in `tests/escapeSessions.test.ts` hold the line: one runs `cold-sill` to its goal
+with a narrator configured and asserts the last beat is `ready` and reached fal as a
+fifteen-second beat, and no beat of the finished room is missing; the other stops a room on
+the ceiling with the same narrator configured and asserts nothing was bought and only the
+opening loop ever reached the provider.
+
 ## 2026-09-20 — A finished film is read from the deployment, and the archive says why it is empty (RV-25)
 
 The archive routes were written to be portable -- plain reads of Supabase and Storage, with

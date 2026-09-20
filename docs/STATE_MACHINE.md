@@ -1,12 +1,19 @@
 # State machines
 
-These describe target behaviour. Currently only draft rooms and active host membership are persisted; transitions, admission and media are not implemented.
+These describe target behaviour. Currently rooms and active host membership are persisted; the transitions below, admission and media are not implemented.
 
 ## Room lifecycle
 
-`draft → lobby → live → paused → completed | closed`
+`live → paused → completed | closed`, with `lobby` as the pre-admission waiting state.
 
-- **draft**: host configures title, visibility and initial premise.
+**`draft` is retired** (`20260920110000_jam_starts_live.sql`). Nothing ever wrote a status
+other than the default, so every room read DRAFT for its whole life — including rooms with a
+generated script that were playing. A jam is **live the moment it exists**, and how far along
+it is now is a different question with its own answer: the `live | playing | ended` lifecycle
+the server owns (`src/core/jamLifecycle.ts`), which is what the registry and the room badge
+both read. The status column below stays for archival states nothing has implemented yet; the
+UI does not render it.
+
 - **lobby**: invitees choose a name and wait for host admission.
 - **live**: participants can chat, propose, vote and watch the current scene evolve.
 - **paused**: host temporarily stops transitions while preserving the room.

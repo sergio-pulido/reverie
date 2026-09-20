@@ -785,6 +785,11 @@ test("the budget route names this server's ceiling before any session is opened"
   assert.equal(body.spend.usdPerSecond, LIMITS.usdPerSecond);
   assert.equal(body.spend.minBilledSeconds, 60, "fal's per-session minimum, not a guess");
   assert.equal(body.spend.sessionUsd, 0, "no session, nothing spent");
+  assert.equal(
+    body.maxSessionSeconds,
+    LIMITS.maxSessionSeconds,
+    "and where a take stops itself, so a screen can say so before play is pressed",
+  );
 });
 
 /** What the server says is left before this test opens anything of its own. */

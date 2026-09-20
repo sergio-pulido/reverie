@@ -4,6 +4,12 @@
 
 import { z } from "zod";
 
+// `draft` is a legacy value: nothing ever wrote a different one, so every room
+// read DRAFT for its whole life while its real state — live, playing, stopped —
+// is the lifecycle the server owns. `20260920110000_jam_starts_live.sql` retires
+// it. It stays readable here on purpose: a database that has not had that
+// migration applied must not have its rows dropped by a stricter parser, since
+// a row that fails this schema is not rendered at all.
 export const jamStatusSchema = z.enum(["draft", "lobby", "live", "paused", "completed", "closed"]);
 export const jamVisibilitySchema = z.enum(["public", "invite_only"]);
 export const memberRoleSchema = z.enum(["host", "member"]);

@@ -184,7 +184,7 @@ unknown field is rejected rather than dropped.
 | `GET /api/jams/:id/escape-room` | active member | `200 <snapshot>`, or `404 not_open` — which is the answer "this jam is not an escape room", not a failure. |
 | `POST /api/jams/:id/escape-room/proposals` | active member | Body `{ body ≤ 280 chars, authorName? ≤ 32 }`. `201 { proposalId, snapshot }`. The author is the caller's own user id; an `authorId` in the body is rejected, never honoured. Refusals: `session_over`, `too_many_proposals` (24 a turn). |
 | `POST /api/jams/:id/escape-room/votes` | active member | Body `{ proposalId }`. `200 <snapshot>`. One effective vote per participant; a second replaces the first. A proposal not on this turn's table is `404 not_found`. |
-| `POST /api/jams/:id/escape-room/settle` | host | Closes the vote. `200 { beatId, snapshot }`. Refusals: `no_proposals` (409), `session_over` (409). |
+| `POST /api/jams/:id/escape-room/settle` | host | Closes the vote. Most votes wins; a tie, including a turn nobody voted on, goes to whichever was proposed first. The winner is resolved and filmed, the rest are discarded, and the next turn opens. `200 { beatId, snapshot }`. Refusals: `no_proposals` (409), `session_over` (409). |
 | `GET /api/jams/:id/escape-room/segments/:mediaId` | active member | The clip's own bytes, from this server's storage. Never a provider or storage URL. `404 not_found`, or `503 media_unavailable`. |
 
 Authorization failures are `escape_unauthenticated` (401), `escape_forbidden` (403) and

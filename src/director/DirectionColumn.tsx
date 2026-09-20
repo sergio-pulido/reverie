@@ -52,7 +52,7 @@ export function DirectionColumn({
         <p className="director-empty-line">
           {live
             ? "Nothing has been asked for yet. The next thing you say lands on the beat after the one being generated."
-            : "No direction has been sent. Start the stream, then tell it what to do."}
+            : "No direction has been sent. Play the stream, then tell it what to do."}
         </p>
       ) : (
         <ol className="director-turns">

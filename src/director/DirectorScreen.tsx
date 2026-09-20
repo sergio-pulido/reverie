@@ -71,7 +71,11 @@ export function DirectorScreen({ slug }: { slug: string | null }) {
   const currentBeatIndex = session.beats?.currentBeatIndex ?? null;
   const currentBeat = currentBeatIndex === null ? null : beats[currentBeatIndex] ?? null;
   const blockedBeat = firstBlockedBeat(beats);
-  const canDrive = film.phase === "ready" ? film.isHost : false;
+  // Playing and stopping the stream belong to whoever can open this jam: the
+  // take is the room's, not one person's. The room's playback clock is a
+  // different thing — the database lets only the host move it — so it keeps
+  // its own answer rather than riding on this one.
+  const movesTheClock = film.phase === "ready" ? film.isHost : false;
 
   const rows: Row[] = [
     { key: STAGE_ROW, count: 2 },
@@ -106,7 +110,6 @@ export function DirectorScreen({ slug }: { slug: string | null }) {
   const cannotStart = startRefusal({
     configured: session.configured,
     spent: budgetSpent(session.spend),
-    canDrive,
     hasScript: script !== null,
     scriptMissing: film.scriptMissing,
   });
@@ -151,14 +154,13 @@ export function DirectorScreen({ slug }: { slug: string | null }) {
             beats={beats}
             currentBeat={currentBeat}
             cannotStart={cannotStart}
-            canDrive={canDrive}
             cellProps={cellProps}
             transport={
               <TransportBar
                 clock={clock}
                 beats={beats}
                 runtimeSeconds={runtimeSeconds}
-                canDrive={canDrive}
+                canDrive={movesTheClock}
                 cellProps={cellProps}
               />
             }
@@ -221,7 +223,7 @@ export function DirectorScreen({ slug }: { slug: string | null }) {
               remainingUsd: session.spend.remainingUsd,
               budgetUsd: session.spend.budgetUsd,
             })}
-            blocked={!session.live || !canDrive}
+            blocked={!session.live}
             cellProps={cellProps}
           />
           <DeliverablesDrawer
@@ -327,7 +329,7 @@ function ReviewTools({ beat, live }: { beat: TimelineBeat | null; live: boolean 
               ? "This beat is already with the provider. Direction aimed at it will be refused; the beats after it can still change."
               : live
                 ? "Direction sent while this beat is chosen is aimed at it."
-                : "The stream is stopped. Start it to change this beat."}
+                : "The stream is stopped. Play it to change this beat."}
           </p>
         </>
       )}
@@ -344,20 +346,17 @@ function ReviewTools({ beat, live }: { beat: TimelineBeat | null; live: boolean 
 function startRefusal({
   configured,
   spent,
-  canDrive,
   hasScript,
   scriptMissing,
 }: {
   configured: boolean;
   spent: boolean;
-  canDrive: boolean;
   hasScript: boolean;
   scriptMissing: string | null;
 }): string | null {
   if (!hasScript) return scriptMissing ?? "There is no script to generate from.";
   if (!configured) return "The live director is not configured on this server.";
   if (spent) return "The director budget for this server is spent. No further beat can be generated.";
-  if (!canDrive) return "Only the host of this jam can open its paid stream.";
   return null;
 }
 
@@ -384,7 +383,7 @@ function composerNotes({
 }): string[] {
   const notes: string[] = [];
   if (!live) {
-    notes.push(cannotStart ?? "The stream is stopped. Start it, and what you say reaches it.");
+    notes.push(cannotStart ?? "The stream is stopped. Play it, and what you say reaches it.");
   }
   if (budgetUsd <= 0) {
     notes.push("No director budget is configured on this server, so no beat can be generated.");

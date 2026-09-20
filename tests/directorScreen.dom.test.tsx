@@ -5,7 +5,7 @@ import {
   openDirector,
   RICH_SPEND,
   SLUG,
-  startButton,
+  playButton,
   turnCards,
   type FakeServer,
 } from "./directorScreen";
@@ -109,7 +109,7 @@ describe("the stage, in its three states", () => {
 
     assert.equal(document.querySelector(".director-stage")?.getAttribute("data-phase"), "generating");
     assert.match(text(".director-zone-note"), /joined a stream this jam already had open/);
-    assert.equal(startButton().disabled, true);
+    assert.equal(playButton().disabled, true);
   });
 
   it("generating shows the live element, the seconds produced and the beat it is on", async () => {
@@ -117,7 +117,7 @@ describe("the stage, in its three states", () => {
       offsetSeconds: 12,
       state: { status: "streaming", generatedSeconds: 18, chunksReceived: 3 },
     });
-    await click(startButton());
+    await click(playButton());
     await settle();
 
     assert.equal(document.querySelector(".director-stage")?.getAttribute("data-phase"), "generating");
@@ -131,7 +131,7 @@ describe("the stage, in its three states", () => {
 
   it("still holds the finished session as a frame, with the room's clock under it", async () => {
     server = await openDirector({ offsetSeconds: 12 });
-    await click(startButton());
+    await click(playButton());
     await settle();
     await click(Array.from(document.querySelectorAll("button")).find((b) => b.textContent === "Stop")!);
     await settle();
@@ -172,7 +172,7 @@ describe("the timeline", () => {
 
   it("with the stream on beat three, earlier beats are ready, the next is locked", async () => {
     server = await openDirector({ offsetSeconds: 12 });
-    await click(startButton());
+    await click(playButton());
     await settle();
     assert.deepEqual(beatStates(), [
       "ready",
@@ -216,7 +216,7 @@ describe("spend, against the server's ceiling", () => {
       spend: { ...RICH_SPEND, sessionUsd: 7.2, remainingUsd: 12.8 },
       state: { status: "streaming", generatedSeconds: 90, chunksReceived: 6 },
     });
-    await click(startButton());
+    await click(playButton());
     await settle();
     assert.equal(text(".director-spend-figure"), "$7.20 of $20.00");
     assert.match(text(".director-spend-note"), /1:30 generated · \$12\.80 left/);
@@ -246,7 +246,7 @@ describe("when the ceiling is reached", () => {
       spend: { ...RICH_SPEND, sessionUsd: 20, remainingUsd: 0 },
     });
     assert.match(text(".director-stage-line"), /budget for this server is spent/);
-    assert.equal(startButton().disabled, true);
+    assert.equal(playButton().disabled, true);
   });
 
   it("what the stream is doing is never overwritten by what the budget says", async () => {
@@ -256,7 +256,7 @@ describe("when the ceiling is reached", () => {
       offsetSeconds: 12,
       spend: { ...RICH_SPEND, sessionUsd: 19.8, remainingUsd: 0.2 },
     });
-    await click(startButton());
+    await click(playButton());
     await settle();
     assert.deepEqual(beatStates(), ["ready", "ready", "generating", "locked", "blocked", "blocked"]);
   });
@@ -271,7 +271,7 @@ describe("the direction column", () => {
 
   it("carries each turn's beat tag in that beat's own state", async () => {
     server = await openDirector({ offsetSeconds: 12, audit: trail });
-    await click(startButton());
+    await click(playButton());
     await settle();
 
     const tags = Array.from(document.querySelectorAll<HTMLElement>(".director-turn .director-tag"));
@@ -284,7 +284,7 @@ describe("the direction column", () => {
 
   it("hovering a turn lights its beat, and hovering a beat lights its turns", async () => {
     server = await openDirector({ offsetSeconds: 12, audit: trail });
-    await click(startButton());
+    await click(playButton());
     await settle();
 
     await pointerOver(turnCards()[0]);
@@ -307,14 +307,14 @@ describe("the direction column", () => {
     server = await openDirector({
       audit: [{ at: "2026-09-20T10:00:02.000Z", kind: "direction_sent", promptVersion: 2, body: "Open on water." }],
     });
-    await click(startButton());
+    await click(playButton());
     await settle();
     assert.equal(text(".director-tag-none"), "No beat");
   });
 
   it("with nothing sent it says what the next thing said will do", async () => {
     server = await openDirector();
-    assert.match(text(".director-directions .director-empty-line"), /Start the stream/);
+    assert.match(text(".director-directions .director-empty-line"), /Play the stream/);
   });
 });
 
@@ -346,7 +346,7 @@ describe("the two modes", () => {
 
   it("choosing a beat aims the composer at it, and Review reads that beat back", async () => {
     server = await openDirector({ offsetSeconds: 12 });
-    await click(startButton());
+    await click(playButton());
     await settle();
     await click(document.querySelectorAll(".director-mode")[1]);
     await click(beatCards()[4]);
@@ -357,7 +357,7 @@ describe("the two modes", () => {
 
   it("a beat already with the provider says direction aimed at it will be refused", async () => {
     server = await openDirector({ offsetSeconds: 12 });
-    await click(startButton());
+    await click(playButton());
     await settle();
     await click(document.querySelectorAll(".director-mode")[1]);
     await click(beatCards()[3]);
@@ -395,7 +395,7 @@ describe("the composer", () => {
 
   it("says the stream is stopped rather than pretending a direction would land", async () => {
     server = await openDirector();
-    assert.match(notes(), /The stream is stopped\. Start it/);
+    assert.match(notes(), /The stream is stopped\. Play it/);
     const send = document.querySelector<HTMLButtonElement>(".director-send");
     assert.equal(send?.disabled, true);
   });
@@ -425,7 +425,7 @@ describe("deliverables", () => {
 
   it("the video is generating while a session runs and ready once it stops", async () => {
     server = await openDirector();
-    await click(startButton());
+    await click(playButton());
     await settle();
     await click(document.querySelector(".director-drawer-toggle"));
     const running = Array.from(document.querySelectorAll<HTMLElement>(".director-deliverable"))[3];
@@ -449,7 +449,7 @@ describe("what the screen does not know", () => {
     assert.equal(beatCards().length, 0);
     assert.match(text(".director-timeline .director-empty-line"), /holds no script/);
     assert.match(text(".director-stage-line"), /holds no script/);
-    assert.equal(startButton().disabled, true);
+    assert.equal(playButton().disabled, true);
 
     await click(document.querySelector(".director-drawer-toggle"));
     const rows = Array.from(document.querySelectorAll<HTMLElement>(".director-deliverable"));

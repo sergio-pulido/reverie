@@ -33,8 +33,6 @@ import {
 
 type JamDirectorProps = {
   jamId: string;
-  /** Only the host opens a stream: it bills by the second. */
-  canDrive: boolean;
   /** Viewers on the same configuration share one stream. */
   configuration: SessionSettings | null;
 };
@@ -51,8 +49,14 @@ const ATTACH_MS = 3_000;
  * never touches the provider — it asks the server to send direction and reads
  * back what happened. The recording is what you watch, and the audit trail is
  * what you check it against.
+ *
+ * Everybody in the room gets the same two signals, play and stop, and the same
+ * direction box. Nobody owns the stream: whoever is looking at the room can
+ * start the take, and whoever is looking at it can stop the take. That is why
+ * this screen also has to notice a session vanishing under it — the person who
+ * stopped it may well be somebody else.
  */
-export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps) {
+export function JamDirector({ jamId, configuration }: JamDirectorProps) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [state, setState] = useState<DirectorState>(initialDirectorState);
   const [audit, setAudit] = useState<DirectorAuditEntry[]>([]);
@@ -85,6 +89,11 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
 
   /** Takes up a stream this viewer has just opened or joined. */
   const adopt = useCallback((opened: OpenedDirectorSession) => {
+    // The previous take's recording is what a stopped room shows. A new take —
+    // this viewer's, or one somebody else started — replaces it, and leaving it
+    // set would blank the frame: the player renders the recording or the live
+    // stream, never both.
+    setRecording(null);
     setSessionId(opened.sessionId);
     setViewerId(opened.viewerId ?? null);
     setLiveDelivery(opened.liveDelivery ?? false);
@@ -157,41 +166,37 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
   }, [adopt, configuration, jamId, sessionId]);
 
   /**
-   * Reads the room's life on mount, and finds its recording if it has ended.
+   * Reads the room's life, and finds the recording of its last take.
    *
-   * Without this a reopened tab would show a finished room as if it were
-   * waiting to start, and offer a Start button the server would refuse.
+   * Read on mount so a reopened tab shows a stopped room as stopped, and read
+   * again whenever the live session disappears — anybody in the room can stop
+   * it, so this screen learns about most stops from the server rather than
+   * from its own button.
    */
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const current = await readJamLifecycle(jamId);
-        if (cancelled) return;
-        setLifecycle(current);
-        if (!hasRecording(current)) return;
-        const archive = await listDirectorArchive(jamId);
-        // Newest first, so the room's last session is the one to play.
-        const latest = archive.sessions[0];
-        if (cancelled || !latest) return;
-        const detail = await readDirectorArchive(jamId, latest.id);
-        if (cancelled) return;
-        const storedPieces = detail.segments ?? [];
-        setPieces(storedPieces);
-        // A session record can exist even when recording was disabled or no
-        // media track arrived. Do not render a video whose URL can only 404.
-        if (storedPieces.length > 0) {
-          setRecording(directorArchiveVideoSrc(jamId, latest.id));
-          setArchivedSession(latest.id);
-        }
-      } catch {
-        // The room still works without this; it just starts from `live`.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+  const readRoom = useCallback(async () => {
+    const current = await readJamLifecycle(jamId);
+    setLifecycle(current);
+    if (!hasRecording(current)) return;
+    const archive = await listDirectorArchive(jamId);
+    // Newest first, so the room's last session is the one to play.
+    const latest = archive.sessions[0];
+    if (!latest) return;
+    const detail = await readDirectorArchive(jamId, latest.id);
+    const storedPieces = detail.segments ?? [];
+    setPieces(storedPieces);
+    // A session record can exist even when recording was disabled or no media
+    // track arrived. Do not render a video whose URL can only 404.
+    if (storedPieces.length > 0) {
+      setRecording(directorArchiveVideoSrc(jamId, latest.id));
+      setArchivedSession(latest.id);
+    }
   }, [jamId]);
+
+  useEffect(() => {
+    void readRoom().catch(() => {
+      // The room still works without this; it just starts from `live`.
+    });
+  }, [readRoom]);
 
   // Polling is the surface until Realtime events land, matching the player.
   useEffect(() => {
@@ -204,8 +209,17 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
         setState(snapshot.state);
         setAudit(snapshot.audit);
         setBeats(snapshot.beats);
-      } catch {
-        // A closed session stops answering; the stop path owns that state.
+      } catch (error) {
+        if (cancelled) return;
+        // Somebody else stopped it, or the server reclaimed it. This screen is
+        // now polling a session that no longer exists, so it lets go of it and
+        // shows what the room actually has — the recording of that take, and a
+        // play button that opens the next one.
+        if (error instanceof DirectorSessionError && error.code === "not_found") {
+          setSessionId(null);
+          setViewerId(null);
+          void readRoom().catch(() => undefined);
+        }
       }
     };
     void tick();
@@ -219,7 +233,7 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
       clearInterval(poll);
       clearInterval(renew);
     };
-  }, [jamId, sessionId, viewerId]);
+  }, [jamId, readRoom, sessionId, viewerId]);
 
   // Watch it as it is generated rather than waiting for the recording. The
   // browser peers with our server, which is already holding the provider
@@ -255,10 +269,11 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
       const open = active.current;
       // Leaving is always a detach, never an outright end. An `/end` with no
       // viewer id stops the stream for the whole room, and closing a tab is
-      // not a claim to do that — only the host's deliberate Stop is. Before
-      // auto-attach, participants never held a session and never reached this
-      // path; now everyone does, so a viewer with nothing to detach must send
-      // nothing rather than end the film everyone else is watching.
+      // not a claim to do that — only the deliberate Stop is, whoever presses
+      // it. The count is what keeps the paid stream honest: it outlives the
+      // person who started it and ends when the last watcher leaves. A viewer
+      // with nothing to detach must send nothing rather than end the film
+      // everyone else is watching.
       if (open?.viewerId) {
         void endDirectorSession(jamId, open.sessionId, open.viewerId).catch(
           () => undefined,
@@ -293,9 +308,10 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
     if (!sessionId) return;
     setBusy(true);
     try {
-      // The host's stop ends the stream for the room, so it names no viewer.
-      // Leaving as a viewer is what closing the screen does; this is the
-      // deliberate end of something the host is paying for.
+      // Stop ends the stream for the room, so it names no viewer. Leaving as a
+      // viewer is what closing the screen does; this is the deliberate end of
+      // the take, and anybody in the room may send it. The room stays: it can
+      // be played again, and this take keeps its own recording.
       const stopped = await endDirectorSession(jamId, sessionId);
       setLifecycle(stopped.lifecycle);
       // The pieces land as the muxer finishes them; read what is there now.
@@ -384,68 +400,71 @@ export function JamDirector({ jamId, canDrive, configuration }: JamDirectorProps
         />
       )}
       {!live && !recording && (
-        <p className="player-placeholder">{placeholder(state, live, canDrive)}</p>
+        <p className="player-placeholder">{placeholder(state, live, lifecycle)}</p>
       )}
     </div>
     {playbackFailure ? <Notice tone="alert">{playbackFailure}</Notice> : null}
 
-    <p className="form-note" aria-live="polite">{statusLine(state, live, canDrive)}</p>
+    <p className="form-note" aria-live="polite">{statusLine(state, live)}</p>
     {live && beats && <BeatWindow beats={beats} attached={attached} />}
 
     {/*
-      * Only whoever started the stream directs it. Everyone else is watching
-      * the same film and is given no controls at all — not disabled ones,
-      * which would read as something they could earn. Starting and directing
-      * spend money and change what the room sees; both belong to one person.
+      * Two signals, play and stop, and both belong to whoever is in the room.
+      * Nobody owns the take: a room where only one person could start it left
+      * everyone who joined watching a button they could not press, and made
+      * the stream depend on that one person staying. The cost of the take is
+      * stated below rather than fenced off behind a role.
       */}
-    {canDrive ? <>
-      <div className="hero-actions">
-        <button
-          className="button button-primary"
-          onClick={() => void start()}
-          disabled={busy || live || lifecycle === "ended"}
-        >
-          {busy && !live ? "Starting…" : "Start the stream"} <span>▶</span>
-        </button>
-        <button className="button button-quiet" onClick={() => void stop()} disabled={!live || busy}>
-          Stop
-        </button>
-      </div>
+    <div className="hero-actions">
+      <button
+        className="button button-primary"
+        onClick={() => void start()}
+        disabled={busy || live}
+        data-testid="jam-director-play"
+      >
+        {busy && !live ? "Starting…" : live ? "Playing" : "Play"} <span>▶</span>
+      </button>
+      <button
+        className="button button-quiet"
+        onClick={() => void stop()}
+        disabled={!live || busy}
+        data-testid="jam-director-stop"
+      >
+        Stop
+      </button>
+    </div>
 
-      <label className="field">
-        <span>New direction</span>
-        <input
-          value={direction}
-          onChange={(event) => setDirection(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") void send();
-          }}
-          placeholder="Cut to the lighthouse at dusk."
-          disabled={!live}
-          maxLength={2000}
-        />
-      </label>
-      <div className="hero-actions">
-        <button
-          className="button button-quiet"
-          onClick={() => void send()}
-          disabled={!live || !direction.trim()}
-        >
-          Direct
-        </button>
-      </div>
-    </> : null}
+    <label className="field">
+      <span>New direction</span>
+      <input
+        value={direction}
+        onChange={(event) => setDirection(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") void send();
+        }}
+        placeholder="Cut to the lighthouse at dusk."
+        disabled={!live}
+        maxLength={2000}
+      />
+    </label>
+    <div className="hero-actions">
+      <button
+        className="button button-quiet"
+        onClick={() => void send()}
+        disabled={!live || !direction.trim()}
+      >
+        Direct
+      </button>
+    </div>
 
     <DirectionLog entries={audit} />
 
     <p className="form-note">
-      {canDrive
-        ? <>Every direction goes through this server, which holds the stream and
-            records it. The stream bills by the second with a one-minute minimum,
-            so stop it when you are done.
-            {durable ? "" : " This server has no recording storage configured, so the recording is lost when it restarts."}</>
-        : <>You are watching the room's stream. Whoever started it directs it;
-            everyone here sees the same film.</>}
+      Anybody here can play the stream and anybody can stop it, and everybody
+      sees the same film. Every direction goes through this server, which holds
+      the stream and records it. The stream bills by the second with a
+      one-minute minimum, so stop it when the room is done with this take.
+      {durable ? "" : " This server has no recording storage configured, so the recording is lost when it restarts."}
     </p>
 
     {failure && <Notice>{failure}</Notice>}
@@ -522,18 +541,18 @@ function badge(
   return lifecycleLabel(lifecycle).toUpperCase();
 }
 
-function placeholder(state: DirectorState, live: boolean, canDrive: boolean): string {
+function placeholder(state: DirectorState, live: boolean, lifecycle: JamLifecycle): string {
   if (state.status === "failed") return "The stream stopped.";
   if (live) {
-    return canDrive
-      ? "The stream is running on the server and forwarded here as it is generated."
-      : "The stream is running on the server.";
+    return "The stream is running on the server and forwarded here as it is generated.";
   }
-  if (!canDrive) return "The host starts the live stream. It appears here when they do.";
-  return "Nothing is streaming yet.";
+  // A stopped room with nothing to show recorded nothing, which is worth
+  // saying: the alternative reads as if the film were still loading.
+  if (lifecycle === "ended") return "This take is over. Play to start the next one.";
+  return "Nothing is streaming yet. Play to start it.";
 }
 
-function statusLine(state: DirectorState, live: boolean, canDrive: boolean): string {
+function statusLine(state: DirectorState, live: boolean): string {
   if (live && state.status === "streaming") {
     const seconds = Math.round(state.generatedSeconds);
     return `Live: ${seconds}s recorded across ${state.chunksReceived} chunk(s). Direction ${state.appliedPromptVersion} is playing.`;
@@ -542,9 +561,7 @@ function statusLine(state: DirectorState, live: boolean, canDrive: boolean): str
   if (state.endedReason === "session_limit") {
     return "The stream reached this server's session limit.";
   }
-  return canDrive
-    ? "Starting a stream opens a paid session that bills for at least a minute."
-    : "Only the host can open the live stream.";
+  return "Playing opens a paid session that bills for at least a minute.";
 }
 
 /**

@@ -191,10 +191,11 @@ with the current `revision`), `mechanism` (`direct | vote | poll | chat`, defaul
 `authorId`. Admission checks, in order: the jam exists (`404 not_found`), a provider is configured
 (`503 generation_disabled`), the beat exists (`400 invalid_command`), the beat is editable
 (`409 portion_locked`), the revision is current, the queue has room (`409 queue_full`, at most 10 waiting).
-A room that has ended is refused `409 jam_ended`: its recording is the artifact and its story no
-longer moves. A replayed `requestId` returns `200` with the record the first request created, and
-is answered before every refusal above — including `jam_ended` — because a replay performs nothing
-and a reconnect after the room finished must still learn what its edit did.
+A stopped room is **not** refused: stopping the stream ends the take, not the room, and the story a
+room between takes is holding is the one the next take will shoot. A replayed `requestId` returns
+`200` with the record the first request created, and is answered before every refusal above,
+because a replay performs nothing and a reconnect must still learn what its edit did rather than
+be handed a second copy of it.
 
 Edits are processed one at a time per jam. The cascade completion runs outside the per-jam critical
 section; the commit takes it once and lands every rewritten portion as one revision, refusing
@@ -325,11 +326,11 @@ The figure is derived from generated seconds, never from the reservation. The re
 
 **Director session routes (container/Express host).** All under `/api/jams/:id/director`. The server is the WebRTC peer; a browser never talks to fal. Nothing on the provider path is probed on the delivery routes — a valid-key session has been opened for the handshake and the relay only.
 
-- `POST /session` — body `{ configuration?, attachOnly? }`. Opens the stream for a configuration or joins the one already running for it: one paid stream per configuration, keyed `<jamId>:<configurationKey>`. `201` when opened, `200 { attached: true }` when joined; both carry `sessionId`, a **server-issued** `viewerId`, `liveDelivery`, `maxSessionSeconds`, `recordingDurable`, `state`, `beats`. `attachOnly: true` never opens a stream — it is what everyone but the host sends — and answers `404 no_stream` (`retryable: true`) when nothing is running. Refusals: `409 budget_exhausted | too_many_sessions | already_open`; `502 director_unavailable` when fal refuses the handshake (the reservation is released, nothing is billed); `503 director_disabled`.
+- `POST /session` — body `{ configuration?, attachOnly? }`. Opens the stream for a configuration or joins the one already running for it: one paid stream per configuration, keyed `<jamId>:<configurationKey>`. `201` when opened, `200 { attached: true }` when joined; both carry `sessionId`, a **server-issued** `viewerId`, `liveDelivery`, `maxSessionSeconds`, `recordingDurable`, `state`, `beats`. `attachOnly: true` never opens a stream — it is what a screen sends on arriving in a room, so that walking in cannot start a paid session — and answers `404 no_stream` (`retryable: true`) when nothing is running. A stopped room may be played again: opening a session on it starts a new take with its own archive entry, and nothing here asks who is playing it. Refusals: `409 budget_exhausted | too_many_sessions | already_open`; `502 director_unavailable` when fal refuses the handshake (the reservation is released, nothing is billed); `503 director_disabled`.
 - `GET /session/:sessionId` — `{ state, beats, audit, droppedAuditEntries }`. Any attached viewer may poll it.
 - `POST /session/:sessionId/direct` — `{ body, authorId?, proposalId?, beatIndex? }` → `202 { promptVersion, state, beats }`; `409 beat_locked` (see above) or `409 stream_not_ready`.
 - `POST /session/:sessionId/renew` — `{ viewerId? }` → `204`. A viewer id renews that viewer; without one only the session's own clock is refreshed. A viewer that was already dropped is not readmitted (`404`): attaching is what admits a viewer.
-- `POST /session/:sessionId/end` — `{ viewerId? }` → `200 { lifecycle }`. With a viewer id, that viewer leaves and the session ends only when nobody is left watching **by any route**; without one the session ends outright, which is the host's stop. Invalid viewer data is refused rather than treated as an omitted id. Two viewer notions coexist — relay peers and counted viewer ids — and a session survives while either has an audience.
+- `POST /session/:sessionId/end` — `{ viewerId? }` → `200 { lifecycle }`. With a viewer id, that viewer leaves and the session ends only when nobody is left watching **by any route**; without one the session ends outright, which is the Stop signal — anybody in the room may send it, and it stops the take rather than retiring the room. Invalid viewer data is refused rather than treated as an omitted id. Two viewer notions coexist — relay peers and counted viewer ids — and a session survives while either has an audience.
 - `POST /session/:sessionId/watch` — `{ sdp }` (a browser offer) → `201 { answer: { type: "answer", sdp }, viewers }`. RTP relay: the browser peers with this server, which forwards a copy of the inbound track. Nothing is muxed.
 - `GET /session/:sessionId/playlist.m3u8`, `GET …/init.mp4`, `GET …/segment/:n.m4s` — HLS delivery of the same stream as fMP4 segments, muxed in a worker thread. Off unless `REVERIE_DIRECTOR_HLS=true` (`503 live_delivery_disabled`); `503 unsupported_codec` when the negotiated codec cannot be carried by fMP4; `503 live_delivery_failed` when the muxer thread died (the session, its recording and `/end` are unaffected). The playlist is `no-store`; the init segment and media segments are immutable and cacheable. A segment that has left the live window answers `404` and is never substituted with another.
 - `GET /recordings/:sessionId` — the stored WebM recording, served by this server only, when `REVERIE_DIRECTOR_RECORD=true` captured one.

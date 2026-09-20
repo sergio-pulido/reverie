@@ -1,5 +1,67 @@
 # Decisions
 
+## 2026-09-20 — Play and stop belong to the room, and a stopped room plays again (RV-23)
+
+Opening a jam with "With people" showed everybody but the host a player with no controls:
+`JamDirector` took a `canDrive` prop, the host got Start, Stop and the direction box, and
+everyone else got a sentence saying the host would start it. Nothing enforced that — the
+director routes have never had an authorization check of any kind — so it was a role
+fiction drawn in the UI, and its cost was real: a participant could not start the film they
+had joined to make, and the stream depended on one person staying in the room.
+
+**Nobody owns the take.** The server sees two signals, play and stop, and does not ask who
+sent them. `POST /session` opens the stream for a configuration or joins the one running for
+it; `POST /session/:id/end` with no viewer id stops it for the room. Both were already
+unauthenticated, so this decision changes the product rather than the security posture: the
+UI now matches what the server actually does instead of implying a permission the server
+never checked. Membership authorization for these routes remains an open gap, recorded on
+2026-09-19 and unowned; it is a check to add, not a check that was removed.
+
+**`ended` is no longer terminal, which reverses the RV-18 decision below.** That decision
+rested on one person owning the stop: a room's recording could be called its artifact
+because only the host could end it. With the stop signal in everybody's hands, a terminal
+stop means any participant can retire a room for everyone, permanently, with one press — and
+no path back. So a stopped room plays again. `live` is a room that has not run; `playing` is
+a room generating; `ended` is a room between takes, labelled **Stopped** in the UI. Each
+session keeps its own archive entry, so a second take adds to the room's archive rather than
+overwriting the first, and the room shows the most recent one. Two consequences follow:
+the director no longer refuses `POST /session` on a stopped room, and the outline queue no
+longer refuses an edit on one — a room between takes is exactly where the next take's story
+gets written. `409 jam_ended` remains only where it is still true: a request for a LIVE
+stream that has stopped, answered with a pointer to the archive.
+
+**Both entrances follow the rule, with one exception that is not ours to relax.** The room
+screen (`JamDirector`) and the solo Director screen (`/director/:slug`) both offer Play,
+Stop and the direction box to whoever can open the jam; the control is called **Play**
+rather than Start on both. The exception is the room's playback clock in `TransportBar`,
+which stays host-only because the database enforces that, and a UI that offered it to
+everybody would be offering a refusal.
+
+**A screen learns about a stop from the server, not from its own button.** Most stops now
+come from somebody else, so the session poll treats `not_found` as the stop it is: the
+screen lets go of the session, re-reads the room, and shows that take's recording with play
+enabled. Adopting a session also clears the previous take's recording, because the player
+renders the recording or the live stream and never both.
+
+**Known consequence, and it is not ours: a room can now hold several recordings.** That is
+exactly what terminality was protecting against — "two different films behind one room URL".
+The data layer already handles it: `DirectorIndexStore.listSessions` is per jam and ordered
+newest first, in both the in-memory and the Postgres store, so every take is listed and none
+overwrites another. What is undecided is the product answer — the room screen shows the most
+recent take and offers no way to reach an earlier one, and nothing says whether it should. The
+archive is the director-archive owner's; this entry names the question rather than answering
+it.
+
+**The viewer count stays exactly as it was.** It is spend control, not ownership: a shared
+stream must outlive the person who started it and must end when the last watcher leaves,
+whoever that turns out to be. Closing a tab is still a detach, Stop is still the only whole-
+room end, and the sixty-second minimum still makes the play button a spend control — stated
+under the player rather than fenced off behind a role.
+
+Verified by `pnpm test` (1209 passing), typecheck and build. **Not** verified against a real
+provider session: no fal key was spent here, so a second take against live media — and what
+two archived sessions look like in one room — is unobserved.
+
 ## 2026-09-20 — Script edits run in the director's process; that is what serializes the outline queue (RV-22)
 
 `docs/specs/transactional-scene-contract.md` and `docs/specs/story-outline.md` both refused to

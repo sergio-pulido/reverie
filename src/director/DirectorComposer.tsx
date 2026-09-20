@@ -55,10 +55,10 @@ export function DirectorComposer({
   const send = useCallback(
     async (body: string) => {
       const said = body.trim();
-      // The disabled button is not the authority boundary: Enter and a Direct
-      // voice transcript call this same function without clicking it. Keep the
-      // guard here so a viewer who joined the room cannot direct the host's
-      // stream through either alternate input path.
+      // The disabled button is not the only path in: Enter and a Direct voice
+      // transcript call this same function without clicking it. Keep the guard
+      // here so a direction typed at a stream that is not running is dropped
+      // by every input path, not just by the one with the disabled button.
       if (blocked || !said || sending.current) return;
       sending.current = true;
       const sent = await onDirect(said, targetBeat ?? undefined);

@@ -1908,6 +1908,35 @@ and the consent rules were then exercised as two real participants:
 - No live provider session was opened. H.264 muxing, keyframe cadence, latency and CPU under real
   fal media remain unverified.
 
+## 2026-09-20 — Anybody in the room plays and stops the take (RV-23)
+
+- Joining a jam with "With people" showed a player and no controls: `JamDirector` took a
+  `canDrive` prop and only the host got Start, Stop and the direction box. The prop is gone.
+  Everyone in the room gets the same two signals and the same field, on both entrances — the
+  room screen and the solo `/director/:slug` screen — and the control is called **Play**.
+- Nothing was relaxed on the server: the director session routes have never had an
+  authorization check, so the UI now says what the server already did. Membership
+  authorization on those routes remains an open, unowned gap.
+- `ended` is no longer terminal, reversing the RV-18 decision: a stopped room plays again as
+  a new session with its own archive entry, and the badge reads **STOPPED**. With the stop
+  signal in everybody's hands, a terminal stop would let any participant retire a room for
+  everyone with one press. The director's `409 jam_ended` refusal on start is gone, and so is
+  the outline queue's refusal to edit a stopped room — a room between takes is where the next
+  take's story gets written. `jam_ended` survives only where it is still true: a request for a
+  live stream that has stopped, answered with a pointer to the archive.
+- The session poll now treats `not_found` as the stop it is — most stops arrive from somebody
+  else's browser — and shows that take's recording with Play enabled instead of sitting on a
+  dead player. Adopting a session clears the previous take's recording, which would otherwise
+  blank the frame.
+- The viewer count is untouched. It is spend control, not ownership: closing a tab is still a
+  detach, Stop is still the only whole-room end, the last watcher leaving still settles the
+  session, and the sixty-second minimum still makes Play a spend control.
+- Verified: `pnpm typecheck`; `pnpm test` 1209/1209; `pnpm build`.
+- **Not verified:** no fal session was opened, so a second take against real provider media,
+  and what two archived sessions look like in one room, are unobserved. Two browsers have not
+  been driven against one room, so "somebody else stopped it" is covered by a DOM test rather
+  than by two live clients.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

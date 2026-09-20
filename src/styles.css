@@ -132,7 +132,9 @@ footer { width: 100%; max-width: 1410px; margin: 0 auto; padding: 24px 48px; bor
 .studio-grid { width: min(1410px, 100%); margin: 0 auto; padding: 0 48px 70px; display: grid; grid-template-columns: clamp(260px, var(--chat-width, 38%), 62%) minmax(0, 1fr); gap: 20px; }
 .conversation-panel, .studio-scene { min-width: 0; }
 .conversation-panel, .queue-card { border: 1px solid #3c4969; background: linear-gradient(140deg, rgba(19, 28, 49, .95), rgba(10, 14, 24, .92)); }
-.conversation-panel { position: relative; min-height: 590px; display: flex; flex-direction: column; padding: 26px; }
+/* The chat is a fixture of the screen, not of the column beside it: it never grows past the
+   viewport, stays in view while the scene scrolls, and its own list scrolls inside it. */
+.conversation-panel { position: sticky; top: 16px; align-self: start; min-height: min(590px, calc(100vh - 32px)); max-height: calc(100vh - 32px); display: flex; flex-direction: column; padding: 26px; }
 .chat-resizer { position: absolute; top: 0; right: -14px; width: 14px; height: 100%; cursor: col-resize; touch-action: none; }
 .chat-resizer::after { content: ""; position: absolute; top: 0; bottom: 0; left: 6px; width: 2px; background: #3c4969; }
 .chat-resizer:hover::after, .chat-resizer:focus-visible::after { background: #bbc9ff; }
@@ -140,7 +142,7 @@ footer { width: 100%; max-width: 1410px; margin: 0 auto; padding: 24px 48px; bor
 .panel-heading { display: flex; justify-content: space-between; gap: 20px; border-bottom: 1px solid #303a52; padding-bottom: 22px; }
 .panel-heading h2, .queue-card h2 { margin: 0; font-family: Fraunces, Georgia, serif; font-weight: 500; font-size: 31px; letter-spacing: -.03em; }
 .local-badge { align-self: start; padding: 7px 9px; border: 1px solid #526080; color: #c9d4ff; font: 10px "DM Mono", monospace; letter-spacing: .13em; }
-.contribution-list { flex: 1; display: flex; flex-direction: column; justify-content: end; gap: 14px; min-height: 270px; padding: 26px 0; overflow: auto; }
+.contribution-list { flex: 1; display: flex; flex-direction: column; justify-content: end; gap: 14px; min-height: 0; padding: 26px 0; overflow: auto; }
 .contribution { max-width: 85%; padding: 13px 14px; border-radius: 8px; }
 .contribution span { display: block; margin-bottom: 6px; color: #bac5ec; font: 10px "DM Mono", monospace; letter-spacing: .13em; }
 .contribution p { margin: 0; color: #edf0fb; line-height: 1.45; font-size: 14px; }
@@ -156,7 +158,7 @@ footer { width: 100%; max-width: 1410px; margin: 0 auto; padding: 24px 48px; bor
 .queue-card p:not(.eyebrow) { max-width: 270px; margin: 0; color: #aeb5c6; font-size: 14px; line-height: 1.5; }
 .queue-card-stack p:not(.eyebrow) { max-width: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-@media (max-width: 950px) { .setup-layout, .studio-grid, .registry-layout { grid-template-columns: 1fr; gap: 35px; } .setup-layout-explained { grid-template-areas: "intro" "form" "scene"; } .chat-resizer { display: none; } .setup-layout, .registry-layout { padding: 48px 24px 66px; } .registry-head { position: static; } .studio-header, .studio-grid { padding-left: 24px; padding-right: 24px; } .studio-header { align-items: start; flex-direction: column; } }
+@media (max-width: 950px) { .setup-layout, .studio-grid, .registry-layout { grid-template-columns: 1fr; gap: 35px; } .conversation-panel { position: static; max-height: none; min-height: 420px; } .setup-layout-explained { grid-template-areas: "intro" "form" "scene"; } .chat-resizer { display: none; } .setup-layout, .registry-layout { padding: 48px 24px 66px; } .registry-head { position: static; } .studio-header, .studio-grid { padding-left: 24px; padding-right: 24px; } .studio-header { align-items: start; flex-direction: column; } }
 @media (max-width: 600px) { .contribution-form { grid-template-columns: 1fr; } .studio-actions, .studio-actions .button, .registry-card .button, .registry-ways { width: 100%; } .registry-ways .button { flex: 1 1 auto; } .queue-card, .registry-card { align-items: start; flex-direction: column; } }
 
 /* Live room: connection state, roster and presence. */

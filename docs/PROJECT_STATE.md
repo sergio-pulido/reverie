@@ -1840,6 +1840,47 @@ and the consent rules were then exercised as two real participants:
 - No live provider session was opened. H.264 muxing, keyframe cadence, latency and CPU under real
   fal media remain unverified.
 
+## 2026-09-20 — A critic's note on each of Discover's top picks
+
+- `POST /api/discover/critique` is a third conversational call, behind the same guards as the
+  other two: same-origin, signed in, 30 requests a minute, one of six slots, 32 KB of body,
+  aborted when the viewer goes away. It takes the ranking's top three and the rest of the row as
+  titles it may not name, and answers with `why`, `watching` and `reservation` for each pick.
+- Where the ranking call is forbidden everything outside the catalogue row, this one is sent for
+  what the model knows about these films. It is fenced by what can be checked against the row
+  instead: a withheld title named, a running time or release year the row contradicts, an invented
+  score, a verdict borrowed from critics or audiences, or the critique turning to face the viewer
+  each refuse the whole reply, once with the reason and then for good. A part that runs long is
+  cut back to its whole sentences rather than refused. A pick whose reservation is missing or
+  hollow loses its critique.
+- A turn hands its films over the moment they are ranked and stays open for its critique, so the
+  extra call is never in front of the posters. The note lands in the same snapshot, whose films
+  and order are untouched. A critic that times out or is refused leaves the row exactly as it was,
+  with the ranking's reasons and no line in the conversation about it.
+- At 1920 a pick's card turns sideways: the poster, then why this one and the one thing against
+  it, in a 700-pixel slot. At 390 a paragraph will not stand beside a 132-pixel poster, so the
+  card carries the note's opening four lines and the whole of it — what watching it is like
+  included — opens with the film. A card read aloud says the note where it used to say the
+  ranking's reason.
+- Nothing the critic writes can reach the preference engine: a critique proposes no turn and
+  carries no quote. The browser still checks every note against the picks it is showing and the
+  state version it asked about before a word of it is drawn.
+- Verified live: `pnpm verify:conversation` three times against Nebius
+  (`Qwen/Qwen3-30B-A3B-Instruct-2507`), 12 of 12 critique calls written, 12 s to 23 s each. The
+  notes name casts, scenes and specific failings — "the embalmed hand isn't just a prop", "the
+  alien's design and behavior remain frustratingly opaque" — against ranking reasons in the same
+  runs that read "Perfect blend of whimsy and humor". One run shows the reservation rule working:
+  The Super Mario Bros. Movie lost its critique rather than take a hollow one.
+- Known gap, measured not guessed: the critic writes confidently about films the model does not
+  know. Probed with two invented titles among three, it critiqued all three and cited a closing
+  scene of a film that does not exist. The prompt asks it to leave such a film out and that
+  instruction does not bind on this model. The checks here are about consistency with the
+  catalogue, not truth.
+- `pnpm verify:conversation` now prints the critique for each pick, because a note that restates
+  the genres is a prompt that has not worked and only reading them says so.
+- `pnpm test` 1188/1199, the 11 failures the same pre-existing `directorPieceMuxer` and
+  `directorSegmenter` worker tests as on `main`; `npx tsc --noEmit` clean.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

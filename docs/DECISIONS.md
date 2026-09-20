@@ -1,5 +1,43 @@
 # Decisions
 
+## 2026-09-20 — Script edits run in the director's process; that is what serializes the outline queue (RV-22)
+
+`docs/specs/transactional-scene-contract.md` and `docs/specs/story-outline.md` both refused to
+build the outline edit queue on `withJamLock` alone, because an in-process mutex serializes
+nothing across many Vercel function instances, and named three exits without picking one. This
+picks the exit that the code had already taken without saying so: **the jams router, the outline
+queue and the live director are one container process.** The director holds a long-lived WebRTC
+peer and cannot be a serverless function (RV-16); the lock boundary every script edit must respect
+is read from that process's `DirectorStreamRegistry`; an edit running anywhere else could not read
+it at all. Within one process a per-jam FIFO and `withJamLock` are a real critical section, so the
+queue is built on them, and `JamStore.commitScript` makes the commit a real compare-and-swap:
+refused with `portion_locked` if the boundary moved into the cascade's range while it was with the
+provider, and with `stale_state_version` if the revision the cascade was computed from is no longer
+current (a direct `PATCH` or a revert can land meanwhile; the worker recomputes once, then gives
+up). The outline's version is the script revision number — no second per-jam counter — because a
+landed edit *is* a revision. Deploying the jams router as a Vercel function is therefore not a
+supported deployment for edits, and the register row that called cross-instance serialization an
+unowned gap now says so. Durability is a separate question: `InMemoryJamStore` still loses the
+script, its revisions and the edit ledger on restart, and the Postgres-backed store the migrations
+already describe (reserved as RV-21) is for surviving restarts, not for making today's queue
+correct.
+
+## 2026-09-20 — Beats are born with the script, and never invented locally (RV-22)
+
+The outline was a projection nothing populated: the scriptwriter never asked for a `summary`, so
+no created script had beats. Now the scriptwriter's JSON shape carries `summary` per portion, so
+the phrase and the prose come from one completion and one view of the story; the draft schema
+accepts it as optional so a model that forgets one does not fail a paid script. Any portion still
+without a beat after finalization is filled in by **one** completion over the whole script that
+must return exactly as many phrases as there are portions, applied by position and refused on a
+count mismatch — the same rule the cascade uses, so a beat is never made up on the server. Import,
+which used to make no provider call, now makes that one fill-in call when a provider is configured,
+under the same concurrency gate as generation; if no provider is configured, the gate is busy or
+the call fails, the jam is still created with its beats missing and `POST /api/jams` says so
+(`outline.complete`). The panel renders a missing beat as missing. The product's word for this
+layer is still "history"; the name stays **outline** / **beat** in code and docs, for the reason
+recorded below on 2026-09-19.
+
 ## 2026-09-20 — The broadcast review closes every viewer and muxer lifetime (RV-19)
 
 Reviewing the integrated broadcast branch found that its accounting model was stricter than its

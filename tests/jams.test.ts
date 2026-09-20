@@ -96,6 +96,16 @@ test("imports a script without calling a live provider and projects it into the 
   const rendered = await markdown.text();
   assert.ok(rendered.startsWith("# Signal House"));
   assert.ok(rendered.includes("breakwater"));
+
+  // Nothing wrote beats for an imported script and no provider is configured
+  // here, so the jam says its outline is incomplete rather than inventing one.
+  assert.deepEqual(body.outline, { complete: false });
+  const portions = body.jam.script.scenes.flatMap((scene: { portions: unknown[] }) => scene.portions);
+  assert.ok(portions.length > 0);
+  assert.deepEqual(
+    portions.map((portion: { summary?: string }) => portion.summary),
+    portions.map(() => undefined),
+  );
 });
 
 test("returns 404 for an unknown jam", async () => {

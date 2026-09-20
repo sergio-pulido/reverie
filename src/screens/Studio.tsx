@@ -7,6 +7,7 @@ import { InvitePanel } from "./InvitePanel";
 import { EscapeRoom } from "./EscapeRoom";
 import { JamDirector } from "./JamDirector";
 import { useEscapeRoom } from "./useEscapeRoom";
+import { OutlinePanel } from "./OutlinePanel";
 import { useAccessStatus } from "./useAccessStatus";
 import { useJamRoom } from "./useJamRoom";
 import { readJamConfiguration } from "../lib/jamConfiguration";
@@ -97,6 +98,7 @@ export function Studio({ slug, onLeave }: { slug: string; onLeave: () => void })
             <Story
               jamId={jam.id}
               isHost={isHost}
+              authorId={self.user_id}
               displayName={self.display_name}
               contributionAllowed={contributionAllowed}
               configuration={configuration}
@@ -136,6 +138,7 @@ export function Studio({ slug, onLeave }: { slug: string; onLeave: () => void })
 function Story({
   jamId,
   isHost,
+  authorId,
   displayName,
   contributionAllowed,
   configuration,
@@ -145,6 +148,7 @@ function Story({
 }: {
   jamId: string;
   isHost: boolean;
+  authorId: string;
   displayName: string;
   contributionAllowed: boolean;
   configuration: SessionSettings | null;
@@ -167,8 +171,11 @@ function Story({
     />;
   }
 
+  // The outline belongs to the screenplay path: an escape room has its own
+  // turn structure and no beats to steer.
   return <>
     <JamDirector jamId={jamId} canDrive={isHost} configuration={configuration} />
+    <OutlinePanel jamId={jamId} canEdit={contributionAllowed} authorId={authorId} />
     <div className="queue-card queue-card-stack">
       <div><p className="eyebrow">UP NEXT</p><h2>Proposal queue</h2></div>
       <div className="contribution-list" aria-live="polite">

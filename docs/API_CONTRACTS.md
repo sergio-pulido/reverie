@@ -126,6 +126,10 @@ code — both go through the host-only functions above, which run as owner.
 | `POST /api/jams/:id/script/revert` | Restore an earlier revision as a new revision (undo/redo); rejected with `portion_locked` if a played or locked portion would change |
 | `GET /api/jams/:id/script/revisions` | List revision metadata (no script bodies) |
 | `GET /api/jams/:id/script/revisions/:revision` | Read one full revision: structured script plus its rendered markdown |
+| `GET /api/jams/:id/outline` | The current revision's beats with the strictest open stream's lock window, the pending-edit count and the current script (`docs/specs/story-outline.md`) |
+| `POST /api/jams/:id/outline/edits` | Admit one outline edit (`set` or `reroll`) to the per-jam queue; idempotent on `requestId`; `202` with the edit record |
+| `GET /api/jams/:id/outline/edits` | The edit ledger for a jam, newest first (at most 50) |
+| `GET /api/jams/:id/outline/edits/:editId` | One edit record |
 | `POST /api/jams/:id/sessions` | Attach a user session to a jam; returns the session plus a one-time owner token |
 | `GET /api/jams/:id/sessions` | List a jam's sessions (public projections, never owner tokens) |
 | `GET /api/sessions/:id` | Read one session |
@@ -173,9 +177,32 @@ The reconciliation is idempotent and backfills before enforcing `NOT NULL`. It i
 The command is a discriminated union on `mode`:
 
 - `mode: "generate"` (the default when `mode` is omitted) takes `source` as `from-scratch` or `from-movie`, calls the server-configured Nebius allowlist behind the generation concurrency gate, and stores revision 1 as the rendered markdown.
-- `mode: "import"` takes `source: { kind: "imported-script", scriptTitle }` and `scriptMarkdown` (40–9000 characters). It makes **no** provider call and takes no concurrency slot; the pasted markdown is stored verbatim as revision 1, while a derived timed projection (`src/core/scriptImport.ts`) provides the portions the director uses as beats. Text too short or too long for the selected format returns `invalid_script_import` (`400`, `retryable: false`).
+- `mode: "import"` takes `source: { kind: "imported-script", scriptTitle }` and `scriptMarkdown` (40–9000 characters). The pasted markdown is stored verbatim as revision 1, while a derived timed projection (`src/core/scriptImport.ts`) provides the portions the director uses as beats. Import makes **one** provider call — the outline fill-in that writes a beat per portion — only when a provider is configured and a generation slot is free; otherwise the jam is created with its beats missing and no call is made (RV-22). Text too short or too long for the selected format returns `invalid_script_import` (`400`, `retryable: false`).
 
-Both modes accept an optional `jamId` — the room id created before the script — so the script and its revisions attach to the registered jam rather than a second server-minted id. Reusing an id that already has a script returns `jam_exists` (`409`). Success is `201 { jam, scriptMarkdown }`. The browser registry (`GET`-free: `src/lib/jams.ts#listJams`) reads `jams` under the existing RLS select policy, so `/jams` shows the rooms an identity hosts or has joined, newest first, hiding `completed`/`closed`.
+Both modes answer `outline: { complete: boolean }` beside the jam: `false` means at least one portion has no beat, which the outline panel shows as missing rather than filling. Both modes accept an optional `jamId` — the room id created before the script — so the script and its revisions attach to the registered jam rather than a second server-minted id. Reusing an id that already has a script returns `jam_exists` (`409`). Success is `201 { jam, scriptMarkdown }`. The browser registry (`GET`-free: `src/lib/jams.ts#listJams`) reads `jams` under the existing RLS select policy, so `/jams` shows the rooms an identity hosts or has joined, newest first, hiding `completed`/`closed`.
+
+## Outline edits
+
+An outline edit is the one command every way of steering the story produces
+(`docs/specs/story-outline.md`). `POST /api/jams/:id/outline/edits` takes
+`{ requestId, intent: "set", beatIndex, summary }` or `{ requestId, intent: "reroll", beatIndex, reason? }`,
+plus optional `expectedRevision` (the script revision the client read; behind → `409 stale_state_version`
+with the current `revision`), `mechanism` (`direct | vote | poll | chat`, default `direct`) and
+`authorId`. Admission checks, in order: the jam exists (`404 not_found`), a provider is configured
+(`503 generation_disabled`), the beat exists (`400 invalid_command`), the beat is editable
+(`409 portion_locked`), the revision is current, the queue has room (`409 queue_full`, at most 10 waiting).
+A room that has ended is refused `409 jam_ended`: its recording is the artifact and its story no
+longer moves. A replayed `requestId` returns `200` with the record the first request created, and
+is answered before every refusal above — including `jam_ended` — because a replay performs nothing
+and a reconnect after the room finished must still learn what its edit did.
+
+Edits are processed one at a time per jam. The cascade completion runs outside the per-jam critical
+section; the commit takes it once and lands every rewritten portion as one revision, refusing
+`portion_locked` if the boundary moved meanwhile and `stale_state_version` if the base revision was
+replaced twice. The edit record's `status` is `queued | processing | landed | failed`, with
+`baseRevision`, `revision`, a typed `error`, and `direction: { sent, refused, skipped }` for the beat sent
+after the commit to the open streams whose next beat it is — a direction steers what the provider
+generates next, so a beat further ahead is committed without being sent. Durations and structure are never rewritten.
 
 ## The escape room
 
@@ -263,6 +290,20 @@ Portions are addressed by a zero-based global `portionIndex` in flattened scene 
 Before the first chunk arrives, beat `0` is already locked: `configure` carried the whole script to the provider when the session opened. With no stream open, nothing is locked.
 
 The same boundary answers both routes. `POST /api/jams/:id/director/session/:sessionId/direct` refuses a direction naming a closed beat with `beat_locked` (`retryable: false`, carries the beat window), and a script `PATCH`/`revert` at or below the boundary is refused with `portion_locked`. A jam may hold one stream per configuration, and an edit is only safe if it is ahead of all of them, so the strictest open stream sets the boundary (`DirectorStreamRegistry`). The JamStore stays persistence-only: edit and revert take `minEditablePortionIndex` and throw below it, and the router reads the guard in the same critical section as the mutation it protects, so the boundary cannot move between check and write.
+
+**The script reaches the provider once, and a later rewrite does not follow it.** `configure`
+carries the whole script when the control channel opens (`sendConfigure` in
+`apps/server/directorStream.ts`, which has exactly one caller, on channel open), and nothing
+re-sends it as the stream advances. A direction is the only other way text reaches the model, and
+it carries `replan`: it steers what is generated **next** rather than naming a position, so a beat
+far ahead cannot be delivered early without the stream rendering it immediately, out of order.
+
+Together those leave a gap that belongs to this contract rather than to any one feature. An edit
+committed to a beat beyond the imminent one is durable and correct in the script and the outline,
+and an open stream will never show it. Outline delivery therefore addresses a stream only when the
+edited beat is that stream's `minEditableBeatIndex` (`docs/specs/story-outline.md`). Closing the
+gap means re-sending a beat as it *becomes* imminent, which needs something watching each stream's
+position and pushing at the boundary; no delivery design in this repository does that today.
 
 **Two ways of producing video, and they are not the same thing.** The live director is one continuous session billed by the second: it holds a peer connection and is directed as it runs. Beat generation (`POST /api/jams/:id/beats/:index/video`, above) is submit-and-wait: one finished clip per portion, which is the only path that can carry a participant's likeness, because a reference image is an input to a queued generation and not something that can be handed to an open stream. A jam may use either. The events `portion.locked`, `media.requested`, `media.ready` and `media.delayed` described elsewhere in this document still belong to a pipeline that does not exist; beat generation is a synchronous route, not an event stream, and the director's beat lock window does not apply to it.
 

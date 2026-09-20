@@ -134,7 +134,14 @@ Three honest exits, none of which this document picks:
 3. **Bound the guarantee explicitly** — atomicity covers the Postgres half until the script is
    durable — and say so wherever the contract is quoted.
 
-Until one is chosen, **do not implement the acceptance path and do not describe it as atomic.**
+**For the outline edit path, the choice is made (2026-09-20, `docs/DECISIONS.md`, RV-22):** script
+edits run in the one container process the live director already requires, so the per-jam critical
+section is real there and `JamStore.commitScript` is a true compare-and-swap on the boundary and
+the base revision. That settles serialization for edits; it does not settle *this* contract, whose
+commit still spans `jam_proposals` in Postgres and the script in the Node process. The exit for
+acceptance remains open below.
+
+Until one is chosen for acceptance, **do not implement the acceptance path and do not describe it as atomic.**
 Whichever is chosen, it is a decision to record in `docs/DECISIONS.md`, not an implementation
 detail. (This constraint was found by the RV-17 session while cross-checking this spec against
 the code; the anchors above were re-verified here.)

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  BEAT_MAX_CHARS,
   createJamScriptSchema,
   DEFAULT_SCRIPT_FORMAT,
   hardPortionBounds,
@@ -21,6 +22,10 @@ export const jamScriptDraftSchema = z.object({
           .array(
             z.object({
               durationSeconds: z.number().min(1).max(120),
+              // The beat, written with the prose. Optional so a model that
+              // forgets one does not fail a paid script; the fill-in in
+              // src/core/outlineSummary.ts covers what is missing.
+              summary: z.string().trim().min(1).max(BEAT_MAX_CHARS).optional(),
               action: z.string().trim().min(1).max(600),
               dialogue: z.string().trim().max(600).optional(),
               visualDirection: z.string().trim().max(400).optional(),

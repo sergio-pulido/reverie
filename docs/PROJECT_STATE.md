@@ -1308,6 +1308,74 @@ open a PR, merge the PR. The previous split between a "primary agent" pushing di
 "collaborating developer" going through PRs is retired — see `docs/DECISIONS.md` for why. `AGENTS.md`,
 `docs/CONTRIBUTING.md` and `README.md` are updated; no code changed.
 
+## 2026-09-20 — The outline is real: beats born with the script, a serialized edit queue, a panel to steer from (RV-22)
+
+- **Beats at creation.** The scriptwriter asks for a `summary` per portion in the one script
+  completion; any portion still without one is filled by a single fill-in completion over the
+  whole script (`src/core/outlineSummary.ts`, `apps/server/outlineWriter.ts`), refused on a count
+  mismatch. Imports get the same fill-in when a provider is configured, under the generation gate.
+  `POST /api/jams` answers `outline: { complete }`; a missing beat is shown as missing, never
+  invented.
+- **The edit queue** (`apps/server/outline.ts`): `POST /api/jams/:id/outline/edits` admits one
+  `set` or `reroll` edit per request (`src/core/outlineEdit.ts`), idempotent on `requestId`,
+  refused at admission with `portion_locked`, `stale_state_version` (`expectedRevision` behind),
+  `queue_full` (10 waiting) or `generation_disabled`. One worker per jam drains a FIFO: the
+  cascade completion runs outside the lock, then `JamStore.commitScript` lands every portion as
+  one revision inside `withJamLock`, guarded by the boundary and the base revision. The ledger
+  (last 50 per jam) is readable at `GET /api/jams/:id/outline/edits`.
+- **Serialization decision recorded** in `docs/DECISIONS.md`: the jams router, the queue and the
+  director are one container process, so the per-jam critical section is real. The
+  cross-instance row in `docs/specs/intended-vs-implemented.md` is closed as a deployment
+  constraint rather than left unowned.
+- **An ended room's story is frozen.** Now that a jam carries a lifecycle, an edit to an `ended`
+  room is refused `jam_ended` at admission, and one already queued when the room ends fails with
+  the same code rather than rewriting a film that was already shot.
+- **Delivery to the director.** After a commit the edited beat's phrase is sent as a direction
+  carrying `beatIndex`, but **only to a stream whose next beat it is** (`minEditableBeatIndex`):
+  a direction steers what the provider generates next, so sending a distant beat would render it
+  out of order rather than schedule it. The consequence, stated rather than hidden: a beat edited
+  further ahead never reaches an already-open stream, because the script went to the provider once
+  at session open and nothing re-sends it. Refusals and skips are recorded on the edit and never
+  fail it. No session is opened for delivery, and a direction adds no charge to a session already
+  billing for time.
+- **Client.** `OutlinePanel` on the script screen and in the Studio: beats with played /
+  generating / editable state, "Rewrite" and "Not this" on editable beats, the ledger, and honest
+  "no beat yet" and "no script on this server" states. `GET /api/jams/:id/outline` also returns
+  the current script so the screenplay under the panel follows the revision the beats describe.
+- **Verified offline:** `pnpm typecheck` clean, `pnpm test` 787/787 (58 new, covering the edit
+  schemas, the fill-in, both provider retry loops, the queue's ordering, idempotency, lock and
+  stale-revision refusals, queue limit, worker recovery, direction delivery, the store commit and
+  the panel), `pnpm build`. Also exercised against the real local host with providers off: an
+  imported jam answers `outline.complete: false` with every beat honestly missing, `GET
+  /api/jams/:id/outline` serves the beats with nothing locked and no stream open, an edit is
+  refused `503 generation_disabled`, a command without a `requestId` is refused `400`, and an
+  unknown jam is `404`.
+- **Probed live on 2026-09-20**, against the local Docker stack (`docker compose up --build
+  --wait`, `reverie-local`) with Nebius configured from `.env.local`. This is the first cascade
+  this repository has ever run against a model:
+  - **Beats arrive with the script.** `POST /api/jams` (generate, default 20s/5s format) answered
+    `201` in 4.1s with `outline: { complete: true }` and a phrase on all four portions — so the
+    scriptwriter's `summary` request is honoured in the same completion and the fill-in call was
+    not needed.
+  - **A `set` edit cascaded coherently.** Rewriting beat 1 to "he loses his lantern in the
+    current" landed as revision 2 in 2.0s. Beat 0 was untouched, all four durations were
+    unchanged, and the tail re-derived *around the loss*: the next beat became "Finds door by
+    faint bioluminescence". That the model reasoned from the removed lantern is the coherence the
+    cascade exists for, observed rather than assumed.
+  - **A `reroll` replaced a rejected beat.** "He finds a barnacled door standing upright" with the
+    reason "too predictable" became "He spots a human figure motionless on the seabed", and the
+    tail followed, in 2.6s.
+  - **The envelope held.** A replayed `requestId` answered `200` with the same edit id and
+    `landed` rather than editing again; an edit carrying `expectedRevision: 1` against revision 3
+    was refused `409 stale_state_version` with the current revision attached; the ledger listed
+    both landed edits newest first.
+- **Still not verified:** delivery into a live director stream. No director session was opened, so
+  nothing was sent to a provider that bills by the second and `direction` read
+  `{ sent: 0, refused: 0, skipped: 0 }` throughout. The lock window was therefore open the whole
+  run (`minEditableBeatIndex: 0`), so `portion_locked` was not exercised live. The route
+  authorization gap is unchanged: no script or outline route on the Express host checks the
+  caller.
+
 ## 2026-09-19 — The director stream is delivered live to the whole room (RV-19)
 
 - The shared stream is now watchable while it runs. A session serves an HLS playlist and fMP4

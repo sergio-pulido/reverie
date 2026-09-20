@@ -286,3 +286,32 @@ test("a participant has one effective vote, and may change it", () => {
 function round(usd: number): number {
   return Math.round(usd * 100) / 100;
 }
+
+test("a room nobody has read in half an hour stops holding a slot", async () => {
+  const media = new InMemoryEscapeMediaStore();
+  let clock = 1_000;
+  const rooms = new EscapeRooms({
+    media,
+    account: new SpendAccount(100),
+    fal: null,
+    nebius: null,
+    limits: { usdPerSecond: 0.08, loopSeconds: 5, maxConcurrentGenerations: 2 },
+    now: () => clock,
+    sleep: async () => {},
+  });
+  // Rooms are never explicitly closed — a tab simply stops polling — so
+  // without reclaiming them a busy server refuses new ones forever.
+  for (let index = 0; index < 24; index += 1) {
+    assert.notEqual(typeof rooms.open(`old-${index}`, "night-audit"), "string");
+  }
+  assert.equal(rooms.open("one-more", "night-audit"), "too_many_rooms");
+
+  // One of them is still being watched; the rest are not.
+  clock += 25 * 60_000;
+  rooms.snapshot("old-7", "viewer");
+  clock += 25 * 60_000;
+
+  assert.notEqual(typeof rooms.open("one-more", "night-audit"), "string");
+  assert.equal(rooms.has("old-7"), true, "the room somebody is watching survives");
+  assert.equal(rooms.has("old-0"), false);
+});

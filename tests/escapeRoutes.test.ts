@@ -25,6 +25,11 @@ const account = new SpendAccount(100);
 /** Who the next request is, and whether authorization lets them in. */
 let caller: EscapeCaller | EscapeAuthError = { userId: "host-1", role: "host", status: "active" };
 
+/** Real v4 UUIDs: these ids are checked before anything reads them. */
+const ROOM = "11111111-1111-4111-8111-111111111111";
+const ROOM_B = "22222222-2222-4222-8222-222222222222";
+const ROOM_NEVER = "33333333-3333-4333-8333-333333333333";
+
 const originalFetch = globalThis.fetch;
 
 function stubFal() {
@@ -111,12 +116,12 @@ test("the scenarios a host can choose are served as data, not invented", async (
 
 test("only the host opens a room", async () => {
   caller = { userId: "member-1", role: "member", status: "active" };
-  const refused = await post("/api/jams/room-a/escape-room", { scenarioId: "night-audit" });
+  const refused = await post(`/api/jams/${ROOM}/escape-room`, { scenarioId: "night-audit" });
   assert.equal(refused.status, 403);
   assert.equal((await refused.json()).error.code, "escape_forbidden");
 
   caller = { userId: "host-1", role: "host", status: "active" };
-  const opened = await post("/api/jams/room-a/escape-room", { scenarioId: "night-audit" });
+  const opened = await post(`/api/jams/${ROOM}/escape-room`, { scenarioId: "night-audit" });
   assert.equal(opened.status, 201);
   const snapshot = await opened.json();
   assert.equal(snapshot.scenarioId, "night-audit");
@@ -130,20 +135,20 @@ test("only the host opens a room", async () => {
 });
 
 test("a scenario this build does not ship is refused before anything is spent", async () => {
-  const response = await post("/api/jams/room-b/escape-room", { scenarioId: "the-moon" });
+  const response = await post(`/api/jams/${ROOM_B}/escape-room`, { scenarioId: "the-moon" });
   assert.equal(response.status, 400);
   assert.equal((await response.json()).error.code, "unknown_scenario");
-  assert.equal((await call("/api/jams/room-b/escape-room")).status, 404);
+  assert.equal((await call(`/api/jams/${ROOM_B}/escape-room`)).status, 404);
 });
 
 test("a caller who is not signed in is refused every route", async () => {
   caller = new EscapeAuthError(401, "escape_unauthenticated", "Sign in to open this room.");
   for (const [method, path] of [
-    ["GET", "/api/jams/room-a/escape-room"],
-    ["POST", "/api/jams/room-a/escape-room/proposals"],
-    ["POST", "/api/jams/room-a/escape-room/votes"],
-    ["POST", "/api/jams/room-a/escape-room/settle"],
-    ["GET", "/api/jams/room-a/escape-room/segments/anything"],
+    ["GET", `/api/jams/${ROOM}/escape-room`],
+    ["POST", `/api/jams/${ROOM}/escape-room/proposals`],
+    ["POST", `/api/jams/${ROOM}/escape-room/votes`],
+    ["POST", `/api/jams/${ROOM}/escape-room/settle`],
+    ["GET", `/api/jams/${ROOM}/escape-room/segments/anything`],
   ] as const) {
     const response = method === "GET" ? await call(path) : await post(path);
     assert.equal(response.status, 401, `${method} ${path}`);
@@ -155,7 +160,7 @@ test("a caller who is not signed in is refused every route", async () => {
 test("a member proposes, a member votes, and only the host settles", async () => {
   await rooms.idle();
   caller = { userId: "member-1", role: "member", status: "active" };
-  const proposed = await post("/api/jams/room-a/escape-room/proposals", {
+  const proposed = await post(`/api/jams/${ROOM}/escape-room/proposals`, {
     body: "lift the counter hatch",
     authorName: "Ada",
   });
@@ -165,17 +170,17 @@ test("a member proposes, a member votes, and only the host settles", async () =>
   assert.equal(snapshot.turn.proposals[0].authorName, "Ada");
   assert.equal(snapshot.turn.proposals[0].votes, 0);
 
-  const voted = await post("/api/jams/room-a/escape-room/votes", { proposalId });
+  const voted = await post(`/api/jams/${ROOM}/escape-room/votes`, { proposalId });
   assert.equal(voted.status, 200);
   const afterVote = await voted.json();
   assert.equal(afterVote.turn.yourVote, proposalId);
   assert.equal(afterVote.turn.proposals[0].votes, 1);
 
-  const refused = await post("/api/jams/room-a/escape-room/settle");
+  const refused = await post(`/api/jams/${ROOM}/escape-room/settle`);
   assert.equal(refused.status, 403);
 
   caller = { userId: "host-1", role: "host", status: "active" };
-  const settled = await post("/api/jams/room-a/escape-room/settle");
+  const settled = await post(`/api/jams/${ROOM}/escape-room/settle`);
   assert.equal(settled.status, 200);
   const body = await settled.json();
   assert.ok(body.beatId);
@@ -185,7 +190,7 @@ test("a member proposes, a member votes, and only the host settles", async () =>
 });
 
 test("the author's identity comes from the session, never from the body", async () => {
-  const response = await post("/api/jams/room-a/escape-room/proposals", {
+  const response = await post(`/api/jams/${ROOM}/escape-room/proposals`, {
     body: "take the torch",
     authorName: "Ada",
     authorId: "somebody-else",
@@ -195,34 +200,55 @@ test("the author's identity comes from the session, never from the body", async 
 
 test("a generated segment is served by this server, with its measured length", async () => {
   await rooms.idle();
-  const snapshot = await (await call("/api/jams/room-a/escape-room")).json();
+  const snapshot = await (await call(`/api/jams/${ROOM}/escape-room`)).json();
   const ready = snapshot.beats[0].media;
   assert.equal(ready.status, "ready");
   assert.equal(ready.seconds, 15.104);
-  assert.match(ready.src, /^\/api\/jams\/room-a\/escape-room\/segments\/[0-9a-f-]+$/);
+  assert.match(ready.src, new RegExp(`^/api/jams/${ROOM}/escape-room/segments/[0-9a-f-]+$`));
 
   const clip = await call(ready.src);
   assert.equal(clip.status, 200);
   assert.equal(clip.headers.get("content-type"), "video/mp4");
   assert.ok(Number(clip.headers.get("content-length")) > 0);
-  assert.equal((await call("/api/jams/room-a/escape-room/segments/nothing")).status, 404);
+  assert.equal((await call(`/api/jams/${ROOM}/escape-room/segments/nothing`)).status, 404);
 });
 
 test("an empty turn cannot be settled, and an invalid proposal is refused", async () => {
-  const empty = await post("/api/jams/room-a/escape-room/settle");
+  const empty = await post(`/api/jams/${ROOM}/escape-room/settle`);
   assert.equal(empty.status, 409);
   assert.equal((await empty.json()).error.code, "no_proposals");
 
-  const blank = await post("/api/jams/room-a/escape-room/proposals", { body: "   " });
+  const blank = await post(`/api/jams/${ROOM}/escape-room/proposals`, { body: "   " });
   assert.equal(blank.status, 400);
-  const long = await post("/api/jams/room-a/escape-room/proposals", { body: "x".repeat(281) });
+  const long = await post(`/api/jams/${ROOM}/escape-room/proposals`, { body: "x".repeat(281) });
   assert.equal(long.status, 400);
-  const notAVote = await post("/api/jams/room-a/escape-room/votes", { proposalId: "nope" });
+  const notAVote = await post(`/api/jams/${ROOM}/escape-room/votes`, { proposalId: "nope" });
   assert.equal(notAVote.status, 400);
 });
 
+test("an id that is not a jam id never reaches a database query", async () => {
+  // A jam id is interpolated into the PostgREST query that reads membership,
+  // so one carrying `&` would add filters to a query this server must trust.
+  for (const id of ["room-a&role=eq.host", "*", "../../etc", "11111111-1111-4111-8111-11111111111"]) {
+    const response = await call(`/api/jams/${encodeURIComponent(id)}/escape-room`);
+    assert.equal(response.status, 400, id);
+    assert.equal((await response.json()).error.code, "invalid_command");
+  }
+  // An empty segment does not match the route at all, which is also fine: it
+  // reaches no query either.
+  assert.equal((await call("/api/jams//escape-room")).status, 404);
+  const real = await call(`/api/jams/${ROOM}/escape-room`);
+  assert.equal(real.status, 200, "a real uuid still works");
+});
+
+test("a segment id that is not a segment id is simply not found", async () => {
+  const response = await call(`/api/jams/${ROOM}/escape-room/segments/..%2F..%2Fsecret`);
+  assert.equal(response.status, 404);
+  assert.equal((await response.json()).error.code, "not_found");
+});
+
 test("a jam with no escape room says so rather than making one up", async () => {
-  const response = await call("/api/jams/room-never/escape-room");
+  const response = await call(`/api/jams/${ROOM_NEVER}/escape-room`);
   assert.equal(response.status, 404);
   const body = await response.json();
   assert.equal(body.error.code, "not_open");

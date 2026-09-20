@@ -41,6 +41,18 @@ const proposalSchema = z.strictObject({
 
 const voteSchema = z.strictObject({ proposalId: z.uuid() });
 
+/**
+ * Ids out of the path, checked before anything reads them.
+ *
+ * A jam id does not stay in this process: it is interpolated into the
+ * PostgREST query that reads the caller's membership. An id carrying `&`
+ * would add filters to that query, which is a query this server must be able
+ * to trust. Every id these routes mint or accept is a v4 UUID, so requiring
+ * one costs nothing and closes it. A media id goes on to address an object
+ * key, and is checked in the same breath.
+ */
+const idSchema = z.uuid();
+
 export interface EscapeRouterOptions extends Partial<EscapeRoomsOptions> {
   media?: EscapeMediaStore;
   account?: SpendAccount;
@@ -55,6 +67,13 @@ export function createEscapeRouter(options: EscapeRouterOptions = {}): Router {
   const rooms = options.rooms ?? new EscapeRooms({ ...options, media, account });
   const authorize = options.authorize ?? createSupabaseAuthorize();
 
+  router.use("/api/jams/:id/escape-room", (request, response, next) => {
+    if (!idSchema.safeParse(request.params.id).success) {
+      sendError(response, 400, "invalid_command", "That is not a jam id.", false);
+      return;
+    }
+    next();
+  });
   router.use("/api/jams/:id/escape-room", express.json({ limit: "8kb" }));
   router.use("/api/escape-room", express.json({ limit: "8kb" }));
 
@@ -156,6 +175,10 @@ export function createEscapeRouter(options: EscapeRouterOptions = {}): Router {
   /** A generated segment, served from this server's own storage. */
   router.get("/api/jams/:id/escape-room/segments/:mediaId", (request, response) => {
     void withCaller(request, response, authorize, async () => {
+      if (!idSchema.safeParse(request.params.mediaId).success) {
+        sendError(response, 404, "not_found", "There is no such segment.", false);
+        return;
+      }
       let segment;
       try {
         segment = await rooms.segmentBytes(request.params.id, request.params.mediaId);

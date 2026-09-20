@@ -54,6 +54,13 @@ const GENERATION_DEADLINE_MS = 5 * 60_000;
 const POLL_MS = 3_000;
 const MAX_PROPOSALS_PER_TURN = 24;
 const MAX_ROOMS = 24;
+/**
+ * A room nobody has read for this long is over as far as this process is
+ * concerned. Rooms are never explicitly closed — a browser tab simply stops
+ * polling — so without this the map fills up and the twenty-fifth host is
+ * refused forever on a server that is doing nothing.
+ */
+const ROOM_IDLE_TIMEOUT_MS = 30 * 60_000;
 const MAX_BEATS_KEPT = 60;
 
 export interface EscapeLimits {
@@ -121,6 +128,8 @@ interface Room {
   loops: Map<string, Segment>;
   ended: { reason: EndReason; tell: string } | null;
   openedAt: number;
+  /** When anybody last read this room. Idle rooms are reclaimed. */
+  lastSeenAt: number;
 }
 
 export type OpenRefusal = "unknown_scenario" | "already_open" | "too_many_rooms";
@@ -168,6 +177,7 @@ export class EscapeRooms {
   }
 
   open(jamId: string, scenarioId: string): Room | OpenRefusal {
+    this.reclaimIdle();
     if (this.rooms.has(jamId)) return "already_open";
     if (this.rooms.size >= MAX_ROOMS) return "too_many_rooms";
     const scenario = findScenario(scenarioId);
@@ -181,6 +191,7 @@ export class EscapeRooms {
       loops: new Map(),
       ended: null,
       openedAt: this.now(),
+      lastSeenAt: this.now(),
     };
     this.rooms.set(jamId, room);
     this.ensureLoop(room);
@@ -265,6 +276,7 @@ export class EscapeRooms {
   snapshot(jamId: string, viewerId: string | null): EscapeSnapshot | null {
     const room = this.rooms.get(jamId);
     if (!room) return null;
+    room.lastSeenAt = this.now();
     const location = room.scenario.locations.find((candidate) => candidate.id === room.state.at);
     return {
       jamId,
@@ -299,6 +311,21 @@ export class EscapeRooms {
       },
       mediaDurable: this.options.media.durable,
     };
+  }
+
+  /**
+   * Drops rooms nobody has read in half an hour.
+   *
+   * Only on `open`, because that is the one call a full map can refuse. A
+   * generation still in flight for a reclaimed room writes into a segment
+   * nothing reads any more, which is harmless — the money was already
+   * committed and the clip is already paid for.
+   */
+  private reclaimIdle(): void {
+    const cutoff = this.now() - ROOM_IDLE_TIMEOUT_MS;
+    for (const [jamId, room] of [...this.rooms]) {
+      if (room.lastSeenAt <= cutoff) this.rooms.delete(jamId);
+    }
   }
 
   /** Starts this location's loop if it has never been asked for. */

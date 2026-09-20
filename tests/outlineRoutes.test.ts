@@ -4,7 +4,12 @@ import { randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 import express from "express";
 import { InMemoryJamStore, type PlaybackGuard } from "../apps/server/jams";
-import { createOutlineRouter, type CascadeRunner, type OutlineStream } from "../apps/server/outline";
+import {
+  createOutlineRouter,
+  type CascadeRunner,
+  type OutlineStream,
+  type TargetingRunner,
+} from "../apps/server/outline";
 import { OutlineWriterError } from "../apps/server/outlineWriter";
 import { applyCascade } from "../src/core/outlineCascade";
 import { buildOutline } from "../src/core/outline";
@@ -65,6 +70,25 @@ const rewriteTail: Behaviour = async (script, edit) => {
   return applyCascade(script, edit.beatIndex, replacements);
 };
 
+/**
+ * The beat chooser, standing in for the model. It picks the LAST beat that can
+ * still change, so a test can tell a real choice from "the first one" — which
+ * is exactly the failure this route exists to fix.
+ */
+let aim: TargetingRunner;
+const aimed: { direction: string; candidates: number[] }[] = [];
+
+const chooseLast: TargetingRunner = async (_script, direction, candidates) => ({
+  beatIndex: candidates[candidates.length - 1].portionIndex,
+  summary: `${direction} (rewritten)`,
+  reason: "the beat this is most about",
+});
+
+const target: TargetingRunner = (script, direction, candidates) => {
+  aimed.push({ direction, candidates: candidates.map((beat) => beat.portionIndex) });
+  return aim(script, direction, candidates);
+};
+
 const cascade: CascadeRunner = async (script, edit) => {
   cascadeCalls += 1;
   seenBeats.push(buildOutline(script).map((beat) => beat.summary ?? ""));
@@ -100,6 +124,7 @@ before(async () => {
   app.use(
     createOutlineRouter(store, guard, {
       cascade: (script, edit) => cascade(script, edit),
+      target: (script, direction, candidates) => target(script, direction, candidates),
       window: () => ({
         currentBeatIndex: minEditablePortionIndex === 0 ? null : minEditablePortionIndex - 2,
         lockedBeatIndex: minEditablePortionIndex === 0 ? null : minEditablePortionIndex - 1,
@@ -121,6 +146,8 @@ after(() => server.close());
 beforeEach(() => {
   minEditablePortionIndex = 0;
   behaviour = rewriteTail;
+  aim = chooseLast;
+  aimed.length = 0;
   cascadeCalls = 0;
   seenBeats.length = 0;
   streams = [];
@@ -150,6 +177,14 @@ function post(jamId: string, body: unknown) {
 
 function setEdit(beatIndex: number, summary: string, extra: Record<string, unknown> = {}) {
   return { requestId: randomUUID(), intent: "set", beatIndex, summary, ...extra };
+}
+
+function direct(jamId: string, body: unknown) {
+  return fetch(`${baseUrl}/api/jams/${jamId}/outline/directions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
 }
 
 /** Waits for the jam's worker to finish one edit. */
@@ -631,4 +666,180 @@ test("a replay after the take stops still reports what the edit did", async () =
   const fresh = await post(jam.id, setEdit(2, "after the take"));
   assert.equal(fresh.status, 202);
   assert.notEqual((await fresh.json()).edit.id, record.id);
+});
+
+// A free-text direction — the Director composer's path. The difference from an
+// edit is only where the beat number comes from; everything after the choice is
+// the same queue, cascade and commit, which is what these check.
+
+test("a direction is aimed at a beat, and the beats after it are re-derived", async () => {
+  const jam = await newJam();
+  const response = await direct(jam.id, { requestId: randomUUID(), body: "give her a brother" });
+  assert.equal(response.status, 202);
+  const { edit, target: chosen } = (await response.json()) as {
+    edit: OutlineEditRecord;
+    target: { beatIndex: number; summary: string; reason?: string };
+  };
+  // Every beat was on offer, and the choice is the server's, not beat zero's.
+  assert.deepEqual(aimed, [{ direction: "give her a brother", candidates: [0, 1, 2, 3] }]);
+  assert.equal(chosen.beatIndex, 3);
+  assert.equal(edit.beatIndex, 3);
+  assert.equal(edit.intent, "set");
+  // The record keeps the room's own words next to the model's sentence.
+  assert.equal(edit.mechanism, "direction");
+  assert.equal(edit.said, "give her a brother");
+  assert.equal(edit.chosenBecause, "the beat this is most about");
+
+  const landed = await settleEdit(jam.id, edit.id);
+  assert.equal(landed.status, "landed");
+  assert.equal(landed.revision, 2);
+  const outline = await (await fetch(`${baseUrl}/api/jams/${jam.id}/outline`)).json();
+  assert.equal(outline.revision, 2);
+  assert.equal(outline.beats[3].summary, "give her a brother (rewritten)");
+  assert.equal(outline.beats[0].summary, "she hears the tide answer", "the settled beats stand");
+});
+
+test("only the beats that can still change are offered to the chooser", async () => {
+  const jam = await newJam();
+  minEditablePortionIndex = 2;
+  const response = await direct(jam.id, { requestId: randomUUID(), body: "end it in the rain" });
+  assert.equal(response.status, 202);
+  assert.deepEqual(aimed[0].candidates, [2, 3]);
+});
+
+test("a direction that names a beat is aimed at that one, not at the beat it is about", async () => {
+  const jam = await newJam();
+  const response = await direct(jam.id, {
+    requestId: randomUUID(),
+    body: "end it in the rain",
+    beatIndex: 2,
+  });
+  assert.equal(response.status, 202);
+  // One candidate: the model is only being asked what that beat now reads.
+  assert.deepEqual(aimed[0].candidates, [2]);
+  const { edit } = (await response.json()) as { edit: OutlineEditRecord };
+  assert.equal(edit.beatIndex, 2);
+});
+
+test("a direction aimed at a closed beat is refused, and nothing is queued", async () => {
+  const jam = await newJam();
+  minEditablePortionIndex = 2;
+  const response = await direct(jam.id, {
+    requestId: randomUUID(),
+    body: "change the opening",
+    beatIndex: 1,
+  });
+  assert.equal(response.status, 409);
+  const body = await response.json();
+  assert.equal(body.error.code, "portion_locked");
+  assert.equal(body.error.lockedIndex, 1);
+  assert.equal(aimed.length, 0, "nothing was chosen for a beat that cannot change");
+  const { edits } = (await (await fetch(`${baseUrl}/api/jams/${jam.id}/outline/edits`)).json()) as {
+    edits: OutlineEditRecord[];
+  };
+  assert.deepEqual(edits, []);
+});
+
+test("a beat that does not exist is refused before anything is chosen", async () => {
+  const jam = await newJam();
+  const response = await direct(jam.id, { requestId: randomUUID(), body: "later", beatIndex: 9 });
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).error.code, "invalid_command");
+  assert.equal(aimed.length, 0);
+});
+
+test("with the whole film with the provider there is nothing to aim at", async () => {
+  const jam = await newJam();
+  minEditablePortionIndex = 4;
+  const response = await direct(jam.id, { requestId: randomUUID(), body: "one more thing" });
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).error.code, "portion_locked");
+  assert.equal(aimed.length, 0);
+});
+
+test("a replayed direction returns the first outcome and is never aimed twice", async () => {
+  const jam = await newJam();
+  const requestId = randomUUID();
+  const first = await direct(jam.id, { requestId, body: "give her a brother" });
+  const { edit } = (await first.json()) as { edit: OutlineEditRecord };
+  await settleEdit(jam.id, edit.id);
+
+  const replay = await direct(jam.id, { requestId, body: "give her a brother" });
+  assert.equal(replay.status, 200);
+  const again = (await replay.json()) as {
+    edit: OutlineEditRecord;
+    target: { beatIndex: number; summary: string };
+  };
+  assert.equal(again.edit.id, edit.id);
+  assert.equal(again.target.beatIndex, 3);
+  assert.equal(aimed.length, 1, "the replay chose nothing");
+});
+
+test("a chooser that cannot answer refuses the direction rather than guessing a beat", async () => {
+  const jam = await newJam();
+  aim = async () => {
+    throw new OutlineWriterError("That direction could not be aimed at a beat.", "invalid_target", true);
+  };
+  const response = await direct(jam.id, { requestId: randomUUID(), body: "give her a brother" });
+  assert.equal(response.status, 502);
+  const body = await response.json();
+  assert.equal(body.error.code, "invalid_target");
+  assert.equal(body.error.safeMessage, "That direction could not be aimed at a beat.");
+  const { edits } = (await (await fetch(`${baseUrl}/api/jams/${jam.id}/outline/edits`)).json()) as {
+    edits: OutlineEditRecord[];
+  };
+  assert.deepEqual(edits, [], "nothing was queued");
+  assert.equal(cascadeCalls, 0, "and nothing was rewritten");
+});
+
+test("a direction the outline has moved under is refused with the revision it moved to", async () => {
+  const jam = await newJam();
+  const response = await direct(jam.id, {
+    requestId: randomUUID(),
+    body: "give her a brother",
+    expectedRevision: 7,
+  });
+  assert.equal(response.status, 409);
+  const body = await response.json();
+  assert.equal(body.error.code, "stale_state_version");
+  assert.equal(body.revision, 1);
+});
+
+test("with no provider configured a direction is refused, never aimed at the opening beat", async () => {
+  const jam = await newJam();
+  const app = express();
+  app.use(createOutlineRouter(store, guard, { cascade: null, target: null }));
+  const disabled = await new Promise<Server>((resolve) => {
+    const listening = app.listen(0, "127.0.0.1", () => resolve(listening));
+  });
+  try {
+    const address = disabled.address();
+    assert.ok(address && typeof address === "object");
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/api/jams/${jam.id}/outline/directions`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ requestId: randomUUID(), body: "give her a brother" }),
+      },
+    );
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).error.code, "generation_disabled");
+  } finally {
+    disabled.close();
+  }
+});
+
+test("a landed direction reaches the stream that is about to render its beat", async () => {
+  const jam = await newJam();
+  // The stream's next beat is 3, which is the one this chooser picks.
+  const stream = fakeStream(jam.id, true, 3);
+  streams = [stream];
+  const response = await direct(jam.id, { requestId: randomUUID(), body: "give her a brother" });
+  const { edit } = (await response.json()) as { edit: OutlineEditRecord };
+  const landed = await settleEdit(jam.id, edit.id);
+  assert.deepEqual(landed.direction, { sent: 1, refused: 0, skipped: 0 });
+  assert.deepEqual(stream.directed, [
+    { body: "give her a brother (rewritten)", beatIndex: 3, authorId: undefined },
+  ]);
 });

@@ -1,5 +1,9 @@
 import type { DirectorBeatWindow } from "../core/directorBeats";
 import type { Beat } from "../core/outline";
+import type {
+  DirectionTarget,
+  OutlineDirectionCommand,
+} from "../core/outlineDirection";
 import type { OutlineEditCommand, OutlineEditRecord } from "../core/outlineEdit";
 import type { JamScript } from "../core/script";
 
@@ -68,4 +72,25 @@ export async function submitOutlineEdit(
 export async function listOutlineEdits(jamId: string): Promise<OutlineEditRecord[]> {
   const { edits } = await call<{ edits: OutlineEditRecord[] }>(`/api/jams/${jamId}/outline/edits`);
   return edits;
+}
+
+/**
+ * Sends one free-text direction and gets back the beat it was aimed at.
+ *
+ * The server chooses that beat — the room says what it wants, not where it
+ * goes — and turns the choice into an ordinary edit, so what comes back is the
+ * same record every other change produces plus the aim that produced it.
+ */
+export async function submitOutlineDirection(
+  jamId: string,
+  command: OutlineDirectionCommand,
+): Promise<{ edit: OutlineEditRecord; target: DirectionTarget | null }> {
+  return call<{ edit: OutlineEditRecord; target: DirectionTarget | null }>(
+    `/api/jams/${jamId}/outline/directions`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(command),
+    },
+  );
 }

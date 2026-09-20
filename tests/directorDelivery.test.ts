@@ -288,6 +288,89 @@ test("attaching never starts a stream, so arriving in a room cannot bill", async
   assert.notEqual(viewer.viewerId, host.viewerId);
 });
 
+test("arriving joins the take the room is playing, whatever configuration opened it", async () => {
+  // The bug this pins: the person who registered the jam has a stored
+  // configuration and the person who followed the invite has none, so the two
+  // asked for different stream keys. The second was told nothing was
+  // streaming, shown a Play button, and one press would have opened a second
+  // paid take of the film the room was already watching.
+  const jam: Jam = {
+    id: randomUUID(),
+    createdAt: new Date().toISOString(),
+    source: { kind: "from-scratch", prompt: "A lighthouse keeper finds a door." },
+    format: { totalSeconds: 20, portionMinSeconds: 5, portionMaxSeconds: 5 },
+    script: buildScript(5, 2, 2),
+    lifecycle: "live",
+  };
+  await store.createJam(jam);
+
+  const started = await fetch(`${delivering.baseUrl}/api/jams/${jam.id}/director/session`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ configuration: { language: "es-ES", ambientation: "noir" } }),
+  });
+  assert.equal(started.status, 201);
+  const host = await started.json();
+
+  // An arrival carrying no configuration at all: the default one, which is not
+  // the key this take runs under.
+  const arrived = await fetch(`${delivering.baseUrl}/api/jams/${jam.id}/director/session`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ attachOnly: true }),
+  });
+  assert.equal(arrived.status, 200);
+  const viewer = await arrived.json();
+  assert.equal(viewer.sessionId, host.sessionId, "the room's take, not a second one");
+  assert.equal(viewer.attached, true);
+  assert.notEqual(viewer.viewerId, host.viewerId);
+
+  // An arrival under a third configuration joins the same take rather than
+  // being told the room is idle.
+  const other = await fetch(`${delivering.baseUrl}/api/jams/${jam.id}/director/session`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      attachOnly: true,
+      configuration: { language: "fr-FR", ambientation: "sunlit" },
+    }),
+  });
+  assert.equal(other.status, 200);
+  assert.equal((await other.json()).sessionId, host.sessionId);
+});
+
+test("a deliberate Play still keys on its own configuration", async () => {
+  // Arriving resolves loosely; starting does not. One stream per distinct
+  // configuration is the room's cost model
+  // (docs/specs/configuration-keyed-streams.md), and loosening the Play press
+  // too would have made a second configuration unreachable in a playing room.
+  const jam: Jam = {
+    id: randomUUID(),
+    createdAt: new Date().toISOString(),
+    source: { kind: "from-scratch", prompt: "A lighthouse keeper finds a door." },
+    format: { totalSeconds: 20, portionMinSeconds: 5, portionMaxSeconds: 5 },
+    script: buildScript(5, 2, 2),
+    lifecycle: "live",
+  };
+  await store.createJam(jam);
+
+  const first = await fetch(`${delivering.baseUrl}/api/jams/${jam.id}/director/session`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ configuration: { language: "es-ES", ambientation: "noir" } }),
+  });
+  assert.equal(first.status, 201);
+  const spanish = await first.json();
+
+  const second = await fetch(`${delivering.baseUrl}/api/jams/${jam.id}/director/session`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ configuration: { language: "fr-FR", ambientation: "sunlit" } }),
+  });
+  assert.equal(second.status, 201);
+  assert.notEqual((await second.json()).sessionId, spanish.sessionId);
+});
+
 test("the host's stop ends the stream even while others are watching", async () => {
   const { jam, sessionId } = await openSession(delivering.baseUrl);
   const joined = await fetch(`${delivering.baseUrl}/api/jams/${jam.id}/director/session`, {

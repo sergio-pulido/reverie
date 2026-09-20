@@ -92,21 +92,37 @@ export function Stage({
               ? session.endedAtFilmLength
                 ? "This take played to the end of the film and stopped itself. It is exactly as it was generated."
                 : "This is the session that just ran, exactly as it was generated."
-              : cannotStart ?? "Nothing is streaming."}
+              : session.joining
+                ? "Looking for what this jam is playing…"
+                : cannotStart ?? "Nothing is streaming."}
           </p>
         )}
 
         <div className="director-stage-actions">
           {/* The emphasis follows the take: Stop is the live control, and the
-              one that stops the per-second bill. */}
+              one that stops the per-second bill.
+
+              Play is also held back while this screen is still finding out
+              what the jam is playing. Arriving in a room whose take is already
+              running must join it, and a button pressed in that moment would
+              have opened a second paid one instead. */}
           <button
             type="button"
             className={session.live ? "button button-quiet" : "button button-primary"}
             onClick={() => void session.start()}
-            disabled={session.busy || session.live || cannotStart !== null}
+            disabled={
+              session.busy || session.live || session.joining || cannotStart !== null
+            }
             {...cellProps(STAGE_ROW, 0)}
           >
-            {session.busy && !session.live ? "Starting…" : session.live ? "Playing" : "Play"} <span>▶</span>
+            {session.busy && !session.live
+              ? "Starting…"
+              : session.live
+                ? "Playing"
+                : session.joining
+                  ? "Joining…"
+                  : "Play"}{" "}
+            <span>▶</span>
           </button>
           <button
             type="button"

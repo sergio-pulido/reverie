@@ -217,6 +217,13 @@
   transition: left .25s linear;
 }
 
+/* A beat the cascade has just rewritten. The words changed and nothing else
+   did, so the row needs to say so for a moment or the change is invisible. */
+.director-beat[data-changed] { border-color: #e2c98a; animation: director-beat-rewritten 1.2s ease-out 2; }
+@keyframes director-beat-rewritten {
+  0% { box-shadow: inset 0 0 0 2px rgba(226, 201, 138, .85); }
+  100% { box-shadow: inset 0 0 0 2px rgba(226, 201, 138, 0); }
+}
 .director-beat[data-linked], .director-beat:hover, .director-beat:focus-visible { outline: 2px solid #f6f4ee; outline-offset: 2px; }
 .director-beat[aria-pressed="true"] { box-shadow: inset 0 0 0 2px rgba(246, 244, 238, .5); }
 
@@ -236,9 +243,17 @@
 .director-turn[data-outcome="rejected"] { border-color: #8a4f56; background: #33212a; }
 .director-turn[data-outcome="pending"] { border-color: #8a7c4a; background: #2f2b1f; }
 .director-turn[data-linked] { outline: 2px solid #f6f4ee; outline-offset: 2px; }
+/* An ask wears what the story queue is doing with it, the way a turn wears
+   what the provider did with it. */
+.director-turn[data-status="queued"], .director-turn[data-status="processing"] { border-color: #8a7c4a; background: #2f2b1f; }
+.director-turn[data-status="failed"] { border-color: #8a4f56; background: #33212a; }
+.director-turn[data-status="landed"] { border-color: #55805f; background: #1f2f26; }
 .director-turn-body { margin: 0 0 9px; color: #edf0fb; font-size: 14px; line-height: 1.45; }
 .director-turn-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0; }
 .director-turn-outcome { font: 400 10px "DM Mono", monospace; letter-spacing: .13em; text-transform: uppercase; color: #bac5ec; }
+.director-turn-landed { margin: 0 0 9px; color: #c8d3f0; font-size: 13px; line-height: 1.45; }
+.director-turn-why { margin: 8px 0 0; color: #9aa3bd; font-size: 12px; line-height: 1.45; }
+.director-sent { display: grid; gap: 10px; margin-top: 18px; }
 
 /* A turn's beat tag wears that beat's own treatment. */
 .director-tag {
@@ -366,4 +381,7 @@
   .director-beats { scroll-behavior: auto; }
   /* The playhead still moves, it just stops sliding. */
   .director-beat-playhead { transition: none; }
+  /* A rewritten beat keeps its border, which is the part that carries the
+     meaning; only the pulse goes. */
+  .director-beat[data-changed] { animation: none; }
 }

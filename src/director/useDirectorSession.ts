@@ -73,6 +73,8 @@ export interface DirectorSession {
   recording: string | null;
   /** True when this joined a stream this jam already had open. */
   attached: boolean;
+  /** True until the server has said whether this room is already playing. */
+  joining: boolean;
   /**
    * True once the take this screen was watching ended because it had been
    * played to the end of the film, rather than because somebody pressed Stop.
@@ -109,6 +111,15 @@ export function useDirectorSession(
   const [viewerId, setViewerId] = useState<string | null>(null);
   const [liveDelivery, setLiveDelivery] = useState(false);
   const [busy, setBusy] = useState(false);
+  /**
+   * Looking for the take this jam is already running.
+   *
+   * Opening the screen asks the server what the room is playing, and until
+   * that answers, whether there is anything to join is unknown. Offering Play
+   * during that moment offers to open — and pay for — a second take of a film
+   * the room may already be watching, so the offer waits for the answer.
+   */
+  const [joining, setJoining] = useState(true);
   const [failure, setFailure] = useState<string | null>(null);
   const video = useRef<HTMLVideoElement | null>(null);
   const detach = useRef<(() => void) | null>(null);
@@ -144,14 +155,14 @@ export function useDirectorSession(
   }, [remember]);
 
   // Every screen joins the shared stream if one already exists, but this call
-  // can never open a paid session. Only the host's explicit Start does that.
+  // can never open a paid session. Only an explicit Start does that.
   useEffect(() => {
     if (!jamId || sessionId) return;
     let cancelled = false;
-    let joining = false;
+    let inFlight = false;
     const join = async () => {
-      if (joining || starting.current) return;
-      joining = true;
+      if (inFlight || starting.current) return;
+      inFlight = true;
       try {
         const opened = await attachDirectorSession(jamId, configuration);
         if (cancelled) {
@@ -162,9 +173,12 @@ export function useDirectorSession(
         }
         adopt(opened);
       } catch {
-        // `no_stream` is the ordinary answer before the host starts.
+        // `no_stream` is the ordinary answer before somebody starts one.
       } finally {
-        joining = false;
+        inFlight = false;
+        // Answered, either way: this screen now knows whether the room is
+        // playing, so it can stop holding its offer back.
+        if (!cancelled) setJoining(false);
       }
     };
     void join();
@@ -449,6 +463,7 @@ export function useDirectorSession(
     recordingDurable,
     recording,
     attached,
+    joining,
     failure,
     start,
     stop,

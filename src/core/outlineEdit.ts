@@ -12,7 +12,7 @@ import { BEAT_MAX_CHARS } from "./script";
 // fabrication. `mechanism` and `authorId` are audit, never logic — nothing
 // downstream may branch on them.
 
-export const OUTLINE_MECHANISMS = ["direct", "vote", "poll", "chat"] as const;
+export const OUTLINE_MECHANISMS = ["direct", "direction", "vote", "poll", "chat"] as const;
 export type OutlineMechanism = (typeof OUTLINE_MECHANISMS)[number];
 
 const beatIndex = z.number().int().min(0);
@@ -72,6 +72,15 @@ export interface OutlineEditRecord {
   reason?: string;
   mechanism: OutlineMechanism;
   authorId?: string;
+  /**
+   * What the room actually said, when the beat was chosen FOR those words
+   * rather than by the person who wrote them — the `direction` mechanism.
+   * Kept because the rewritten phrase is the model's sentence, not theirs, and
+   * a ledger that showed only the phrase could not be checked against the ask.
+   */
+  said?: string;
+  /** Why that beat was chosen for those words. Audit, never logic. */
+  chosenBecause?: string;
   status: OutlineEditStatus;
   queuedAt: string;
   startedAt?: string;

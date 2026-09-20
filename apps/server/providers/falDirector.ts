@@ -266,13 +266,20 @@ async function readAnswerFromEventStream(response: Response): Promise<string | n
 }
 
 async function drain(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
+  const decoder = new TextDecoder();
   try {
     for (;;) {
-      const { done } = await reader.read();
-      if (done) return;
+      const { done, value } = await reader.read();
+      if (done) {
+        console.info("director session stream ended by the provider");
+        return;
+      }
+      // Anything the provider says after the answer is worth reading once.
+      const text = decoder.decode(value).trim();
+      if (text) console.info("director session stream", { frame: text.slice(0, 300) });
     }
-  } catch {
-    // The provider closed it; nothing to do.
+  } catch (error) {
+    console.info("director session stream closed", { reason: error instanceof Error ? error.message : String(error) });
   }
 }
 

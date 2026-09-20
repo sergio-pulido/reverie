@@ -101,6 +101,8 @@ export interface DirectorPeer {
   onTrack: { subscribe(listener: (track: MediaStreamTrack) => void): unknown };
   iceGatheringState: string;
   iceGatheringStateChange: { subscribe(listener: (state: string) => void): unknown };
+  connectionStateChange?: { subscribe(listener: (state: string) => void): unknown };
+  iceConnectionStateChange?: { subscribe(listener: (state: string) => void): unknown };
   close(): unknown;
 }
 
@@ -247,9 +249,23 @@ export class DirectorStream {
       if (channelState === "open") this.sendConfigure();
     });
 
+    connection.connectionStateChange?.subscribe((state) => {
+      console.info("director provider connection", { sessionId: this.options.sessionId, state });
+    });
+    connection.iceConnectionStateChange?.subscribe((state) => {
+      console.info("director provider ice", { sessionId: this.options.sessionId, state });
+    });
     const offer = await connection.createOffer();
     await connection.setLocalDescription(offer);
     await this.waitForIceGathering(connection);
+    // What the provider is being asked to reach. No srflx here means STUN gave
+    // nothing and a peer on the internet has only private addresses to try.
+    {
+      const sdp = connection.localDescription?.sdp ?? offer.sdp;
+      const candidates = sdp.split("\n").filter((line) => line.startsWith("a=candidate"));
+      const types = candidates.map((line) => / typ (\S+)/.exec(line)?.[1] ?? "?");
+      console.info("director offer candidates", { sessionId: this.options.sessionId, count: candidates.length, types });
+    }
 
     const start = this.options.startSession ?? startDirectorSession;
     let answerSdp: string;

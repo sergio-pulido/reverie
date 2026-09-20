@@ -15,6 +15,8 @@ import {
 } from "../core/directorProtocol";
 import type { DirectorAuditEntry } from "../core/directorAudit";
 import type { DirectorBeatWindow } from "../core/directorBeats";
+import { formatUsd, type DirectorSpend } from "../core/directorSpend";
+import { formatClock } from "../core/clock";
 import type { SessionSettings } from "../core/session";
 import { attachHlsStream } from "../lib/hlsPlayback";
 import {
@@ -23,11 +25,12 @@ import {
   directorRecordingSrc,
   DirectorSessionError,
   endDirectorSession,
+  readDirectorBudget,
   readDirectorSession,
   renewDirectorSession,
-  sendDirection,
   startDirectorSession,
   watchDirectorStream,
+  type DirectorBudget,
   type OpenedDirectorSession,
 } from "../lib/directorSession";
 
@@ -63,7 +66,6 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
   const [durable, setDurable] = useState(true);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
-  const [direction, setDirection] = useState("");
   const [recording, setRecording] = useState<string | null>(null);
   /** The finished film's pieces, so a viewer can go straight to a minute. */
   const [pieces, setPieces] = useState<ArchivedPiece[]>([]);
@@ -75,8 +77,18 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
   const [viewerId, setViewerId] = useState<string | null>(null);
   const [liveDelivery, setLiveDelivery] = useState(false);
   const [playbackFailure, setPlaybackFailure] = useState<string | null>(null);
-  // The room's life, as the server holds it. Read once on mount so a reopened
-  // tab shows an ended room as ended, then kept current by start and stop.
+  // What the take is costing, as the server counts it. Read on every poll and
+  // on every open, because a per-second bill that is only visible afterwards
+  // is not a spend control anybody can act on.
+  const [spend, setSpend] = useState<DirectorSpend | null>(null);
+  /** What this server will spend at all, read before anything is spent. */
+  const [budget, setBudget] = useState<DirectorBudget | null>(null);
+  /** Where a take stops itself; the budget route says so before the first one. */
+  const [maxSeconds, setMaxSeconds] = useState<number | null>(null);
+  /** The relay could not be attached: the take runs, this screen cannot show it. */
+  const [relayFailure, setRelayFailure] = useState<string | null>(null);
+  // The room's life, as the server holds it. Read on mount so a reopened tab
+  // shows a stopped room as stopped, then kept current by play and stop.
   const [lifecycle, setLifecycle] = useState<JamLifecycle>("live");
   const live = sessionId !== null;
   const active = useRef<{ sessionId: string; viewerId: string | null } | null>(null);
@@ -101,6 +113,8 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
     setBeats(opened.beats);
     setAttached(opened.attached);
     setDurable(opened.recordingDurable);
+    setSpend(opened.spend);
+    setMaxSeconds(opened.maxSessionSeconds);
   }, []);
 
   /**
@@ -123,10 +137,10 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
    * Joins a stream that is already running.
    *
    * Opening a jam where the room is watching something should show the film,
-   * not a button. This never starts a stream — starting bills a sixty-second
-   * minimum, and only the host does it — so a participant either attaches to
-   * what is running or waits, which is also how the host rejoins their own
-   * stream after reopening the jam.
+   * not a button. This never starts one: starting bills a sixty-second
+   * minimum, so walking into a room must not be able to spend that. Arriving
+   * attaches to what is already running or waits for somebody to press Play,
+   * which is also how whoever started it rejoins after reopening the jam.
    */
   useEffect(() => {
     if (sessionId) return;
@@ -198,6 +212,31 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
     });
   }, [readRoom]);
 
+  /**
+   * What this server will spend, before anybody presses anything.
+   *
+   * Without it the first thing a reader learns about a server with no director
+   * configured is a refusal, and the first thing they learn about the price is
+   * the bill. Both are knowable up front, so both are said up front.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    void readDirectorBudget(jamId)
+      .then((current) => {
+        if (cancelled) return;
+        setBudget(current);
+        setMaxSeconds((known) => known ?? current.maxSessionSeconds);
+        setSpend((known) => known ?? current.spend);
+      })
+      .catch(() => {
+        // An unreadable budget is not a reason to hide the room; the refusal
+        // on press still says what happened.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [jamId]);
+
   // Polling is the surface until Realtime events land, matching the player.
   useEffect(() => {
     if (!sessionId) return;
@@ -209,6 +248,7 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
         setState(snapshot.state);
         setAudit(snapshot.audit);
         setBeats(snapshot.beats);
+        setSpend(snapshot.spend);
       } catch (error) {
         if (cancelled) return;
         // Somebody else stopped it, or the server reclaimed it. This screen is
@@ -243,6 +283,7 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
     // HLS displaces it only where it is switched on.
     if (!sessionId || liveDelivery) return;
     let cancelled = false;
+    setRelayFailure(null);
     void watchDirectorStream(jamId, sessionId, (stream) => {
       if (video.current) video.current.srcObject = stream;
     })
@@ -251,8 +292,15 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
         else detach.current = close;
       })
       .catch(() => {
+        if (cancelled) return;
         // Live viewing is an addition, not the session: a viewer that cannot
-        // attach still has state, the audit trail and the recording.
+        // attach still has state, the audit trail and the recording. Saying so
+        // is the point — an empty frame under a PLAYING badge otherwise reads
+        // as a take that is not running, and the difference decides whether
+        // somebody presses Stop.
+        setRelayFailure(
+          "This screen could not attach to the live stream. The take is still running and still being recorded.",
+        );
       });
     return () => {
       cancelled = true;
@@ -307,6 +355,7 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
   const stop = useCallback(async () => {
     if (!sessionId) return;
     setBusy(true);
+    setFailure(null);
     try {
       // Stop ends the stream for the room, so it names no viewer. Leaving as a
       // viewer is what closing the screen does; this is the deliberate end of
@@ -325,32 +374,22 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
           }
         })
         .catch(() => undefined);
-    } catch {
-      // Ending is idempotent server-side; nothing useful to say here.
+    } catch (error) {
+      // Ending is idempotent server-side, so this is rarely a real failure —
+      // but the one time it is, a paid take is still running and the reader is
+      // the only one who can do anything about it. Saying nothing was the
+      // wrong trade for the one failure on this screen that costs money.
+      setFailure(
+        error instanceof DirectorSessionError
+          ? `${error.message} The take may still be running; try Stop again.`
+          : "That stop did not reach the server. The take may still be running; try Stop again.",
+      );
     } finally {
       setSessionId(null);
       setViewerId(null);
       setBusy(false);
     }
   }, [jamId, sessionId]);
-
-  const send = useCallback(async () => {
-    const body = direction.trim();
-    if (!body || !sessionId) return;
-    setFailure(null);
-    try {
-      const sent = await sendDirection(jamId, sessionId, { body });
-      setState(sent.state);
-      setBeats(sent.beats);
-      setDirection("");
-    } catch (error) {
-      setFailure(
-        error instanceof DirectorSessionError
-          ? error.message
-          : "That direction could not be sent.",
-      );
-    }
-  }, [direction, jamId, sessionId]);
 
   return <div className="player-card" aria-label="Live director">
     <div className="panel-heading">
@@ -404,8 +443,11 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
       )}
     </div>
     {playbackFailure ? <Notice tone="alert">{playbackFailure}</Notice> : null}
+    {relayFailure ? <Notice tone="status">{relayFailure}</Notice> : null}
 
-    <p className="form-note" aria-live="polite">{statusLine(state, live)}</p>
+    <p className="form-note" aria-live="polite" data-testid="jam-director-status">
+      {statusLine(state, live, busy, lifecycle)}
+    </p>
     {live && beats && <BeatWindow beats={beats} attached={attached} />}
 
     {/*
@@ -415,9 +457,15 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
       * the stream depend on that one person staying. The cost of the take is
       * stated below rather than fenced off behind a role.
       */}
+    {/*
+      * The emphasis follows the take. While nothing is running the offer is
+      * Play; once it is running the only thing worth pressing — and the one
+      * that stops the per-second bill — is Stop, so Stop is what the eye lands
+      * on and Play recedes to a disabled label saying what is happening.
+      */}
     <div className="hero-actions">
       <button
-        className="button button-primary"
+        className={live ? "button button-quiet" : "button button-primary"}
         onClick={() => void start()}
         disabled={busy || live}
         data-testid="jam-director-play"
@@ -425,38 +473,43 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
         {busy && !live ? "Starting…" : live ? "Playing" : "Play"} <span>▶</span>
       </button>
       <button
-        className="button button-quiet"
+        className={live ? "button button-primary" : "button button-quiet"}
         onClick={() => void stop()}
         disabled={!live || busy}
         data-testid="jam-director-stop"
       >
-        Stop
+        {busy && live ? "Stopping…" : "Stop"}
       </button>
     </div>
 
-    <label className="field">
-      <span>New direction</span>
-      <input
-        value={direction}
-        onChange={(event) => setDirection(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") void send();
-        }}
-        placeholder="Cut to the lighthouse at dusk."
-        disabled={!live}
-        maxLength={2000}
-      />
-    </label>
-    <div className="hero-actions">
-      <button
-        className="button button-quiet"
-        onClick={() => void send()}
-        disabled={!live || !direction.trim()}
-      >
-        Direct
-      </button>
-    </div>
+    {/*
+      * A refused Play is reported where Play is.
+      *
+      * This sat at the foot of the card, under the direction log and a
+      * paragraph of notes, which is far enough from the button to read as
+      * nothing happening at all — and the most common refusal, a server with
+      * no director configured, is exactly the one a reader needs told.
+      */}
+    {failure && <Notice>{failure}</Notice>}
+    {/*
+      * What a press commits to, before it is pressed, and what it is costing
+      * while it runs. The numbers are the server's own: the budget route
+      * before a take, the session snapshot during one.
+      */}
+    <p className="form-note" data-testid="jam-director-cost">
+      {costLine({ budget, spend, maxSeconds, live })}
+    </p>
 
+    {/*
+      * There is no direction box here on purpose.
+      *
+      * How a room steers a take is the story outline's question — a beat edit
+      * carries the change, the room's own mechanisms (vote, poll, chat) queue
+      * it, and the server decides what reaches the provider. A free-text field
+      * beside the player was a second, unqueued way in that bypassed all of
+      * that. The log below still shows every direction that reaches the take,
+      * whichever mechanism sent it.
+      */}
     <DirectionLog entries={audit} />
 
     <p className="form-note">
@@ -467,7 +520,6 @@ export function JamDirector({ jamId, configuration }: JamDirectorProps) {
       {durable ? "" : " This server has no recording storage configured, so the recording is lost when it restarts."}
     </p>
 
-    {failure && <Notice>{failure}</Notice>}
     {state.error && <Notice>{state.error}</Notice>}
   </div>;
 }
@@ -552,16 +604,78 @@ function placeholder(state: DirectorState, live: boolean, lifecycle: JamLifecycl
   return "Nothing is streaming yet. Play to start it.";
 }
 
-function statusLine(state: DirectorState, live: boolean): string {
+/**
+ * What is happening right now, in the order a reader asks it.
+ *
+ * Every branch here is a state somebody watching this screen can otherwise
+ * only guess at: a press that has not been answered yet, a session that is
+ * open but has sent no frames, a take that stopped because the server capped
+ * it rather than because somebody pressed Stop.
+ */
+function statusLine(
+  state: DirectorState,
+  live: boolean,
+  busy: boolean,
+  lifecycle: JamLifecycle,
+): string {
+  if (busy && !live) return "Opening the session with the provider…";
+  if (busy && live) return "Stopping the take and closing the provider session…";
   if (live && state.status === "streaming") {
-    const seconds = Math.round(state.generatedSeconds);
-    return `Live: ${seconds}s recorded across ${state.chunksReceived} chunk(s). Direction ${state.appliedPromptVersion} is playing.`;
+    return `Playing · ${formatClock(state.generatedSeconds)} generated across ${state.chunksReceived} chunk(s) · direction ${state.appliedPromptVersion} is on screen.`;
   }
-  if (live) return "Connected. The opening of the script is being generated.";
+  if (live) {
+    return "Connected to the provider. Nothing has arrived yet: the opening of the script is being generated.";
+  }
   if (state.endedReason === "session_limit") {
-    return "The stream reached this server's session limit.";
+    return "The take stopped on its own: it reached this server's session limit.";
   }
-  return "Playing opens a paid session that bills for at least a minute.";
+  if (state.status === "failed") {
+    return "The take stopped because the provider stream failed.";
+  }
+  if (lifecycle === "ended") {
+    return "This room is between takes. Its last one is below; Play starts the next.";
+  }
+  return "Nothing is playing. Anybody in the room can press Play.";
+}
+
+/**
+ * What a take costs: committed before it starts, spent while it runs.
+ *
+ * The reservation is stated because it is the number that surprises — opening
+ * a take commits the whole ceiling to the budget until it settles, so a room
+ * with money left can still be refused a second take, and being told that
+ * afterwards is being told too late.
+ */
+function costLine({
+  budget,
+  spend,
+  maxSeconds,
+  live,
+}: {
+  budget: DirectorBudget | null;
+  spend: DirectorSpend | null;
+  maxSeconds: number | null;
+  live: boolean;
+}): string {
+  if (!spend) return "Reading what this server will spend…";
+  if (spend.budgetUsd <= 0) {
+    return "No director budget is configured on this server, so nothing can be generated here.";
+  }
+  const stopsItself =
+    maxSeconds === null ? "" : ` It stops itself after ${formatClock(maxSeconds)}.`;
+  if (live) {
+    return `This take has cost ${formatUsd(spend.sessionUsd)} so far · ${formatUsd(spend.remainingUsd)} left of ${formatUsd(spend.budgetUsd)}.${stopsItself}`;
+  }
+  const minimum = formatUsd(spend.minBilledSeconds * spend.usdPerSecond);
+  const reserved =
+    maxSeconds === null ? null : formatUsd(maxSeconds * spend.usdPerSecond);
+  const commitment = reserved
+    ? ` Opening one holds ${reserved} of the budget until the take settles.`
+    : "";
+  const configured = budget && !budget.configured
+    ? " This server has no live director configured, so Play will be refused."
+    : "";
+  return `Play opens a paid session: ${minimum} minimum for the first ${spend.minBilledSeconds}s.${stopsItself}${commitment} ${formatUsd(spend.remainingUsd)} left of ${formatUsd(spend.budgetUsd)}.${configured}`;
 }
 
 /**

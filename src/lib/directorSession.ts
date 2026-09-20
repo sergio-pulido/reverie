@@ -60,6 +60,8 @@ export interface DirectorSnapshot {
 export interface DirectorBudget {
   /** False when no director is configured here: nothing can be generated at all. */
   configured: boolean;
+  /** Where a take stops itself, so the commitment can be stated before the press. */
+  maxSessionSeconds: number;
   spend: DirectorSpend;
 }
 

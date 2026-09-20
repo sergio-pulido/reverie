@@ -87,9 +87,11 @@ export function Stage({
         )}
 
         <div className="director-stage-actions">
+          {/* The emphasis follows the take: Stop is the live control, and the
+              one that stops the per-second bill. */}
           <button
             type="button"
-            className="button button-primary"
+            className={session.live ? "button button-quiet" : "button button-primary"}
             onClick={() => void session.start()}
             disabled={session.busy || session.live || cannotStart !== null}
             {...cellProps(STAGE_ROW, 0)}
@@ -98,12 +100,12 @@ export function Stage({
           </button>
           <button
             type="button"
-            className="button button-quiet"
+            className={session.live ? "button button-primary" : "button button-quiet"}
             onClick={() => void session.stop()}
             disabled={!session.live || session.busy}
             {...cellProps(STAGE_ROW, 1)}
           >
-            Stop
+            {session.busy && session.live ? "Stopping…" : "Stop"}
           </button>
         </div>
       </div>

@@ -2117,6 +2117,166 @@ the existing `:root:not([data-input="pointer"])` guard.
   there is no policy granting a browser a wider read of `jams`, so a public gallery would need a
   migration that does not exist.
 
+## 2026-09-20 — The landing tells the truth, and /about separates callers from challenges
+
+The landing was the last place in the product still saying Director and Community were "Next ·
+not yet available". Both shipped. The two badged cards are now live sections like Movie Jam and
+Discover, each with a way in, and every other claim on the page was checked against the deployed
+app rather than against the page's own history.
+
+**Director is a live section.** "Live now · Director", the heading, the copy, and a button that
+opens `/create` — Director is its first card, and choosing it writes the screenplay and lands in
+`/director/:slug`. There is no `/director` without a film, so the door is the only way in there is
+to link. The copy describes what a session on the deployed app actually gives you: a real
+screenplay, a timeline of every beat in order saying which are still yours to change, and turns
+that steered them. **It does not promise generated footage** — the realtime director is
+configured per server, needs a long-lived connection and is off here — because the screenplay and
+the session are the part that is always there.
+
+**Community became "Made in Reverie", named the way the app names it.** Its way in is **Catalog**,
+not the home: the section's claim is "same shelf, other source", and Catalog's switch is literally
+that — one grid, the catalogue on one side and what was made here on the other. The home carries
+the same shelf, but `/home` is already where three of this page's calls to action lead, so it
+would have added no new door. The copy now says what the app says: made work is never mixed in
+unmarked, every card on that side names which of the three it was started as, and a public room
+**you are part of** appears as soon as there is one.
+
+**The invented shorts stay, as the empty state, and say so.** They cannot be replaced with real
+rooms. `jams` is readable only by a room's host or its members ("participants read their own
+jams"), and the build that renders this page signs in as a **fresh anonymous viewer**
+(`scripts/landing-films.ts`) that hosts nothing and belongs to nothing — so a landing listing real
+rooms would list none, every time, however many exist. A public gallery would need a policy that
+no migration creates. What changed instead: the tile tag is **"Placeholder"**, not "Generated"
+(nothing in the app tags made work "generated"), and a sentence under the grid says the two dashed
+tiles are not films anybody made and where the real ones are.
+
+**Other stale claims found and fixed while in there:**
+
+- The closing note said "Discover and Movie Jam are open today. Director and Community are next,
+  and are not available yet." It now says everything on the page is open today.
+- The loop's four steps carried a Live/Next mark. All four are open, so the mark said nothing and
+  is gone; step 03 is "Made in Reverie" rather than "Community", which is not a place any more.
+- `/about` said what gets made lands on the same shelf "labelled as generated, which is the only
+  thing keeping the shelf honest". **Nothing in the app labels it that.** It carries the kind it
+  was started as, under its own source in Catalog and its own row on the home; the intro says that
+  now, and a test holds it.
+- `/about`'s fal line said "A Director session **is** the realtime H3 Director model". True of the
+  code path, not of a deployed session: it now says a session *can* use it where a server is
+  configured and enabled, that it cannot run serverless, and that a session says so rather than
+  pretending.
+- `src/lib/routes.ts` still described `/catalog` as "a placeholder screen" a later slice would
+  fill. It is the full screen.
+
+**`/about` gained OpenSubtitles and a second section.** OpenSubtitles is a seventh caller, written
+from `apps/backfill/accessibility/opensubtitles.ts`: subtitle availability as metadata only, one
+`/features` call per film keyed by IMDb id, per-language counts that become a film page's
+Subtitles line, no other endpoint reachable so it can never spend a download or read subtitle
+text, and a film the index lacks left unanswered rather than recorded as having none.
+
+**"The challenges that shaped this"** is a separate section for sponsors who set a brief rather
+than handing over an API. Nothing in it is a service Reverie calls. It is drawn so the difference
+is seen rather than read for: a rule above it, dashed cards instead of solid filled ones, a
+"CHALLENGE · NOTHING INTEGRATED" tag on every card, and each entry split into *What it asked for*
+and *What answers it in Reverie*. **Titan OS is its only entry**, and each half of its line points
+at something real: the ten-foot shell and its five-destination bar, the one axis convention in
+`src/shell/useRows.ts`, the Back keys and bare key codes in `src/shell/keys.ts`, and the Kaggle
+TMDB dataset loaded as `public.catalogue_titles` with `api/_lib/supabase-catalogue.ts` recording
+in its own comment that there is no Titan API.
+
+**Galtea is deliberately not listed.** `docs/GALTEA_AGENT_SPEC.md` is a specification written for
+it, but this repository holds no Galtea account, SDK, endpoint, configuration or evaluation run —
+a search of every branch finds only the commit that added the document. There is nothing to point
+at, so a line would be an invention. A test asserts the page does not name it; whoever wires it up
+adds it to that test's list.
+
+### Verified
+
+- `npx tsc --noEmit` clean. `pnpm build` green, and the static `dist/index.html` carries 31 real
+  TMDB posters, four "Live now" labels, two "Placeholder" tags, zero occurrences of "not yet
+  available" and zero of "generated".
+- `pnpm test` 1331 tests, 1320 pass. The 11 failures are the pre-existing worker-thread timeouts
+  in `directorPieces`, `directorPieceMuxer` and `falSegments` on this machine; none of the ten
+  files this work changed is involved in any of them.
+- `tests/landingPage.test.ts` no longer asserts the badges. It asserts instead that no section
+  says a part of Reverie is unavailable, that all four things the page describes are marked live
+  and each leads somewhere (`/create`, `/create`, `/discover`, `/catalog`), that the loop names no
+  "Next" and no "Community", and that the placeholders are labelled in a sentence as well as on
+  the tile. `tests/about.dom.test.tsx` gained three: the two lists' `h3` names are exactly the
+  seven callers and the one challenge with nothing named in both, no sponsor without something to
+  point at is named, and the "labelled as generated" claim cannot come back.
+- **One test was loosened on purpose.** `tests/accessibilityBackfill.test.ts`'s "nothing the app
+  serves imports it" asserted that no file under `api/`, `src/` or `apps/server/` contained the
+  *word* "backfill" — which `AboutScreen.tsx` now does, citing the adapter it wrote its line from.
+  It reads module specifiers instead (`from "…"`, `import "…"`, `import("…")`, `require("…")`) and
+  asserts the matcher itself against a real import, a dynamic import and a prose mention, so the
+  guard cannot quietly stop matching.
+- In a browser against the hosted Supabase project and the local Node server, at **390×844** and
+  **1280×800**: no horizontal overflow at either width on `/` or `/about`; Director and Made in
+  Reverie read as peers of Movie Jam and Discover; on a phone each section's button lands after
+  the copy that explains it (Director's grid puts the heading in one cell and copy-plus-button in
+  the other for exactly this reason). "Start a Director session" opened `/create` with Director,
+  Movie Jam and Escape Room; "Browse Made in Reverie" opened `/catalog` with the two-source switch,
+  and choosing Made in Reverie showed "Nothing has been made here yet…" under the note "public
+  rooms you are part of" — the landing's wording and the app's agree. On `/about` at both widths
+  the dashed challenge card and its tag are distinguishable from the solid provider cards without
+  reading either.
+
+### Not verified
+
+- A landing built where public rooms exist for the build identity. There cannot be one: the build
+  signs in fresh each time, so the real-rooms branch of that section is unreachable by
+  construction, which is why the illustration stays.
+- A live Director stream, still. The copy was written not to depend on one.
+- The 27,839 figure was not re-counted this session; it is the number `README.md`,
+  `docs/TECHNOLOGY_STACK.md` and `pnpm verify:shortlist` all record for `catalogue_titles`.
+
+### Follow-up, same day: Galtea moves lists, and the Audio Description Project is credited
+
+`POST /api/evaluate` landed on `main` after this branch was cut, so Galtea now has an integration
+and no longer belongs in the challenges list it was kept out of. The two accessibility sources
+that fill catalogue rows are both credited now rather than one of them.
+
+- **Galtea is a provider, and the section says which way the traffic runs.** Its line is written
+  from `api/evaluate.ts` and `api/_lib/evaluate-funnel.ts`: one call runs interpret, catalogue,
+  rank and critique for a message through the same modules `/api/discover/*` call and answers with
+  what the viewer would have seen; it authenticates with one static token compared over SHA-256
+  digests so neither the value nor its length leaks through how long the check takes; a viewer's
+  Supabase session is never accepted there; and with no token configured the endpoint is closed
+  rather than open. It is the only entry in the list that **calls us** instead of being called, and
+  the line and the section's note both say so, because "services this build calls" would otherwise
+  be wrong about it.
+- **The Audio Description Project is credited beside OpenSubtitles**, from
+  `apps/backfill/accessibility/adp.ts`: the American Council of the Blind's directory behind the
+  Audio description line on a film's page, read as the public HTML directory it is because it
+  publishes no API and no export, one page every three seconds under a named user agent, joined to
+  the catalogue on the IMDb id each row links to. A listed film is a sourced yes; an unlisted one
+  is unknown and never written as a no. It was left out when OpenSubtitles was added, on the
+  grounds that it is a scrape rather than a sponsor API — but its rows are in the catalogue on
+  exactly the same footing, so the same argument credits it.
+- **The challenges list keeps its one entry, Titan OS**, and its comment now records the rule that
+  moved Galtea: a sponsor leaves that list the moment an integration exists.
+- The test that asserted the page does **not** name Galtea now asserts the opposite and more —
+  that Galtea is among the services and not among the challenges, that the line states the
+  direction, and that it names `/api/evaluate`, so the entry cannot survive the endpoint being
+  removed. The provider roster it checks is the full nine, in order.
+
+**This branch does not contain `api/evaluate.ts`.** It was cut before that work merged, and it was
+not merged in, so the paths `AboutScreen.tsx` cites resolve on `main` and on the deployment but
+not here. Merging `main` into this branch, or landing this branch on top of it, makes the page and
+the code it quotes sit together again.
+
+### Verified
+
+- `npx tsc --noEmit` clean; `pnpm build` green; `pnpm test` 1331 tests, 1320 pass — the same 11
+  pre-existing worker-thread failures in `directorPieces`, `directorPieceMuxer` and `falSegments`,
+  none of them in a file this work touches.
+- In a browser at **390×844** and **1280×800**: nine provider cards in order, ending Galtea, then
+  the rule and the one dashed challenge card; no horizontal overflow at either width. The
+  solid-versus-dashed distinction still reads at a glance with Galtea as the last solid card
+  directly above the boundary.
+- The endpoint itself was not exercised from here. It is not on this branch, and the receipts for
+  it are in the `POST /api/evaluate` entry above.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

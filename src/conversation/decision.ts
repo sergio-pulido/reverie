@@ -2,12 +2,14 @@ import { z } from "zod";
 import { YEAR_ATTRIBUTE, RUNTIME_ATTRIBUTE, genreDimension, genreOfDimension, genreOfTag, genreLabel } from "../catalogue/domain.js";
 import { GENRES } from "../catalogue/genres.js";
 import { CONSTRAINT_IDS, describePredicate, nextTurnId } from "../catalogue/refinements.js";
-import { MAX_QUOTE_CHARS, type Constraint, type Evidence, type PreferenceState, type TurnInput } from "../preferences/schema.js";
+import { MAX_QUOTE_CHARS, MAX_SUBJECT_CHARS, type AcceptedTurn, type Constraint, type Evidence, type PreferenceState } from "../preferences/schema.js";
 
 /**
  * What the model returns when it interprets one viewer message. It never sees the catalogue:
- * it can only point at genres, a runtime limit and an era, and every point must quote the
- * viewer's own words. The engine then refuses any quote that is not literally in the message.
+ * it can only point at genres, a runtime limit, an era and a subject — the viewer's own words
+ * for what the film is about — and every point must quote the viewer's own words. The engine
+ * then refuses any quote that is not literally in the message, and any subject word they did
+ * not say.
  */
 
 export const MAX_MESSAGE_CHARS = 500;
@@ -44,6 +46,13 @@ export const decisionConstraintSchema = z.discriminatedUnion("slot", [
 export const decisionSchema = z
   .strictObject({
     dimensions: z.array(decisionEvidenceSchema).max(MAX_DECISION_DIMENSIONS),
+    /**
+     * What the viewer said the film is about, in their words, or null when they said nothing
+     * about it. Unlike the other fields it may be left out altogether, and then says nothing:
+     * most messages have no subject, and refusing a reply for omitting it would spend a retry
+     * on nothing.
+     */
+    subject: z.string().trim().max(MAX_SUBJECT_CHARS).nullable().default(null),
     setConstraints: z.array(decisionConstraintSchema).max(DECISION_CONSTRAINT_SLOTS.length),
     removeConstraints: z.array(z.enum(DECISION_CONSTRAINT_SLOTS)).max(DECISION_CONSTRAINT_SLOTS.length),
     acknowledgement: lineSchema,
@@ -63,7 +72,7 @@ export type DecisionConstraint = z.infer<typeof decisionConstraintSchema>;
 
 /** A decision, turned into the turn the engine will judge, plus the lines to say back. */
 export type Interpretation = {
-  turn: TurnInput;
+  turn: AcceptedTurn;
   acknowledgement: string;
   question: string | null;
 };
@@ -82,8 +91,12 @@ export type Interpretation = {
  * suggested comedy, family and romance, and "a comedy" answers that, so family and romance stop
  * counting. They are set to "no direction", quoting the words that replaced them.
  *
+ * A subject replaces whatever subject was in effect, and a decision that states none leaves
+ * the standing one alone; the engine composes them, and the narrowing strip is where a viewer
+ * takes one off. A blank subject states nothing rather than an empty search.
+ *
  * The question is dropped when the turn states anything outright: a request with a clear
- * direction is answered, not questioned.
+ * direction is answered, not questioned. Saying what a film is about is such a direction.
  */
 export function decisionToTurn(decision: Decision, state: PreferenceState, message: string): Interpretation {
   const turnId = nextTurnId(state);
@@ -115,7 +128,9 @@ export function decisionToTurn(decision: Decision, state: PreferenceState, messa
     (id) => Object.hasOwn(state.constraints, id) && !setIds.has(id),
   );
 
-  const statesSomething = dimensions.some(([, evidence]) => evidence.explicit) || setConstraints.length > 0 || removeConstraints.length > 0;
+  const subject = decision.subject !== null && decision.subject.length > 0 ? decision.subject : null;
+  const statesSomething =
+    dimensions.some(([, evidence]) => evidence.explicit) || setConstraints.length > 0 || removeConstraints.length > 0 || subject !== null;
 
   return {
     turn: {
@@ -126,6 +141,8 @@ export function decisionToTurn(decision: Decision, state: PreferenceState, messa
       dimensions: Object.fromEntries(dimensions),
       setConstraints,
       removeConstraints,
+      setSubject: subject,
+      clearSubject: false,
     },
     acknowledgement: decision.acknowledgement,
     question: statesSomething ? null : decision.question,
@@ -196,6 +213,7 @@ export function summarizeState(state: PreferenceState): string {
     ...(genres.length > 0 ? genres : ["- none stated"]),
     "Limits:",
     ...(constraints.length > 0 ? constraints : ["- none"]),
+    `What the film is about: ${state.subject ? JSON.stringify(state.subject.phrase) : "not stated"}`,
     `Titles turned down: ${state.rejectedCandidateIds.length}`,
     "Earlier viewer turns, oldest first:",
     ...(turns.length > 0 ? turns : ["- none"]),

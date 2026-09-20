@@ -17,6 +17,7 @@ export type PreferenceErrorCode =
   | "unknown_tag"
   | "unknown_flag"
   | "constraint_conflict"
+  | "subject_conflict"
   | "duplicate_constraint"
   | "unknown_constraint"
   | "stale_ranking"

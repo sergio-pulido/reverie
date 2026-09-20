@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef } from "react";
-import { toShortlistFilters } from "../catalogue/shortlistFilters";
+import { toShortlistRead } from "../catalogue/shortlistFilters";
 import type { ResultSet } from "../conversation/transcript";
 import { orderShortlist } from "../discover/rankedShortlist";
 import { useAssistantRanking } from "../discover/useAssistantRanking";
 import type { PreferenceState } from "../preferences/schema";
-import { snapshotOf } from "./results";
+import { snapshotOf, widenedNote } from "./results";
 import { useShortlist, type SharedRead } from "./useShortlist";
 
 /** A turn whose films are still being read and ranked, for the state its reply left. */
@@ -29,10 +29,13 @@ type TurnFilmsProps = {
  * ranks for the state the turn's reply left, not for whatever the state has become since: a
  * filter changed, or another message sent, while this turn's films are on their way never changes
  * what this turn shows. It draws nothing; the turn's row shows it is waiting.
+ *
+ * When the subject the turn asked about matched nothing, the read widens to the filters alone and
+ * the row keeps a note saying so, so the answer is never silently broader than the question.
  */
 export function TurnFilms({ turn, shared, onSettled }: TurnFilmsProps) {
-  const filters = useMemo(() => toShortlistFilters(turn.state), [turn.state]);
-  const shortlist = useShortlist(filters, { enabled: true, shared });
+  const read = useMemo(() => toShortlistRead(turn.state), [turn.state]);
+  const shortlist = useShortlist(read, { enabled: true, shared });
   const response = shortlist.state?.phase === "ready" ? shortlist.state.response : null;
   const ranking = useAssistantRanking(response?.items ?? null, turn.state, turn.ranked);
   const shown = useMemo(() => (response ? orderShortlist(response.items, turn.state, ranking, turn.ranked) : null), [response, turn.state, ranking, turn.ranked]);
@@ -48,8 +51,9 @@ export function TurnFilms({ turn, shared, onSettled }: TurnFilmsProps) {
     }
     if (!shown || shown.source === "pending") return;
     settled.current = true;
-    onSettled(turn, { results: snapshotOf(shown, loaded.response.total) });
-  }, [shortlist.state, shown, turn, onSettled]);
+    const missed = shortlist.widened && turn.state.subject ? widenedNote(turn.state.subject.phrase) : null;
+    onSettled(turn, { results: snapshotOf(shown, loaded.response.total, missed) });
+  }, [shortlist.state, shortlist.widened, shown, turn, onSettled]);
 
   return null;
 }

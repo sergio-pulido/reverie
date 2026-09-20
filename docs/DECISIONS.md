@@ -49,6 +49,49 @@ its archive cannot mux.
 
 No provider claim changes: H.264 muxing and a real fal stream remain unprobed.
 
+## 2026-09-20 — The funnel selects by plot, not only by genre
+
+A viewer who asked for "a film about a family with some pets" got comedies and family films. The
+assistant's whole vocabulary was nineteen genres, a runtime and an era, so what the film was
+*about* was discarded when the message was interpreted. Ranking could not recover it: by the time
+the model saw a synopsis, the forty-eight candidates had already been chosen by genre. The funnel
+selected by genre and ranked by plot, and nothing selected by plot.
+
+**The words go in the funnel, not in the ranker.** `catalogue_titles.document` already weights
+title, genres, keywords and overview behind a GIN index, and `search_catalogue_titles` already
+took a `search` argument nothing was passing. A turn may now carry a *subject* — the viewer's own
+words for what the film is about — and it travels with the filters into that argument, choosing
+which titles are shortlisted at all. The ranking step is untouched. Ranking the same wrong
+forty-eight more cleverly was the failure we were fixing; reordering is not selection.
+
+**Grounded word by word, because a search phrase is not a substring.** Every other decision is
+grounded by a literal quote, and a phrase like "family with pets" is not a substring of "a film
+about a family with some pets" — the filler between the words is exactly what a search term must
+drop. So a subject is grounded one word at a time: every word of it must be a word the viewer
+said. One invented word refuses the whole turn, with the same code an ungrounded quote gets. The
+rule is looser in shape and identical in what it protects: the model may choose which of the
+viewer's words to keep, never which words exist.
+
+**A field of the state, not a constraint.** The engine is domain-agnostic and judges candidates by
+dimensions, numeric attributes, tags and flags. None of those is prose, so there is no eligibility
+rule a subject could feed. Modelling it as a constraint would have made `isEligible` return true
+for everything while looking like it had filtered — a filter that fails open, in an engine whose
+every other rule fails closed. It is a field of its own, grounded and composed by the engine and
+applied by whatever retrieves the candidates, and `isEligible` honestly ignores it.
+
+**A later subject replaces an earlier one; silence leaves it standing.** Genres accumulate and
+constraints occupy fixed slots, and a subject behaves like a slot with one occupant. Saying what
+the film is about again replaces what it was about; saying "under two hours" says nothing about
+the subject, so the subject stays. Removing it is the narrowing strip's job, where it appears as
+*About "…"* beside the genres and comes off by the same press — which is also why the interpret
+step has no vocabulary for clearing one. The viewer takes a refinement off by taking it off.
+
+**Widen rather than empty, and say so.** Words the catalogue knows nothing about would otherwise
+return zero films and leave a blank screen under a request the viewer had just made. The read
+falls back to the structured filters alone and the row says which words found nothing. Only the
+words are dropped, never the filters, and only when keeping them would leave the viewer with
+nothing — a narrowing that silently stops narrowing is worse than one that says it did.
+
 ## 2026-09-20 — Two ways to reach a film, and neither pretends to be the other
 
 Reverie now has both a conversation (`/discover`) and a catalogue (`/catalog`). The tempting move

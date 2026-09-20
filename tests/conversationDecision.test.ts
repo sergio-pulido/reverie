@@ -11,6 +11,7 @@ import { applyTurn, newState } from "../src/preferences/state";
 function decision(overrides: Partial<Decision> = {}): Decision {
   return {
     dimensions: [],
+    subject: null,
     setConstraints: [],
     removeConstraints: [],
     acknowledgement: "Got it.",
@@ -204,6 +205,46 @@ describe("decisionToTurn", () => {
   });
 });
 
+describe("a decision's subject", () => {
+  const PETS = "a film about a family with some pets";
+
+  it("carries the viewer's words to the turn and records them", () => {
+    const { turn, state } = say(newState("talk"), PETS, { subject: "family with some pets" });
+    assert.equal(turn.setSubject, "family with some pets");
+    assert.deepEqual(state.subject, { phrase: "family with some pets", sourceTurnId: "turn-1" });
+  });
+
+  it("is refused with the turn when it uses a word the viewer did not say", () => {
+    const state = newState("talk");
+    assert.throws(() => say(state, PETS, { subject: "family dogs" }), (error: unknown) => {
+      assert.ok(error instanceof PreferenceError);
+      assert.equal(error.code, "ungrounded_quote");
+      return true;
+    });
+  });
+
+  it("states nothing when the model omits it or leaves it blank", () => {
+    assert.equal(say(newState("talk"), PETS, {}).turn.setSubject, null);
+    assert.equal(say(newState("talk"), PETS, { subject: "   " }).turn.setSubject, null);
+  });
+
+  it("answers rather than questions a message that says what the film is about", () => {
+    assert.equal(say(newState("talk"), PETS, { subject: "family pets", question: "Any particular genre?" }).question, null);
+  });
+
+  it("leaves a standing subject alone when a later turn is silent about it", () => {
+    const first = say(newState("talk"), PETS, { subject: "family pets" }).state;
+    const second = say(first, "under two hours", { setConstraints: [{ slot: "runtime.max", minutes: 120, quote: "under two hours" }] }).state;
+    assert.deepEqual(second.subject, { phrase: "family pets", sourceTurnId: "turn-1" });
+  });
+
+  it("replaces a standing subject with a later one", () => {
+    const first = say(newState("talk"), PETS, { subject: "family pets" }).state;
+    const second = say(first, "actually a heist that goes wrong", { subject: "heist that goes wrong" }).state;
+    assert.deepEqual(second.subject, { phrase: "heist that goes wrong", sourceTurnId: "turn-2" });
+  });
+});
+
 describe("summarizeState", () => {
   it("describes the state without any catalogue data", () => {
     let state = chip(newState("talk"), "want-horror");
@@ -212,6 +253,12 @@ describe("summarizeState", () => {
     assert.match(summary, /wants Horror \(genre\.horror, said outright, from "scary"\)/);
     assert.match(summary, /runtime\.max: Under 120 min/);
     assert.match(summary, /"Something scary"/);
+    assert.match(summary, /What the film is about: not stated/);
     assert.doesNotMatch(summary, /cat:/);
+  });
+
+  it("states the subject in effect so the model does not repeat it", () => {
+    const { state } = say(newState("talk"), "a heist that goes wrong", { subject: "heist that goes wrong" });
+    assert.match(summarizeState(state), /What the film is about: "heist that goes wrong"/);
   });
 });

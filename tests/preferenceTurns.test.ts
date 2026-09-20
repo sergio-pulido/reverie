@@ -30,6 +30,7 @@ describe("newState", () => {
       stateVersion: 0,
       dimensions: {},
       constraints: {},
+      subject: null,
       rejectedCandidateIds: [],
       processedTurns: {},
     });

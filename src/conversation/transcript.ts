@@ -21,7 +21,7 @@ export type ResultSet = {
   /** Why a pick is here, by title id, when the assistant said. */
   reasons: Readonly<Record<string, string>>;
   source: ResultSource;
-  /** Why the assistant's order is not the one shown, when it was wanted. */
+  /** What the row has to say about itself: a refused ranking, or words that found no films. */
   note: string | null;
   /** How many titles matched in all, when the catalogue said. */
   total: number | null;

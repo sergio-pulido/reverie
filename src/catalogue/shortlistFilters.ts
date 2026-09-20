@@ -15,8 +15,29 @@ export function isRefined(state: PreferenceState): boolean {
   return (
     Object.keys(state.constraints).length > 0 ||
     state.rejectedCandidateIds.length > 0 ||
+    state.subject !== null ||
     wantedGenres(state).length > 0
   );
+}
+
+/**
+ * One catalogue read for one state: the words to search the weighted document for, and the hard
+ * filters. They are one value because they are one request and must never drift apart; a read
+ * keyed on the filters alone would reuse an answer found for different words.
+ */
+export type ShortlistRead = { subject: string; filters: CatalogueFilters };
+
+/**
+ * What the viewer said the film is about, as a catalogue search term, or "" when they have not
+ * said. Clamped to what the endpoint accepts, which only ever shortens the phrase.
+ */
+export function subjectSearch(state: PreferenceState): string {
+  return state.subject ? state.subject.phrase.slice(0, CATALOGUE_LIMITS.queryMaxLength) : "";
+}
+
+/** The whole read a state asks for: its subject and its filters together. */
+export function toShortlistRead(state: PreferenceState): ShortlistRead {
+  return { subject: subjectSearch(state), filters: toShortlistFilters(state) };
 }
 
 /** Genres the viewer asked for, in the order they were first stated. */

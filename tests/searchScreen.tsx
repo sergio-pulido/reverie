@@ -15,10 +15,13 @@ import { fakeCatalogue } from "./catalogueFake";
  * browser's engine then judges its turns exactly as it judges the model's.
  */
 
-type Heard = { dimensions: [string, Omit<Evidence, "sourceTurnId">][]; constraints: Omit<Constraint, "sourceTurnId">[] };
+type Heard = { dimensions: [string, Omit<Evidence, "sourceTurnId">][]; constraints: Omit<Constraint, "sourceTurnId">[]; subject: string | null };
+
+/** The words after "about", which is as much of a subject as a test assistant needs to find. */
+const SUBJECT = /about ([^,.]+)/i;
 
 function interpret(message: string): Heard {
-  const heard: Heard = { dimensions: [], constraints: [] };
+  const heard: Heard = { dimensions: [], constraints: [], subject: SUBJECT.exec(message)?.[1].trim() ?? null };
   const lower = message.toLowerCase();
   if (lower.includes("funny")) heard.dimensions.push(["genre.comedy", { value: 1, confidence: 0.9, quote: "funny", explicit: true }]);
   if (lower.includes("scary")) heard.dimensions.push(["genre.horror", { value: 1, confidence: 0.9, quote: "scary", explicit: true }]);
@@ -52,7 +55,7 @@ export function fakeAssistant(gate?: ReturnType<typeof rankingGate>) {
       turns.push(message);
       const turnId = nextTurnId(state);
       const heard = interpret(message);
-      const stated = heard.dimensions.length > 0 || heard.constraints.length > 0;
+      const stated = heard.dimensions.length > 0 || heard.constraints.length > 0 || heard.subject !== null;
       return {
         status: "ok",
         source: "nebius",
@@ -65,6 +68,8 @@ export function fakeAssistant(gate?: ReturnType<typeof rankingGate>) {
           dimensions: Object.fromEntries(heard.dimensions.map(([name, evidence]) => [name, { ...evidence, sourceTurnId: turnId }])),
           setConstraints: heard.constraints.map((constraint) => ({ ...constraint, sourceTurnId: turnId })),
           removeConstraints: [],
+          setSubject: heard.subject,
+          clearSubject: false,
         },
         acknowledgement: stated ? `Heard: ${message}.` : "Tell me a little more.",
         question: stated ? null : "Something funny, or something tense?",

@@ -201,3 +201,51 @@ describe("the filter panel's filters", () => {
     assert.deepEqual(activeRefinements(withdrawn), []);
   });
 });
+
+describe("the subject in the strip", () => {
+  /** A state whose subject is the viewer's own words, stated as a turn would state them. */
+  function about(phrase: string, transcript: string): PreferenceState {
+    return applyTurn(
+      newState("strip"),
+      {
+        sessionId: "strip",
+        turnId: "turn-1",
+        expectedStateVersion: 0,
+        transcript,
+        dimensions: {},
+        setConstraints: [],
+        removeConstraints: [],
+        setSubject: phrase,
+      },
+      CATALOGUE_CONFIGURATION,
+    );
+  }
+
+  it("leads the strip, labelled with the words the viewer used", () => {
+    const [first] = activeRefinements(about("family pets", "a film about a family with some pets"));
+    assert.equal(first.key, "subject");
+    assert.equal(first.label, "About \u201cfamily pets\u201d");
+    assert.equal(first.subject, true);
+  });
+
+  it("is absent when the viewer has not said what the film is about", () => {
+    assert.equal(activeRefinements(choose(newState("strip"), "want-horror")).some((item) => item.subject), false);
+  });
+
+  it("comes off on its own, leaving the other refinements in place", () => {
+    const state = choose(about("family pets", "a film about a family with some pets"), "under-120");
+    const [subject] = activeRefinements(state);
+    const after = apply(state, withdrawalTurn(state, subject));
+    assert.equal(after.subject, null);
+    assert.deepEqual(
+      activeRefinements(after).map(({ label }) => label),
+      ["Under 120 min"],
+    );
+  });
+
+  it("withdraws to nothing once it is already gone", () => {
+    const state = about("family pets", "a film about a family with some pets");
+    const after = apply(state, withdrawalTurn(state, activeRefinements(state)[0]));
+    assert.equal(withdrawalTurn(after, { phrase: "family pets", dimensions: [], constraints: [], subject: true }), null);
+  });
+});

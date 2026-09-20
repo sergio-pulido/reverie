@@ -1840,6 +1840,97 @@ and the consent rules were then exercised as two real participants:
 - No live provider session was opened. H.264 muxing, keyframe cadence, latency and CPU under real
   fal media remain unverified.
 
+## 2026-09-20 — Search narrows by what the film is about
+
+"A film about a family with some pets" used to return comedies and family films: the assistant
+could describe a request only as genres, a runtime and an era, so the pets were discarded when the
+message was interpreted, and no ranking could get them back — the shortlist had already been
+chosen by genre. A turn may now carry a **subject**, the viewer's own words for what the film is
+about, and it reaches `search_catalogue_titles`' `search` argument. The full rules are in
+`docs/specs/search-conversational.md`; the reasoning is in `docs/DECISIONS.md`.
+
+- **The engine carries it, grounded.** `PreferenceState.subject` is `{ phrase, sourceTurnId }` or
+  null; a turn carries `setSubject` and `clearSubject`. A subject is grounded one word at a time —
+  every word of it must be a word of the message — because a search phrase is the sentence with
+  the filler dropped and so is rarely a literal substring. One invented word refuses the whole
+  turn with `ungrounded_quote`, exactly as an ungrounded quote does. `TurnInput` is now the
+  schema's *input* type, so a turn that says nothing about the subject simply omits both fields;
+  `AcceptedTurn` is what the engine reads once the defaults are filled in.
+- **Composition.** A later subject replaces the one in effect; a turn silent about the subject
+  leaves it standing; the narrowing strip shows it first as *About "…"* and takes it off with the
+  same press as a genre. The interpret step can only set one — removing a refinement is the
+  strip's job.
+- **It narrows, it does not rank.** `toShortlistRead(state)` returns `{ subject, filters }` as one
+  value, because they are one request and a read keyed on the filters alone would reuse an answer
+  found for different words. `useShortlist` takes that read. `orderShortlist`, `rankCandidates`
+  and the scorer are untouched.
+- **Words that match nothing widen rather than empty.** When a subject returns zero films the same
+  filters are read again without it and the row says *The words "…" found no films, so these match
+  everything else you asked for.* Only the words are dropped, never the filters.
+- **The prompt says a subject is not a genre**, so "a family with some pets" stops being flattened
+  into `genre.family`, and a message that says what the film is about is answered rather than
+  questioned.
+
+### Verified against the live catalogue and the live assistant
+
+`pnpm verify:shortlist`, 2026-09-20, hosted Supabase, 27,839 titles:
+
+| read | total | first titles |
+| --- | --- | --- |
+| `search: "family with pets"` | 35 | Marcel the Shell with Shoes On, Hachi: A Dog's Tale, My Pet Dinosaur |
+| `include_genres: ["family"]` | 2,588 | Elemental, Carl's Date, Spy Kids: Armageddon |
+| `search: "heist goes wrong"` | 8 | The Getaway, Sleepless, To Steal from a Thief |
+| `search: "loses their memory"` | 23 | Tell Me Who I Am, Detective Conan: Captured in Her Eyes, Palombella Rossa |
+| `search: "zzqqxx nothingness"` + comedy | 0 | — (the comedy filter alone still matches 9,942) |
+
+Selecting by plot and selecting by genre do not return the same films, and a genre filter still
+narrows the words further: "family with pets" plus the Family genre is 25 of the 35.
+
+`pnpm verify:conversation`, 2026-09-20, `Qwen/Qwen3-30B-A3B-Instruct-2507` through the real
+endpoints. The four turns that existed before still pass. Three new cases, each reported with
+what the filters alone return (**before**) and what the viewer's words return (**after**):
+
+| message | subject heard | filters | before | after |
+| --- | --- | --- | --- | --- |
+| "a film about a family with some pets" | `family with pets` | none | 27,839 · Blue Beetle, Gran Turismo, The Nun II | 35 · Marcel the Shell with Shoes On, Hachi: A Dog's Tale, My Pet Dinosaur |
+| "a heist that goes wrong" | `heist goes wrong` | none | 27,839 · Blue Beetle, Gran Turismo, The Nun II | 8 · The Getaway, Sleepless, To Steal from a Thief |
+| "someone who loses their memory" | `loses their memory` | none | 27,839 · Blue Beetle, Gran Turismo, The Nun II | 23 · Tell Me Who I Am, Detective Conan: Captured in Her Eyes, Palombella Rossa |
+
+The assistant named **no genre** in any of the three, which is the point: a genre-only funnel had
+nothing to narrow with and would have answered each of them with the unrefined catalogue, or with
+a guess ("family" for the pets, "crime" for the heist) that selects the wrong 2,588 or 3,399. A
+fourth case, "a comedy about zzqqxx nothingness", found 0 for the words and 9,942 for the comedy
+filter alone, so the fallback has a real shortlist to widen to.
+
+The script talks to the real provider, and the provider is sometimes slow: two runs on 2026-09-20
+failed at the first turn with `ASSISTANT_TIMEOUT` (an interpret call took 7.6 s against a 12 s
+per-attempt budget) and the next run passed unchanged. A timeout there is the provider, not the
+funnel; a refusal names its own code and says which quote or word was refused.
+
+**One regression was caused and fixed here.** Inserting the subject rules into the middle of the
+interpret prompt renumbered the rules the model already followed, and it began answering "A
+comedy, please" with the lowercase quote "a comedy", which the engine refused as ungrounded —
+`pnpm verify:conversation` failed at the second turn on two consecutive runs, where `main` passed.
+The subject rules are now appended as rules 8 and 9 so nothing is renumbered, and rule 2 says
+outright that a quote keeps the capitals the message used. Three probe runs and the full script
+then quoted "A comedy" every time.
+
+### Verification
+
+- `npx tsc --noEmit` clean. `pnpm test` 1,117/1,124 — the seven failures are the pre-existing
+  `directorPieces`, `directorPieceMuxer` and `directorRoutes` ones, unchanged from `main`. New
+  tests: `tests/preferenceSubject.test.ts` (12, grounding and composition), and cases added to
+  `conversationDecision`, `refinements`, `shortlistFilters` and `search.dom` (30 new in all).
+- The widening guard was checked by making the words match nothing in the DOM test: the row still
+  shows films and carries the sentence naming the words that found none.
+- **Not verified:** the screen has not been driven in a browser against the hosted project for
+  this change; the strip's subject chip, its removal and the widening notice are covered by DOM
+  tests over the fake catalogue and assistant, not by a live session. Subject quality is the
+  model's: the prompt steers it to drop "film", "someone" and the like, and the three cases above
+  show it doing so, but a phrase that keeps such a word will match nothing and fall back rather
+  than fail — "someone who loses their memory" read literally matches 0 titles, where
+  "loses their memory" matches 23.
+
 ## Next milestones
 
 1. Done: every migration is on the hosted project and `pnpm verify:realtime` passes 27/27.

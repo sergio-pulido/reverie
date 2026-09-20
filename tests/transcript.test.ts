@@ -19,7 +19,7 @@ const REPLY: TurnOk = {
   status: "ok",
   source: "nebius",
   model: "test-model",
-  turn: { sessionId: "s", turnId: "turn-1", expectedStateVersion: 0, transcript: "x", dimensions: {}, setConstraints: [], removeConstraints: [] },
+  turn: { sessionId: "s", turnId: "turn-1", expectedStateVersion: 0, transcript: "x", dimensions: {}, setConstraints: [], removeConstraints: [], setSubject: null, clearSubject: false },
   acknowledgement: "Something tense, then.",
   question: null,
 };

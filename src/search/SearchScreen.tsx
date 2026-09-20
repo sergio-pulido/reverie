@@ -102,7 +102,7 @@ export function SearchScreen({ film, searchRequest, onOpenFilm, onCloseFilm, onS
   });
   const speaking = voice.phase !== "idle";
   const pendingShown = speaking || (spokenDraft && draft.trim().length > 0);
-  const heard = useVoicePreview(speaking ? voice.partial : draft, search.filters, pendingShown);
+  const heard = useVoicePreview(speaking ? voice.partial : draft, search.read, pendingShown);
 
   const { hover, dwell } = useHoverPreview((title, card) => openPreview(title, card));
 
@@ -254,7 +254,7 @@ export function SearchScreen({ film, searchRequest, onOpenFilm, onCloseFilm, onS
               <NarrowingStrip
                 state={refinement.state}
                 count={search.live?.total ?? null}
-                notice={refinement.notice}
+                notice={refinement.notice ?? search.liveNotice}
                 filtersRef={filtersRef}
                 cellProps={nav.cellProps}
                 onOpenFilters={() => {
